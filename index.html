@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>스퀘어건축사사무소 업무관리</title>
+
+  <!-- Pretendard 폰트 -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+
+  <!-- CSS -->
+  <link rel="stylesheet" href="css/variables.css">
+  <link rel="stylesheet" href="css/reset.css">
+  <link rel="stylesheet" href="css/layout.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/responsive.css">
+</head>
+<body>
+
+  <!-- ====== 토스트 컨테이너 ====== -->
+  <div class="toast-container" id="toastContainer"></div>
+
+  <!-- ====== 전역 모달 ====== -->
+  <div class="modal-backdrop" id="modalBackdrop">
+    <div class="modal" id="globalModal"></div>
+  </div>
+
+  <!-- ====== 초기 설정 화면 ====== -->
+  <div class="setup-screen" id="setupScreen">
+    <div class="setup-card">
+      <div class="login-logo">
+        <div class="logo-icon">SQ</div>
+        <h1>초기 설정</h1>
+        <p>관리자 계정을 생성하여 시작하세요</p>
+      </div>
+      <form id="setupForm">
+        <div class="form-group">
+          <label for="setupUsername">아이디 <span class="required">*</span></label>
+          <input type="text" id="setupUsername" class="form-control" placeholder="관리자 아이디" required>
+        </div>
+        <div class="form-group">
+          <label for="setupDisplayName">이름 <span class="required">*</span></label>
+          <input type="text" id="setupDisplayName" class="form-control" placeholder="홍길동" required>
+        </div>
+        <div class="form-group">
+          <label for="setupPassword">비밀번호 <span class="required">*</span></label>
+          <input type="password" id="setupPassword" class="form-control" placeholder="4자 이상" required minlength="4">
+        </div>
+        <div class="form-group">
+          <label for="setupConfirmPassword">비밀번호 확인 <span class="required">*</span></label>
+          <input type="password" id="setupConfirmPassword" class="form-control" placeholder="비밀번호 재입력" required>
+        </div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg mt-4">관리자 계정 생성</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====== 로그인 화면 ====== -->
+  <div class="login-screen" id="loginScreen" style="display:none;">
+    <div class="login-card">
+      <div class="login-logo">
+        <div class="logo-icon">SQ</div>
+        <h1>스퀘어건축사사무소</h1>
+        <p>업무 프로세스 관리 시스템</p>
+      </div>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="loginUsername">아이디</label>
+          <input type="text" id="loginUsername" class="form-control" placeholder="아이디를 입력하세요" required autocomplete="username">
+        </div>
+        <div class="form-group">
+          <label for="loginPassword">비밀번호</label>
+          <input type="password" id="loginPassword" class="form-control" placeholder="비밀번호를 입력하세요" required autocomplete="current-password">
+        </div>
+        <div id="loginError" style="color:var(--color-danger);font-size:var(--font-size-sm);margin-bottom:var(--sp-3);min-height:20px;"></div>
+        <button type="submit" class="btn btn-primary btn-block btn-lg">로그인</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- ====== 메인 앱 셸 ====== -->
+  <div class="app-shell" id="appShell">
+    <!-- 사이드바 오버레이 (모바일) -->
+    <div class="sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+    <!-- 사이드바 -->
+    <aside class="app-sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-icon">SQ</div>
+        <div>
+          <div class="brand-text">스퀘어건축사사무소</div>
+          <div class="brand-sub">업무관리 시스템</div>
+        </div>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <!-- JavaScript로 동적 생성 -->
+      </nav>
+    </aside>
+
+    <!-- 헤더 -->
+    <header class="app-header">
+      <div class="header-left">
+        <button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+        <h1 class="page-title" id="pageTitle">대시보드</h1>
+      </div>
+      <div class="header-right">
+        <div class="user-info">
+          <span class="user-name" id="userName">-</span>
+          <span class="user-role" id="userRole">-</span>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="Auth.logout()">로그아웃</button>
+      </div>
+    </header>
+
+    <!-- 콘텐츠 영역 -->
+    <main class="app-content" id="contentArea">
+      <div class="content-wrapper" id="pageContent"></div>
+    </main>
+  </div>
+
+  <!-- ====== JavaScript ====== -->
+  <script src="js/utils.js"></script>
+  <script src="js/db.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/router.js"></script>
+
+  <!-- 모듈 -->
+  <script src="js/modules/dashboard.js"></script>
+  <script src="js/modules/tax-invoice-request.js"></script>
+  <script src="js/modules/tax-invoice-admin.js"></script>
+  <script src="js/modules/ocr-engine.js"></script>
+  <script src="js/modules/deposit-history.js"></script>
+  <script src="js/modules/matching.js"></script>
+  <script src="js/modules/transfer-records.js"></script>
+  <script src="js/modules/user-management.js"></script>
+  <script src="js/modules/leave.js"></script>
+  <script src="js/modules/my-account.js"></script>
+  <script src="js/modules/settings.js"></script>
+  <script src="js/export-import.js"></script>
+
+  <!-- 앱 초기화 (마지막에 로드) -->
+  <script src="js/app.js"></script>
+</body>
+</html>

@@ -102,6 +102,32 @@ const SettingsModule = {
         </div>
       </div>
 
+      <!-- 잔디 웹훅 설정 -->
+      <div class="card mb-6">
+        <div class="card-header">
+          <h3>💬 잔디(Jandi) 알림 설정</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-sm text-muted mb-4">
+            세금계산서 발행 요청이 등록되면 잔디 토픽으로 알림을 보냅니다.<br>
+            잔디 토픽 설정 → 서비스 연동 → Incoming Webhook 추가 → 웹훅 URL을 아래에 입력하세요.
+          </p>
+          <div class="form-group" style="max-width:600px;">
+            <label for="jandiUrl">잔디 웹훅 URL</label>
+            <div class="d-flex gap-2">
+              <input type="url" id="jandiUrl" class="form-control" placeholder="https://wh.jandi.com/connect-api/webhook/..." value="${Utils.escapeHtml(JandiWebhook.getWebhookUrl())}">
+              <button class="btn btn-primary" onclick="SettingsModule._saveJandiUrl()">저장</button>
+              <button class="btn btn-secondary" onclick="SettingsModule._testJandi()">테스트</button>
+            </div>
+          </div>
+          <div class="text-sm mt-2">
+            상태: ${JandiWebhook.isEnabled()
+              ? '<span class="badge badge-complete">활성</span>'
+              : '<span class="badge badge-reject">비활성</span> (URL을 입력하면 활성화됩니다)'}
+          </div>
+        </div>
+      </div>
+
       <!-- 감사 로그 -->
       <div class="card">
         <div class="card-header">
@@ -112,6 +138,22 @@ const SettingsModule = {
     `;
 
     await this._renderAuditLog();
+  },
+
+  _saveJandiUrl() {
+    const url = document.getElementById('jandiUrl').value.trim();
+    JandiWebhook.setWebhookUrl(url);
+    this.render();
+    Utils.showToast(url ? '잔디 웹훅 URL이 저장되었습니다.' : '잔디 알림이 비활성화되었습니다.', 'success');
+  },
+
+  async _testJandi() {
+    if (!JandiWebhook.isEnabled()) {
+      Utils.showToast('먼저 웹훅 URL을 입력하고 저장하세요.', 'error');
+      return;
+    }
+    await JandiWebhook.send('🔔 테스트 알림', '스퀘어건축사사무소 업무관리 시스템에서 보낸 테스트 알림입니다.', '#2563EB');
+    Utils.showToast('테스트 알림을 전송했습니다. 잔디에서 확인하세요.', 'success');
   },
 
   async _exportBackup() {

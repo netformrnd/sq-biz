@@ -421,6 +421,10 @@ const TaxInvoiceRequestModule = {
       const id = await DB.add('taxInvoiceRequests', data);
       await DB.log('CREATE', 'taxInvoice', id, `세금계산서 발행 요청: ${requestNumber}`);
       App.updateNotificationBadges();
+
+      // 잔디 알림 전송
+      JandiWebhook.notifyNewRequest(data);
+
       Utils.showToast(`발행 요청이 등록되었습니다. (${requestNumber})`, 'success');
       Router.navigate('/tax-invoice/my');
     } catch (err) {

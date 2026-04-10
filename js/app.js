@@ -99,10 +99,14 @@ const App = {
   },
 
   // 메인 앱 표시
-  showApp(user) {
+  async showApp(user) {
     document.getElementById('loginScreen').style.display = 'none';
     document.getElementById('setupScreen').classList.remove('active');
     document.getElementById('appShell').classList.add('active');
+
+    // DB에서 사용자 권한 정보 로드
+    const fullUser = await DB.get('users', user.id);
+    this._userPermissions = (fullUser && fullUser.menuPermissions) || [];
 
     // 사용자 정보 표시
     document.getElementById('userName').textContent = user.displayName;
@@ -121,10 +125,20 @@ const App = {
     this.updateNotificationBadges();
   },
 
-  // 사이드바 구성
+  // 메뉴 권한 체크 (관리자=전체, 직원=할당된 것만)
+  hasMenuPermission(menuKey) {
+    const user = Auth.currentUser();
+    if (!user) return false;
+    if (user.role === 'admin') return true;
+    const perms = this._userPermissions || [];
+    return perms.includes(menuKey);
+  },
+
+  // 사이드바 구성 (권한 기반)
   buildSidebar(user) {
     const nav = document.getElementById('sidebarNav');
     const isAdmin = user.role === 'admin';
+    const hasPerm = (key) => isAdmin || (this._userPermissions || []).includes(key);
 
     let html = `
       <div class="nav-section">
@@ -134,77 +148,89 @@ const App = {
           <span>대시보드</span>
         </div>
       </div>
-
-      <div class="nav-section">
-        <div class="nav-section-title">세금계산서</div>
-        <div class="nav-item" data-path="/tax-invoice/new" onclick="Router.navigate('/tax-invoice/new')">
-          <span class="nav-icon">📝</span>
-          <span>발행 요청</span>
-        </div>
-        <div class="nav-item" data-path="/tax-invoice/my" onclick="Router.navigate('/tax-invoice/my')">
-          <span class="nav-icon">📋</span>
-          <span>나의 요청현황</span>
-        </div>
     `;
 
-    if (isAdmin) {
+    // 세금계산서 (tax-invoice 권한)
+    if (hasPerm('tax-invoice')) {
       html += `
-        <div class="nav-item" data-path="/tax-invoice/admin" onclick="Router.navigate('/tax-invoice/admin')">
-          <span class="nav-icon">✅</span>
-          <span>요청 관리</span>
-          <span class="nav-badge hidden" id="badgePending">0</span>
+        <div class="nav-section">
+          <div class="nav-section-title">세금계산서</div>
+          <div class="nav-item" data-path="/tax-invoice/new" onclick="Router.navigate('/tax-invoice/new')">
+            <span class="nav-icon">📝</span>
+            <span>발행 요청</span>
+          </div>
+          <div class="nav-item" data-path="/tax-invoice/my" onclick="Router.navigate('/tax-invoice/my')">
+            <span class="nav-icon">📋</span>
+            <span>나의 요청현황</span>
+          </div>
+      `;
+      if (isAdmin) {
+        html += `
+          <div class="nav-item" data-path="/tax-invoice/admin" onclick="Router.navigate('/tax-invoice/admin')">
+            <span class="nav-icon">✅</span>
+            <span>요청 관리</span>
+            <span class="nav-badge hidden" id="badgePending">0</span>
+          </div>
+        `;
+      }
+      html += `</div>`;
+    }
+
+    // 재무 섹션
+    const showDeposits = hasPerm('deposits');
+    const showMatching = isAdmin && hasPerm('matching');
+    const showTransfers = hasPerm('transfers');
+
+    if (showDeposits || showMatching || showTransfers) {
+      html += `<div class="nav-section"><div class="nav-section-title">재무</div>`;
+
+      if (showDeposits) {
+        html += `
+          <div class="nav-item" data-path="/deposits" onclick="Router.navigate('/deposits')">
+            <span class="nav-icon">💰</span>
+            <span>입금내역</span>
+          </div>
+        `;
+      }
+      if (showMatching) {
+        html += `
+          <div class="nav-item" data-path="/matching" onclick="Router.navigate('/matching')">
+            <span class="nav-icon">🔗</span>
+            <span>매칭 관리</span>
+          </div>
+        `;
+      }
+      if (showTransfers) {
+        html += `
+          <div class="nav-item" data-path="/transfers/my" onclick="Router.navigate('/transfers/my')">
+            <span class="nav-icon">💸</span>
+            <span>나의 송금내역</span>
+          </div>
+        `;
+        if (isAdmin) {
+          html += `
+            <div class="nav-item" data-path="/transfers/admin" onclick="Router.navigate('/transfers/admin')">
+              <span class="nav-icon">📑</span>
+              <span>송금내역 관리</span>
+            </div>
+          `;
+        }
+      }
+      html += `</div>`;
+    }
+
+    // 연차 신청 (leave 권한)
+    if (hasPerm('leave')) {
+      html += `
+        <div class="nav-section">
+          <div class="nav-section-title">근태</div>
+          <div class="nav-item" data-path="/leave" onclick="Router.navigate('/leave')">
+            <span class="nav-icon">🗓️</span>
+            <span>연차 신청</span>
+          </div>
         </div>
       `;
     }
-
-    html += `
-      </div>
-
-      <div class="nav-section">
-        <div class="nav-section-title">재무</div>
-        <div class="nav-item" data-path="/deposits" onclick="Router.navigate('/deposits')">
-          <span class="nav-icon">💰</span>
-          <span>입금내역</span>
-        </div>
-    `;
-
-    if (isAdmin) {
-      html += `
-        <div class="nav-item" data-path="/matching" onclick="Router.navigate('/matching')">
-          <span class="nav-icon">🔗</span>
-          <span>매칭 관리</span>
-        </div>
-      `;
-    }
-
-    html += `
-        <div class="nav-item" data-path="/transfers/my" onclick="Router.navigate('/transfers/my')">
-          <span class="nav-icon">💸</span>
-          <span>나의 송금내역</span>
-        </div>
-    `;
-
-    if (isAdmin) {
-      html += `
-        <div class="nav-item" data-path="/transfers/admin" onclick="Router.navigate('/transfers/admin')">
-          <span class="nav-icon">📑</span>
-          <span>송금내역 관리</span>
-        </div>
-      `;
-    }
-
-    html += `</div>`;
-
-    // 연차 신청
-    html += `
-      <div class="nav-section">
-        <div class="nav-section-title">근태</div>
-        <div class="nav-item" data-path="/leave" onclick="Router.navigate('/leave')">
-          <span class="nav-icon">🗓️</span>
-          <span>연차 신청</span>
-        </div>
-      </div>
-    `;
 
     // 내 정보 (전체 사용자)
     html += `

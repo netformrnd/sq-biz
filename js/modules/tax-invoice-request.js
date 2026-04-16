@@ -90,6 +90,11 @@ const TaxInvoiceRequestModule = {
             <!-- 거래처 정보 -->
             <fieldset id="partnerInfo">
               <legend>거래처 정보 (사업자등록증에서 자동 인식)</legend>
+              <div class="d-flex gap-2 mb-4">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="TaxInvoiceRequestModule._openPartnerPicker()">
+                  📁 문서보관에서 기존 거래처 불러오기
+                </button>
+              </div>
               <div id="ocrNotice" class="hidden" style="padding:var(--sp-3);background:var(--color-warning-light);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
                 ⚠️ OCR 자동 인식이 되지 않았습니다. 사업자등록증을 보고 직접 입력해 주세요.
               </div>
@@ -218,6 +223,136 @@ const TaxInvoiceRequestModule = {
       e.preventDefault();
       await this._submitForm();
     });
+  },
+
+  // ===== 기존 거래처 불러오기 =====
+  async _openPartnerPicker() {
+    const docs = await DB.getAll('documents');
+
+    // 사업자명별 중복 제거 (최신 문서 기준)
+    const companyMap = {};
+    for (const doc of docs) {
+      if (!doc.companyName) continue;
+      if (!companyMap[doc.companyName] || new Date(doc.createdAt) > new Date(companyMap[doc.companyName].createdAt)) {
+        companyMap[doc.companyName] = doc;
+      }
+    }
+
+    // 관련 세금계산서 요청에서도 거래처 정보 수집 (문서보관에 없을 수도 있음)
+    const invoices = await DB.getAll('taxInvoiceRequests');
+    for (const inv of invoices) {
+      if (inv.partnerCompanyName && !companyMap[inv.partnerCompanyName]) {
+        companyMap[inv.partnerCompanyName] = {
+          companyName: inv.partnerCompanyName,
+          regNumber: inv.partnerRegNumber || '',
+          partnerRepName: inv.partnerRepName || '',
+          partnerEmail: inv.partnerEmail || '',
+          partnerAddress: inv.partnerAddress || '',
+          partnerBusinessType: inv.partnerBusinessType || '',
+          partnerBusinessItem: inv.partnerBusinessItem || '',
+          createdAt: inv.createdAt,
+          _fromInvoice: true
+        };
+      }
+    }
+
+    const companies = Object.values(companyMap).sort((a, b) => a.companyName.localeCompare(b.companyName, 'ko'));
+
+    if (companies.length === 0) {
+      Utils.showToast('저장된 거래처 정보가 없습니다.', 'warning');
+      return;
+    }
+
+    // 거래처별로 세금계산서 요청에서 상세 정보 찾기 (문서보관에는 상호/번호만 있음)
+    const detailMap = {};
+    for (const inv of invoices) {
+      if (inv.partnerCompanyName && !detailMap[inv.partnerCompanyName]) {
+        detailMap[inv.partnerCompanyName] = {
+          partnerRepName: inv.partnerRepName || '',
+          partnerEmail: inv.partnerEmail || '',
+          partnerAddress: inv.partnerAddress || '',
+          partnerBusinessType: inv.partnerBusinessType || '',
+          partnerBusinessItem: inv.partnerBusinessItem || '',
+        };
+      }
+    }
+
+    const listHtml = companies.map((c, idx) => {
+      const detail = detailMap[c.companyName] || c;
+      const detailJson = Utils.escapeHtml(JSON.stringify({
+        partnerCompanyName: c.companyName,
+        partnerRegNumber: c.regNumber || '',
+        partnerRepName: detail.partnerRepName || c.partnerRepName || '',
+        partnerEmail: detail.partnerEmail || c.partnerEmail || '',
+        partnerAddress: detail.partnerAddress || c.partnerAddress || '',
+        partnerBusinessType: detail.partnerBusinessType || c.partnerBusinessType || '',
+        partnerBusinessItem: detail.partnerBusinessItem || c.partnerBusinessItem || '',
+      }));
+      return `
+        <div style="padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--color-border);cursor:pointer;display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);"
+             onmouseover="this.style.background='var(--color-primary-50)'"
+             onmouseout="this.style.background=''"
+             onclick='TaxInvoiceRequestModule._selectPartner(${detailJson})'>
+          <div>
+            <div class="fw-medium">${Utils.escapeHtml(c.companyName)}</div>
+            <div class="text-xs text-muted">${Utils.escapeHtml(c.regNumber || '-')} ${detail.partnerRepName ? '· 대표: ' + Utils.escapeHtml(detail.partnerRepName) : ''}</div>
+          </div>
+          <button class="btn btn-primary btn-sm">선택</button>
+        </div>
+      `;
+    }).join('');
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📁 기존 거래처 불러오기</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="padding:0;">
+        <div style="padding:var(--sp-3) var(--sp-4);border-bottom:1px solid var(--color-border);">
+          <div class="search-input">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="form-control" id="partnerPickerSearch" placeholder="거래처명, 사업자번호 검색..." style="width:100%;">
+          </div>
+        </div>
+        <div id="partnerPickerList" style="max-height:400px;overflow-y:auto;">
+          ${listHtml}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+      </div>
+    `, { size: 'modal-lg' });
+
+    // 검색 이벤트
+    document.getElementById('partnerPickerSearch').addEventListener('input', (e) => {
+      const q = e.target.value.toLowerCase();
+      const items = document.querySelectorAll('#partnerPickerList > div');
+      items.forEach(item => {
+        const text = item.textContent.toLowerCase();
+        item.style.display = text.includes(q) ? '' : 'none';
+      });
+    });
+  },
+
+  _selectPartner(data) {
+    if (!data) return;
+    if (data.partnerCompanyName) document.getElementById('partnerCompanyName').value = data.partnerCompanyName;
+    if (data.partnerRegNumber) document.getElementById('partnerRegNumber').value = data.partnerRegNumber;
+    if (data.partnerRepName) document.getElementById('partnerRepName').value = data.partnerRepName;
+    if (data.partnerEmail) document.getElementById('partnerEmail').value = data.partnerEmail;
+    if (data.partnerAddress) document.getElementById('partnerAddress').value = data.partnerAddress;
+    if (data.partnerBusinessType) document.getElementById('partnerBusinessType').value = data.partnerBusinessType;
+    if (data.partnerBusinessItem) document.getElementById('partnerBusinessItem').value = data.partnerBusinessItem;
+
+    // 신뢰도 표시 (초록색 테두리)
+    const fields = ['partnerCompanyName','partnerRegNumber','partnerRepName','partnerEmail','partnerAddress','partnerBusinessType','partnerBusinessItem'];
+    fields.forEach(f => {
+      const el = document.getElementById(f);
+      if (el && el.value) el.style.borderColor = 'var(--color-success)';
+    });
+
+    Utils.closeModal();
+    Utils.showToast(`${data.partnerCompanyName} 거래처 정보를 불러왔습니다.`, 'success');
   },
 
   _addContractFile(file) {

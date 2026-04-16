@@ -77,6 +77,7 @@ const DocumentsModule = {
               </div>
             </div>
             <div class="d-flex gap-2">
+              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._renameDoc(${doc.id})" title="이름변경">✏️</button>
               <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._viewDoc(${doc.id})" title="보기">👁️</button>
               <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._downloadDoc(${doc.id})" title="다운로드">💾</button>
               ${Auth.isAdmin() ? `<button class="btn btn-ghost btn-sm text-danger" onclick="DocumentsModule._deleteDoc(${doc.id})" title="삭제">🗑️</button>` : ''}
@@ -168,6 +169,59 @@ const DocumentsModule = {
   _setFilter(cat) {
     this.filterCategory = cat;
     this.render();
+  },
+
+  async _renameDoc(id) {
+    const doc = await DB.get('documents', id);
+    if (!doc) return;
+
+    // 확장자 분리
+    const lastDot = doc.fileName.lastIndexOf('.');
+    const nameOnly = lastDot > 0 ? doc.fileName.substring(0, lastDot) : doc.fileName;
+    const ext = lastDot > 0 ? doc.fileName.substring(lastDot) : '';
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>파일명 변경</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="text-sm text-muted mb-4">현재: <strong>${Utils.escapeHtml(doc.fileName)}</strong></div>
+        <div class="form-group">
+          <label for="renameInput">새 파일명</label>
+          <div class="d-flex gap-2 items-center">
+            <input type="text" id="renameInput" class="form-control" value="${Utils.escapeHtml(nameOnly)}" style="flex:1;">
+            <span class="text-sm text-muted fw-medium">${Utils.escapeHtml(ext)}</span>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="DocumentsModule._confirmRename(${id}, '${Utils.escapeHtml(ext)}')">저장</button>
+      </div>
+    `);
+
+    // 입력란 포커스 + 전체 선택
+    setTimeout(() => {
+      const input = document.getElementById('renameInput');
+      if (input) { input.focus(); input.select(); }
+    }, 100);
+  },
+
+  async _confirmRename(id, ext) {
+    const newName = document.getElementById('renameInput').value.trim();
+    if (!newName) {
+      Utils.showToast('파일명을 입력해 주세요.', 'error');
+      return;
+    }
+
+    const doc = await DB.get('documents', id);
+    doc.fileName = newName + ext;
+    await DB.update('documents', doc);
+    await DB.log('UPDATE', 'document', id, `파일명 변경: ${doc.fileName}`);
+
+    Utils.closeModal();
+    await this.render();
   },
 
   async _viewDoc(id) {

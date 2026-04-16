@@ -270,6 +270,13 @@ fieldset legend {
   align-items: flex-start;
   gap: var(--sp-4);
   box-shadow: var(--shadow-sm);
+  transition: all var(--transition-fast);
+}
+
+.summary-card[style*="cursor:pointer"]:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--color-primary);
 }
 
 .summary-card .card-icon {

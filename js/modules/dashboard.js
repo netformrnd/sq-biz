@@ -34,7 +34,7 @@ const DashboardModule = {
       // 관리자 대시보드
       html = `
         <div class="summary-cards">
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/tax-invoice/admin')" title="요청 관리로 이동">
             <div class="card-icon blue">📝</div>
             <div class="card-info">
               <div class="card-label">발행 대기</div>
@@ -42,7 +42,7 @@ const DashboardModule = {
               <div class="card-sub">검토중 ${reviewing}건</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/tax-invoice/admin')" title="요청 관리로 이동">
             <div class="card-icon green">✅</div>
             <div class="card-info">
               <div class="card-label">발행 완료</div>
@@ -50,7 +50,7 @@ const DashboardModule = {
               <div class="card-sub">${Utils.formatCurrency(totalInvoiceAmount)}</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/deposits')" title="입금내역으로 이동">
             <div class="card-icon cyan">💰</div>
             <div class="card-info">
               <div class="card-label">입금 내역</div>
@@ -58,7 +58,7 @@ const DashboardModule = {
               <div class="card-sub">${Utils.formatCurrency(totalDepositAmount)}</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/matching')" title="매칭 관리로 이동">
             <div class="card-icon orange">🔗</div>
             <div class="card-info">
               <div class="card-label">매칭 현황</div>
@@ -116,7 +116,7 @@ const DashboardModule = {
 
       html = `
         <div class="summary-cards">
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/tax-invoice/my')" title="나의 요청현황으로 이동">
             <div class="card-icon blue">📝</div>
             <div class="card-info">
               <div class="card-label">나의 요청</div>
@@ -124,14 +124,14 @@ const DashboardModule = {
               <div class="card-sub">진행중 ${myPending}건</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/tax-invoice/my')" title="나의 요청현황으로 이동">
             <div class="card-icon green">✅</div>
             <div class="card-info">
               <div class="card-label">발행 완료</div>
               <div class="card-value">${myCompleted}건</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/deposits')" title="입금내역으로 이동">
             <div class="card-icon cyan">💰</div>
             <div class="card-info">
               <div class="card-label">총 입금내역</div>
@@ -139,7 +139,7 @@ const DashboardModule = {
               <div class="card-sub">${Utils.formatCurrency(totalDepositAmount)}</div>
             </div>
           </div>
-          <div class="summary-card">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/transfers/admin')" title="송금내역으로 이동">
             <div class="card-icon orange">💸</div>
             <div class="card-info">
               <div class="card-label">나의 송금내역</div>

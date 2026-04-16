@@ -1,11 +1,11 @@
 /* ============================================
    사업자등록증 OCR 엔진
-   Tesseract.js v4 + 향상된 파싱
+   - 화면캡쳐(Ctrl+V) 기반 최적화
+   - 한글 공백 정규화 처리
    ============================================ */
 
 const OCREngine = {
   isLoaded: false,
-  _scriptVersion: null,
 
   async loadTesseract() {
     if (this.isLoaded && window.Tesseract) return;
@@ -13,7 +13,7 @@ const OCREngine = {
       if (window.Tesseract) { this.isLoaded = true; resolve(); return; }
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
-      script.onload = () => { this.isLoaded = true; this._scriptVersion = 'v4'; resolve(); };
+      script.onload = () => { this.isLoaded = true; resolve(); };
       script.onerror = () => reject(new Error('Tesseract.js 로드 실패. 인터넷 연결을 확인하세요.'));
       document.head.appendChild(script);
     });
@@ -22,20 +22,19 @@ const OCREngine = {
   async recognizeImage(imageSource, onProgress) {
     await this.loadTesseract();
     try {
-      return await this._recognizeV4(imageSource, onProgress);
+      return await this._recognize(imageSource, onProgress);
     } catch (err) {
       console.error('[OCR] 인식 오류:', err);
       throw new Error((err && err.message) ? err.message : 'OCR 처리 중 오류');
     }
   },
 
-  async _recognizeV4(imageSource, onProgress) {
-    console.log('[OCR] Worker 생성 시작...');
+  async _recognize(imageSource, onProgress) {
+    console.log('[OCR] Worker 생성...');
     let worker;
     try {
       worker = await Tesseract.createWorker({
         logger: (m) => {
-          console.log('[OCR] logger:', m.status, m.progress);
           if (m.status === 'recognizing text' && onProgress) onProgress(50 + Math.round(m.progress * 50));
           if (m.status === 'loading language traineddata' && onProgress) onProgress(Math.round(m.progress * 40));
         },
@@ -43,23 +42,18 @@ const OCREngine = {
         corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
       });
     } catch (e) {
-      console.error('[OCR] Worker 생성 실패:', e);
       throw new Error('OCR Worker 생성 실패: ' + (e.message || e));
     }
 
     try {
-      console.log('[OCR] 한글 언어 데이터 로드...');
       await worker.loadLanguage('kor+eng');
-      console.log('[OCR] 언어 초기화...');
       await worker.initialize('kor+eng');
-
       if (onProgress) onProgress(45);
-      console.log('[OCR] 이미지 인식 시작...');
+
       const { data } = await worker.recognize(imageSource);
       await worker.terminate();
-      console.log('[OCR] 인식 완료, 텍스트 길이:', data.text.length);
 
-      console.log('[OCR] 인식 완료, 텍스트:\n', data.text);
+      console.log('[OCR] 원본 텍스트:\n', data.text);
       return this.parseBusinessRegistration(data.text);
     } catch (err) {
       try { await worker.terminate(); } catch (e) {}
@@ -67,176 +61,183 @@ const OCREngine = {
     }
   },
 
-  // ===== 향상된 파싱 =====
-  parseBusinessRegistration(text) {
+  // ===== 한글 공백 정규화 =====
+  // Tesseract가 "경 기 도 여 주 시" 처럼 글자 사이에 공백을 넣는 문제 해결
+  _collapseKoreanSpaces(text) {
+    let result = text;
+    // 한글 단일 글자 사이의 공백 제거 (반복 적용)
+    for (let i = 0; i < 5; i++) {
+      const prev = result;
+      result = result.replace(/([가-힣])\s([가-힣])/g, '$1$2');
+      if (result === prev) break;
+    }
+    return result;
+  },
+
+  // ===== 사업자등록증 파싱 =====
+  parseBusinessRegistration(rawText) {
     const result = {
       regNumber: '', companyName: '', repName: '',
       address: '', businessType: '', businessItem: '',
-      rawText: text, confidence: {}
+      rawText: rawText, confidence: {}
     };
 
-    if (!text || text.trim().length < 5) return result;
+    if (!rawText || rawText.trim().length < 5) return result;
 
-    // 공백/특수문자 정리
-    const cleaned = text.replace(/\r/g, '');
-    const lines = cleaned.split('\n').map(l => l.trim()).filter(Boolean);
+    // 원본 + 공백 정규화 버전 모두 준비
+    const normalized = this._collapseKoreanSpaces(rawText);
+    const lines = normalized.split('\n').map(l => l.trim()).filter(Boolean);
     const fullText = lines.join(' ');
 
-    // === 사업자등록번호 (최우선) ===
-    // 다양한 형태: 000-00-00000, 000 00 00000, 000.00.00000
+    console.log('[OCR] 정규화 텍스트:\n', normalized);
+
+    // === 1. 사업자등록번호 ===
     const regPatterns = [
-      /(\d{3})\s*[-–—·.\s]\s*(\d{2})\s*[-–—·.\s]\s*(\d{5})/,
-      /등록\s*번호[:\s]*(\d{3})\s*[-–—·.\s]?\s*(\d{2})\s*[-–—·.\s]?\s*(\d{5})/,
-      /(\d{3})(\d{2})(\d{5})/, // 붙어있는 10자리
+      /(\d{3})\s*[-–—·.]\s*(\d{2})\s*[-–—·.]\s*(\d{5})/,
+      /등록번호\s*[:\s]*(\d{3})\s*[-–—·.]?\s*(\d{2})\s*[-–—·.]?\s*(\d{5})/,
     ];
     for (const p of regPatterns) {
       const m = fullText.match(p);
       if (m) {
         result.regNumber = `${m[1]}-${m[2]}-${m[3]}`;
-        result.confidence.regNumber = m[0].includes('-') ? 'high' : 'medium';
+        result.confidence.regNumber = 'high';
         break;
       }
     }
 
-    // === 상호 ===
-    const namePatterns = [
-      /(?:상\s*호|법\s*인\s*명)[^가-힣a-zA-Z0-9]*([가-힣a-zA-Z0-9()（）\s]{2,})/,
-      /상호\s*\(?법인명\)?\s*[:\s]*([가-힣a-zA-Z0-9()（）\s]{2,})/,
-    ];
-    for (const line of lines) {
-      for (const p of namePatterns) {
-        const m = line.match(p);
-        if (m) {
-          result.companyName = m[1].replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
-          if (result.companyName.length >= 2) {
-            result.confidence.companyName = 'high';
-            break;
+    // === 2. 상호 (법인명/단체명) ===
+    // "상호(단체명)" 또는 "상호(법인명)" 레이블 뒤의 실제 회사명 추출
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      // "상호" 또는 "단체명" 또는 "법인명" 레이블이 있는 줄 찾기
+      if (line.match(/상호|단체명|법인명/)) {
+        // 같은 줄에서 레이블 뒤의 값 추출
+        let name = line
+          .replace(/.*(?:상호|법인명|단체명)\s*[\(\)단체명법인]*\s*[:\s]*/i, '')
+          .replace(/^[\s:()（）]+/, '')
+          .trim();
+
+        // 추출된 값이 너무 짧거나 레이블만이면 다음 줄 확인
+        if (name.length < 2 || name.match(/^(단체명|법인명|상호)$/)) {
+          // 다음 줄에 실제 이름이 있을 수 있음
+          if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1].trim();
+            if (nextLine.length >= 2 && !nextLine.match(/대표자|성명|사업장|등록|주소/)) {
+              name = nextLine;
+            }
           }
         }
+
+        if (name.length >= 2) {
+          result.companyName = name.replace(/[|[\]]/g, '').trim();
+          result.confidence.companyName = 'high';
+          break;
+        }
       }
-      if (result.companyName) break;
     }
 
-    // === 대표자 ===
-    const repPatterns = [
-      /(?:대\s*표\s*자|성\s*명)[^가-힣a-zA-Z]*([가-힣a-zA-Z]{2,10})/,
-    ];
-    for (const line of lines) {
-      for (const p of repPatterns) {
-        const m = line.match(p);
-        if (m) {
-          result.repName = m[1].trim();
+    // === 3. 대표자 ===
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.match(/대표자|성명/)) {
+        let rep = line
+          .replace(/.*(?:대표자|성명)\s*[\(\)성명]*\s*[:\s]*/i, '')
+          .replace(/^[\s:()（）]+/, '')
+          .trim();
+
+        // 너무 짧으면 다음 줄
+        if (rep.length < 2 || rep.match(/^(성명|대표자)$/)) {
+          if (i + 1 < lines.length) {
+            const nextLine = lines[i + 1].trim();
+            if (nextLine.length >= 2 && nextLine.length <= 10 && !nextLine.match(/사업장|주소|업태|개업/)) {
+              rep = nextLine;
+            }
+          }
+        }
+
+        if (rep.length >= 2 && rep.length <= 20) {
+          result.repName = rep.replace(/[|[\]]/g, '').trim();
           result.confidence.repName = 'high';
           break;
         }
       }
-      if (result.repName) break;
     }
 
-    // === 주소 ===
-    const addrPatterns = [
-      /(?:사업장\s*소?\s*재\s*지|소\s*재\s*지|주\s*소)[^가-힣]*([가-힣0-9,.\-\s()]{5,})/,
-    ];
-    for (const line of lines) {
-      for (const p of addrPatterns) {
-        const m = line.match(p);
-        if (m) {
-          result.address = m[1].replace(/[|]/g, '').trim();
+    // === 4. 사업장 주소 ===
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      if (line.match(/사업장|소재지|본점/)) {
+        let addr = line
+          .replace(/.*(?:사업장소재지|사업장주소|소재지|본점소재지)\s*[:\s]*/i, '')
+          .replace(/^[\s:]+/, '')
+          .trim();
+
+        // 다음 줄도 주소일 수 있음
+        if (i + 1 < lines.length) {
+          const nextLine = lines[i + 1].trim();
+          if (nextLine.length > 3 && !nextLine.match(/업태|종목|개업|대표|등록|사업자|상호/)) {
+            // "본점소재지:" 같은 중복 레이블 제거
+            const cleanNext = nextLine.replace(/.*(?:본점소재지|소재지)\s*[:\s]*/i, '').trim();
+            if (cleanNext.length > 3 && !addr.includes(cleanNext)) {
+              addr += ' ' + cleanNext;
+            }
+          }
+        }
+
+        // "본점소재지:" 레이블이 주소 안에 포함된 경우 제거
+        addr = addr.replace(/본점소재지\s*[:]\s*/g, '').trim();
+
+        if (addr.length >= 5) {
+          result.address = addr;
           result.confidence.address = 'high';
           break;
         }
       }
-      if (result.address) break;
-    }
-    // 주소 다음 줄 합치기
-    if (result.address) {
-      const idx = lines.findIndex(l => l.includes(result.address));
-      if (idx >= 0 && idx + 1 < lines.length) {
-        const next = lines[idx + 1];
-        if (next && !next.match(/업\s*태|종\s*목|개업|대표|등록|사업자/) && next.length > 3) {
-          result.address += ' ' + next.replace(/[|]/g, '').trim();
-        }
-      }
     }
 
-    // === 업태 & 종목 ===
+    // === 5. 업태 & 종목 ===
     for (const line of lines) {
-      const combined = line.match(/업\s*태[^가-힣a-zA-Z]*([가-힣a-zA-Z,\s]{1,30})\s*종\s*목[^가-힣a-zA-Z]*([가-힣a-zA-Z,\s]{1,30})/);
+      // 같은 줄에 업태와 종목이 있는 경우
+      const combined = line.match(/업태\s*[:\s]*(.+?)\s+종목\s*[:\s]*(.+)/);
       if (combined) {
-        result.businessType = combined[1].trim();
-        result.businessItem = combined[2].trim();
+        result.businessType = combined[1].replace(/[|]/g, '').trim();
+        result.businessItem = combined[2].replace(/[|]/g, '').trim();
         result.confidence.businessType = 'medium';
         result.confidence.businessItem = 'medium';
         break;
       }
     }
+
     if (!result.businessType) {
-      for (const line of lines) {
-        const m = line.match(/업\s*태[^가-힣a-zA-Z]*([가-힣a-zA-Z,\s]{1,30})/);
-        if (m) { result.businessType = m[1].trim(); result.confidence.businessType = 'medium'; break; }
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].match(/업태/) && !lines[i].match(/종목/)) {
+          let val = lines[i].replace(/.*업태\s*[:\s]*/i, '').trim();
+          if (val.length < 1 && i + 1 < lines.length) val = lines[i + 1].trim();
+          if (val.length >= 1) {
+            result.businessType = val.replace(/[|]/g, '').trim();
+            result.confidence.businessType = 'medium';
+            break;
+          }
+        }
       }
     }
+
     if (!result.businessItem) {
-      for (const line of lines) {
-        const m = line.match(/종\s*목[^가-힣a-zA-Z]*([가-힣a-zA-Z,\s]{1,30})/);
-        if (m) { result.businessItem = m[1].trim(); result.confidence.businessItem = 'medium'; break; }
+      for (let i = 0; i < lines.length; i++) {
+        if (lines[i].match(/종목/)) {
+          let val = lines[i].replace(/.*종목\s*[:\s]*/i, '').trim();
+          if (val.length < 1 && i + 1 < lines.length) val = lines[i + 1].trim();
+          if (val.length >= 1) {
+            result.businessItem = val.replace(/[|]/g, '').trim();
+            result.confidence.businessItem = 'medium';
+            break;
+          }
+        }
       }
     }
 
     console.log('[OCR] 파싱 결과:', JSON.stringify(result, (k, v) => k === 'rawText' ? '(생략)' : v, 2));
     return result;
-  },
-
-  // 이미지 전처리 - 인식률 향상
-  preprocessImage(imageEl) {
-    return new Promise((resolve) => {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-
-      // 최소 1500px 너비 (해상도 높일수록 인식률 향상)
-      const scale = Math.max(1, 1500 / imageEl.naturalWidth);
-      canvas.width = imageEl.naturalWidth * scale;
-      canvas.height = imageEl.naturalHeight * scale;
-
-      // 배경 흰색
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(imageEl, 0, 0, canvas.width, canvas.height);
-
-      // 그레이스케일 + 이진화 (Otsu 방식 근사)
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-      const data = imageData.data;
-
-      // 히스토그램으로 임계값 계산
-      const histogram = new Array(256).fill(0);
-      for (let i = 0; i < data.length; i += 4) {
-        const gray = Math.round(data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114);
-        histogram[gray]++;
-      }
-
-      // Otsu 임계값
-      const totalPixels = data.length / 4;
-      let sum = 0, sumB = 0, wB = 0, wF = 0, maxVariance = 0, threshold = 128;
-      for (let i = 0; i < 256; i++) sum += i * histogram[i];
-      for (let i = 0; i < 256; i++) {
-        wB += histogram[i]; if (wB === 0) continue;
-        wF = totalPixels - wB; if (wF === 0) break;
-        sumB += i * histogram[i];
-        const mB = sumB / wB, mF = (sum - sumB) / wF;
-        const variance = wB * wF * (mB - mF) * (mB - mF);
-        if (variance > maxVariance) { maxVariance = variance; threshold = i; }
-      }
-
-      // 이진화 적용
-      for (let i = 0; i < data.length; i += 4) {
-        const gray = data[i] * 0.299 + data[i+1] * 0.587 + data[i+2] * 0.114;
-        const val = gray > threshold ? 255 : 0;
-        data[i] = data[i+1] = data[i+2] = val;
-      }
-
-      ctx.putImageData(imageData, 0, 0);
-      canvas.toBlob((blob) => resolve(blob), 'image/png');
-    });
   }
 };
 

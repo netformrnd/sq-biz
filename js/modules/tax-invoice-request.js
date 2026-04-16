@@ -59,8 +59,8 @@ const TaxInvoiceRequestModule = {
               <label>사업자등록증 첨부 <span class="required">*</span></label>
               <div class="upload-area" id="ocrUploadArea">
                 <div class="upload-icon">📄</div>
-                <div class="upload-text">파일을 드래그하거나 클릭하여 업로드</div>
-                <div class="upload-hint">또는 Ctrl+V로 화면캡쳐를 붙여넣기 하세요</div>
+                <div class="upload-text"><strong>Ctrl+V</strong>로 사업자등록증 화면캡쳐 붙여넣기 <span class="text-xs text-muted">(자동 인식)</span></div>
+                <div class="upload-hint">또는 클릭하여 파일 업로드 (파일은 보관용, 수동 입력 필요)</div>
                 <input type="file" id="ocrFileInput" accept="image/*,.pdf" style="display:none;">
               </div>
               <div id="ocrProgress" class="hidden">
@@ -200,14 +200,14 @@ const TaxInvoiceRequestModule = {
       for (const f of e.dataTransfer.files) this._addContractFile(f);
     });
 
-    // 클립보드 붙여넣기 (Ctrl+V)
+    // 클립보드 붙여넣기 (Ctrl+V) - 화면캡쳐 → OCR 자동 실행
     document.addEventListener('paste', this._pasteHandler = (e) => {
       const items = e.clipboardData?.items;
       if (!items) return;
       for (const item of items) {
         if (item.type.startsWith('image/')) {
           e.preventDefault();
-          this._handleFile(item.getAsFile());
+          this._handleFile(item.getAsFile(), true); // isFromClipboard = true
           return;
         }
       }
@@ -243,7 +243,8 @@ const TaxInvoiceRequestModule = {
     `).join('');
   },
 
-  async _handleFile(file) {
+  // isFromClipboard: 화면캡쳐(Ctrl+V)인지 파일 업로드인지 구분
+  async _handleFile(file, isFromClipboard = false) {
     if (!file) return;
 
     this.uploadedFile = file;
@@ -261,8 +262,16 @@ const TaxInvoiceRequestModule = {
     };
     reader.readAsDataURL(file);
 
-    // OCR 실행
-    await this._runOCR(file);
+    // OCR 실행 (화면캡쳐만 실행, 파일 업로드는 건너뜀)
+    if (isFromClipboard || (file.type && file.type.startsWith('image/'))) {
+      await this._runOCR(file);
+    } else {
+      // 파일(PDF 등)은 OCR 생략, 안내 표시
+      document.getElementById('ocrNotice').classList.remove('hidden');
+      document.getElementById('ocrNotice').innerHTML =
+        '📎 파일이 첨부되었습니다. 거래처 정보는 아래에 직접 입력하거나,<br>' +
+        '<strong>Ctrl+V로 사업자등록증 화면캡쳐를 붙여넣기</strong>하면 자동 인식됩니다.';
+    }
   },
 
   _removeFile() {

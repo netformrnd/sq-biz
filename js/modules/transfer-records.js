@@ -163,10 +163,36 @@ const TransferModule = {
 
       const dateStr = (cols[0] || '').trim();
       const withdrawStr = (cols[1] || '').trim();
-      const nameStr = (cols[4] || '').trim();
 
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       if (withdrawAmount <= 0) continue;
+
+      // 수취인: cols[4]가 계좌번호일 수 있으므로 여러 컬럼에서 이름+계좌 추출
+      // 은행 형식: [4]거래처명/계좌번호, [5](빈), [6]은행, ... [11]거래처명2
+      let accountNo = '';
+      let recipientName = '';
+
+      // cols 전체에서 한글 이름이 있는 컬럼 찾기
+      for (let i = 4; i < cols.length; i++) {
+        const val = (cols[i] || '').trim();
+        if (!val) continue;
+        // 순수 숫자 = 계좌번호
+        if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) {
+          accountNo = val;
+        }
+        // 한글 포함 = 거래처명
+        if (/[가-힣]/.test(val) && !recipientName) {
+          recipientName = val;
+        }
+      }
+
+      // 이름을 못 찾으면 cols[4] 사용
+      if (!recipientName) recipientName = (cols[4] || '').trim();
+
+      // 계좌번호가 있으면 이름에 합치기
+      const displayName = accountNo && recipientName
+        ? `${recipientName} (${accountNo})`
+        : recipientName || accountNo;
 
       let date = '';
       const dateMatch = dateStr.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
@@ -174,7 +200,7 @@ const TransferModule = {
         date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
       }
 
-      this._parsedRows.push({ date, name: nameStr, amount: withdrawAmount, selected: true });
+      this._parsedRows.push({ date, name: displayName, amount: withdrawAmount, selected: true });
     }
 
     const preview = document.getElementById('trPastePreview');

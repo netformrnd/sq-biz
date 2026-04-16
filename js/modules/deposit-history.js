@@ -198,19 +198,28 @@ const DepositModule = {
       const dateStr = (cols[0] || '').trim();
       const withdrawStr = (cols[1] || '').trim();
       const depositStr = (cols[2] || '').trim();
-      const nameStr = (cols[4] || '').trim();
 
       // 입금액 추출 (콤마 제거)
       const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
-      const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
 
       // 입금액이 0이면 건너뜀 (출금 내역)
       if (depositAmount <= 0) continue;
 
-      // 날짜 파싱 (다양한 형식 대응)
+      // 입금자명: cols[4]가 계좌번호일 수 있으므로 여러 컬럼에서 추출
+      let accountNo = '';
+      let depositorName = '';
+      for (let i = 4; i < cols.length; i++) {
+        const val = (cols[i] || '').trim();
+        if (!val) continue;
+        if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;
+        if (/[가-힣]/.test(val) && !depositorName) depositorName = val;
+      }
+      if (!depositorName) depositorName = (cols[4] || '').trim();
+      const nameStr = accountNo && depositorName ? `${depositorName} (${accountNo})` : depositorName || accountNo;
+
+      // 날짜 파싱
       let date = '';
       if (dateStr) {
-        // "2026-04-08 12:12:22" or "2026-04-08" or "2026.04.08" etc.
         const dateMatch = dateStr.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
         if (dateMatch) {
           date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;

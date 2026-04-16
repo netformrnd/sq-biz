@@ -1,10 +1,11 @@
 /* ============================================
-   송금내역 모듈 (개별 용역비용 매입처리)
+   송금내역 모듈 (용역비용 매입처리)
+   - 엑셀 붙여넣기 일괄 등록 지원
    ============================================ */
 
 const TransferModule = {
   container: null,
-  mode: 'my', // 'my' or 'admin'
+  mode: 'my',
 
   async init(container, action) {
     this.container = container;
@@ -21,7 +22,6 @@ const TransferModule = {
     if (this.mode === 'admin' && isAdmin) {
       records = allRecords.reverse();
     } else {
-      // 본인에게 할당된 내역만
       records = allRecords.filter(r => r.assignedToUserId === user.id).reverse();
     }
 
@@ -29,7 +29,7 @@ const TransferModule = {
 
     let tableRows = '';
     if (records.length === 0) {
-      tableRows = `<tr><td colspan="${this.mode === 'admin' ? 8 : 7}" class="text-center" style="padding:var(--sp-10);">
+      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">
         <div class="empty-state"><div class="empty-icon">💸</div><h3>송금내역이 없습니다</h3></div>
       </td></tr>`;
     } else {
@@ -41,9 +41,9 @@ const TransferModule = {
           <td>${Utils.escapeHtml(r.purpose || '-')}</td>
           <td>${Utils.escapeHtml(r.projectName || '-')}</td>
           <td>${Utils.escapeHtml(r.memo || '-')}</td>
-          ${this.mode === 'admin' ? `<td>${Utils.escapeHtml(r.assignedToUserName || '-')}</td>` : ''}
+          <td>${Utils.escapeHtml(r.assignedToUserName || '-')}</td>
           <td>
-            ${this.mode === 'admin' && isAdmin ? `
+            ${isAdmin ? `
               <div class="d-flex gap-2">
                 <button class="btn btn-ghost btn-sm" onclick="TransferModule._edit(${r.id})" title="수정">✏️</button>
                 <button class="btn btn-ghost btn-sm text-danger" onclick="TransferModule._delete(${r.id})" title="삭제">🗑️</button>
@@ -54,14 +54,13 @@ const TransferModule = {
       `).join('');
     }
 
-    const title = this.mode === 'admin' ? '송금내역 관리' : '나의 송금내역';
-
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>${title}</h2>
-        ${this.mode === 'admin' && isAdmin ? `
+        <h2>송금내역</h2>
+        ${isAdmin ? `
           <div class="page-actions">
-            <button class="btn btn-primary" onclick="TransferModule._openAddModal()">+ 송금내역 등록</button>
+            <button class="btn btn-secondary" onclick="TransferModule._openPasteModal()">📋 엑셀 붙여넣기 등록</button>
+            <button class="btn btn-primary" onclick="TransferModule._openAddModal()">+ 개별 등록</button>
           </div>
         ` : ''}
       </div>
@@ -93,7 +92,7 @@ const TransferModule = {
               <th>용도</th>
               <th>프로젝트</th>
               <th>비고</th>
-              ${this.mode === 'admin' ? '<th>담당직원</th>' : ''}
+              <th>담당직원</th>
               <th>관리</th>
             </tr>
           </thead>
@@ -103,6 +102,201 @@ const TransferModule = {
     `;
   },
 
+  // ===== 엑셀 붙여넣기 일괄 등록 =====
+  _parsedRows: [],
+
+  async _openPasteModal() {
+    this._parsedRows = [];
+    const users = await DB.getAll('users');
+    const activeUsers = users.filter(u => u.isActive);
+    const userOptions = activeUsers.map(u =>
+      `<option value="${u.id}">${Utils.escapeHtml(u.displayName)} (${u.username})</option>`
+    ).join('');
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📋 엑셀 붙여넣기 송금내역 등록</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
+          <strong>사용법:</strong> 은행 송금내역 엑셀에서 행을 복사(Ctrl+C)한 후 붙여넣기(Ctrl+V) 하세요.<br>
+          <span class="text-muted">컬럼: 거래일시 | 출금액 | 입금액 | 잔액 | 거래처명 | ... (출금 내역만 추출)</span>
+        </div>
+
+        <div class="form-row mb-4">
+          <div class="form-group">
+            <label for="pasteAssignee">담당 직원 <span class="required">*</span></label>
+            <select id="pasteAssignee" class="form-control" required>
+              <option value="">-- 직원 선택 --</option>
+              ${userOptions}
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pastePurpose">용도</label>
+            <select id="pastePurpose" class="form-control">
+              <option value="용역비">용역비</option>
+              <option value="외주비">외주비</option>
+              <option value="매입비">매입비</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>엑셀 데이터 붙여넣기 <span class="required">*</span></label>
+          <textarea id="trPasteArea" class="form-control" rows="8"
+                    placeholder="엑셀에서 복사한 데이터를 여기에 붙여넣기 (Ctrl+V)"
+                    style="font-family:monospace;font-size:12px;"></textarea>
+        </div>
+
+        <button class="btn btn-secondary mb-4" onclick="TransferModule._parsePastedData()">데이터 확인</button>
+
+        <div id="trPastePreview" class="hidden">
+          <div class="table-wrapper" style="max-height:300px;overflow-y:auto;">
+            <table class="data-table" id="trPasteTable">
+              <thead>
+                <tr>
+                  <th style="width:40px;"><input type="checkbox" id="trSelectAll" checked onchange="TransferModule._toggleSelectAll(this.checked)"></th>
+                  <th>송금일</th>
+                  <th>수취인</th>
+                  <th class="text-right">금액</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <div id="trPasteCount" class="text-sm text-muted mt-2"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" id="trPasteSaveBtn" onclick="TransferModule._savePastedData()" disabled>선택 항목 등록</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  _parsePastedData() {
+    const raw = document.getElementById('trPasteArea').value.trim();
+    if (!raw) { Utils.showToast('데이터를 붙여넣기 하세요.', 'error'); return; }
+
+    const lines = raw.split('\n').filter(l => l.trim());
+    this._parsedRows = [];
+
+    for (const line of lines) {
+      const cols = line.split('\t');
+      if (cols.length < 5) continue;
+
+      const dateStr = (cols[0] || '').trim();
+      const withdrawStr = (cols[1] || '').trim();
+      const nameStr = (cols[4] || '').trim();
+
+      // 출금액 추출 (콤마 제거)
+      const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
+
+      // 출금액이 0이면 건너뜀 (입금 내역)
+      if (withdrawAmount <= 0) continue;
+
+      // 날짜 파싱
+      let date = '';
+      const dateMatch = dateStr.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+      if (dateMatch) {
+        date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+      }
+
+      this._parsedRows.push({ date, name: nameStr, amount: withdrawAmount, selected: true });
+    }
+
+    const preview = document.getElementById('trPastePreview');
+    const tbody = document.querySelector('#trPasteTable tbody');
+    const saveBtn = document.getElementById('trPasteSaveBtn');
+
+    if (this._parsedRows.length === 0) {
+      preview.classList.add('hidden');
+      saveBtn.disabled = true;
+      Utils.showToast('출금(송금) 데이터를 찾을 수 없습니다.', 'warning');
+      return;
+    }
+
+    preview.classList.remove('hidden');
+    saveBtn.disabled = false;
+
+    tbody.innerHTML = this._parsedRows.map((row, i) => `
+      <tr>
+        <td><input type="checkbox" data-idx="${i}" ${row.selected ? 'checked' : ''} onchange="TransferModule._toggleRow(${i}, this.checked)"></td>
+        <td>${Utils.escapeHtml(row.date)}</td>
+        <td class="fw-medium">${Utils.escapeHtml(row.name)}</td>
+        <td class="text-right amount">${Utils.formatCurrency(row.amount)}</td>
+      </tr>
+    `).join('');
+
+    this._updatePasteCount();
+  },
+
+  _toggleRow(idx, checked) {
+    this._parsedRows[idx].selected = checked;
+    this._updatePasteCount();
+  },
+
+  _toggleSelectAll(checked) {
+    this._parsedRows.forEach((r, i) => {
+      r.selected = checked;
+      const cb = document.querySelector(`#trPasteTable input[data-idx="${i}"]`);
+      if (cb) cb.checked = checked;
+    });
+    this._updatePasteCount();
+  },
+
+  _updatePasteCount() {
+    const sel = this._parsedRows.filter(r => r.selected);
+    const total = sel.reduce((s, r) => s + r.amount, 0);
+    document.getElementById('trPasteCount').textContent =
+      `선택 ${sel.length}건 / ${this._parsedRows.length}건 / 합계 ${Utils.formatCurrency(total)}`;
+    document.getElementById('trPasteSaveBtn').disabled = sel.length === 0;
+  },
+
+  async _savePastedData() {
+    const assigneeId = Number(document.getElementById('pasteAssignee').value);
+    if (!assigneeId) {
+      Utils.showToast('담당 직원을 선택해 주세요.', 'error');
+      return;
+    }
+
+    const selected = this._parsedRows.filter(r => r.selected);
+    if (selected.length === 0) return;
+
+    const assignee = await DB.get('users', assigneeId);
+    const user = Auth.currentUser();
+    const purpose = document.getElementById('pastePurpose').value;
+    let count = 0;
+
+    for (const row of selected) {
+      await DB.add('transferRecords', {
+        transferDate: row.date,
+        recipientName: row.name,
+        amount: row.amount,
+        purpose,
+        projectName: '',
+        memo: '',
+        assignedToUserId: assigneeId,
+        assignedToUserName: assignee ? assignee.displayName : '',
+        registeredBy: user.id,
+        registeredByName: user.displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      count++;
+    }
+
+    await DB.log('CREATE', 'transfer', null, `송금내역 일괄 등록: ${count}건`);
+    this._parsedRows = [];
+
+    Utils.closeModal();
+    Utils.showToast(`${count}건의 송금내역이 등록되었습니다.`, 'success');
+    await this.render();
+  },
+
+  // ===== 개별 등록 =====
   async _openAddModal(editData = null) {
     const isEdit = !!editData;
     const users = await DB.getAll('users');
@@ -114,7 +308,7 @@ const TransferModule = {
 
     Utils.openModal(`
       <div class="modal-header">
-        <h3>${isEdit ? '송금내역 수정' : '송금내역 등록'}</h3>
+        <h3>${isEdit ? '송금내역 수정' : '송금내역 개별 등록'}</h3>
         <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
       <div class="modal-body">
@@ -206,12 +400,10 @@ const TransferModule = {
         data.createdAt = existing.createdAt;
         await DB.update('transferRecords', data);
         await DB.log('UPDATE', 'transfer', editId, '송금내역 수정');
-        Utils.showToast('송금내역이 수정되었습니다.', 'success');
       } else {
         data.createdAt = new Date().toISOString();
         const id = await DB.add('transferRecords', data);
         await DB.log('CREATE', 'transfer', id, `송금내역 등록: ${recipient} ${Utils.formatCurrency(amount)}`);
-        Utils.showToast('송금내역이 등록되었습니다.', 'success');
       }
       Utils.closeModal();
       await this.render();
@@ -231,7 +423,6 @@ const TransferModule = {
 
     await DB.delete('transferRecords', id);
     await DB.log('DELETE', 'transfer', id, '송금내역 삭제');
-    Utils.showToast('송금내역이 삭제되었습니다.', 'success');
     await this.render();
   },
 

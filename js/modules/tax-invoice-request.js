@@ -277,34 +277,46 @@ const TaxInvoiceRequestModule = {
     const progressEl = document.getElementById('ocrProgress');
     const fillEl = document.getElementById('ocrProgressFill');
     const textEl = document.getElementById('ocrProgressText');
+    const rawArea = document.getElementById('ocrRawTextArea');
+    const rawText = document.getElementById('ocrRawText');
 
     progressEl.classList.remove('hidden');
-    textEl.textContent = 'OCR 엔진 로딩중... (최초 실행 시 시간이 걸릴 수 있습니다)';
-    fillEl.style.width = '5%';
+    fillEl.style.background = 'var(--color-primary)';
 
+    let step = '준비';
     try {
-      // 이미지 전처리: File → Image → 캔버스 전처리 → Blob
-      let ocrSource = file;
-      if (file.type && file.type.startsWith('image/')) {
-        try {
-          textEl.textContent = '이미지 전처리 중...';
-          fillEl.style.width = '8%';
-          const img = await this._fileToImage(file);
-          ocrSource = await OCREngine.preprocessImage(img);
-          console.log('[OCR] 이미지 전처리 완료');
-        } catch (e) {
-          console.warn('[OCR] 전처리 실패, 원본 이미지 사용:', e);
-          ocrSource = file; // 전처리 실패해도 원본으로 계속 진행
-        }
-      }
-
-      textEl.textContent = 'OCR 엔진 로딩중... (한글 데이터 다운로드 중)';
+      // STEP 1: Tesseract.js 로드
+      step = 'OCR 엔진 로드';
+      textEl.textContent = '1/3 OCR 엔진 로딩중... (최초 1회 시간 소요)';
       fillEl.style.width = '10%';
+      await OCREngine.loadTesseract();
+      console.log('[OCR] 엔진 로드 완료');
 
-      const result = await OCREngine.recognizeImage(ocrSource, (progress) => {
-        fillEl.style.width = `${10 + progress * 0.85}%`;
-        textEl.textContent = `텍스트 인식중... ${progress}%`;
+      // STEP 2: 원본 이미지로 바로 인식 (전처리 생략 - 원본이 더 정확)
+      step = '텍스트 인식';
+      textEl.textContent = '2/3 한글 데이터 다운로드 및 텍스트 인식중...';
+      fillEl.style.width = '20%';
+
+      const result = await OCREngine.recognizeImage(file, (progress) => {
+        fillEl.style.width = `${20 + progress * 0.7}%`;
+        if (progress < 50) {
+          textEl.textContent = `2/3 한글 학습 데이터 다운로드중... ${progress}%`;
+        } else {
+          textEl.textContent = `2/3 텍스트 인식중... ${progress}%`;
+        }
       });
+
+      // STEP 3: 결과 처리
+      step = '결과 처리';
+      fillEl.style.width = '95%';
+      textEl.textContent = '3/3 결과 분석중...';
+
+      // 원문 항상 표시
+      if (result.rawText && result.rawText.trim()) {
+        rawArea.classList.remove('hidden');
+        rawText.textContent = result.rawText;
+        console.log('[OCR] 인식 원문:\n', result.rawText);
+      }
 
       // 결과 자동 채우기
       if (result.regNumber) document.getElementById('partnerRegNumber').value = result.regNumber;
@@ -314,63 +326,40 @@ const TaxInvoiceRequestModule = {
       if (result.businessType) document.getElementById('partnerBusinessType').value = result.businessType;
       if (result.businessItem) document.getElementById('partnerBusinessItem').value = result.businessItem;
 
-      // 채워진 필드 수 확인
       const filledCount = [result.regNumber, result.companyName, result.repName, result.address, result.businessType, result.businessItem]
         .filter(v => v && v.trim()).length;
 
+      fillEl.style.width = '100%';
+
       if (filledCount === 0) {
-        // 인식은 됐지만 파싱된 내용이 없음
-        textEl.textContent = 'OCR 인식은 완료되었으나 자동 추출된 항목이 없습니다.';
-        fillEl.style.width = '100%';
         fillEl.style.background = 'var(--color-warning)';
+        textEl.textContent = '텍스트는 인식했으나 자동 추출 항목 없음. 아래 원문을 참고하여 직접 입력하세요.';
         document.getElementById('ocrNotice').classList.remove('hidden');
-        Utils.showToast('자동 인식된 항목이 없습니다. 사업자등록증을 보고 직접 입력해 주세요.', 'warning', 5000);
-        console.log('[OCR] 원본 인식 텍스트:\n', result.rawText);
       } else {
-        // 신뢰도 표시
-        for (const [field, level] of Object.entries(result.confidence)) {
-          const fieldMap = {
-            regNumber: 'partnerRegNumber',
-            companyName: 'partnerCompanyName',
-            repName: 'partnerRepName',
-            address: 'partnerAddress',
-            businessType: 'partnerBusinessType',
-            businessItem: 'partnerBusinessItem'
-          };
-          const inputId = fieldMap[field];
-          if (inputId) {
-            const input = document.getElementById(inputId);
-            input.style.borderColor = level === 'high' ? 'var(--color-success)' : 'var(--color-warning)';
-          }
-        }
-
-        textEl.textContent = `인식 완료! ${filledCount}개 항목 추출. 결과를 확인하고 필요시 수정하세요.`;
-        fillEl.style.width = '100%';
+        fillEl.style.background = 'var(--color-success)';
+        textEl.textContent = `${filledCount}개 항목 자동 추출 완료. 결과를 확인하고 수정하세요.`;
         document.getElementById('ocrNotice').classList.add('hidden');
-        Utils.showToast(`${filledCount}개 항목이 자동 인식되었습니다. 확인 후 수정해 주세요.`, 'success');
+
+        for (const [field, level] of Object.entries(result.confidence)) {
+          const fieldMap = { regNumber:'partnerRegNumber', companyName:'partnerCompanyName', repName:'partnerRepName', address:'partnerAddress', businessType:'partnerBusinessType', businessItem:'partnerBusinessItem' };
+          const el = document.getElementById(fieldMap[field]);
+          if (el) el.style.borderColor = level === 'high' ? 'var(--color-success)' : 'var(--color-warning)';
+        }
       }
 
-      // OCR 인식 원문 표시
-      if (result.rawText && result.rawText.trim()) {
-        document.getElementById('ocrRawTextArea').classList.remove('hidden');
-        document.getElementById('ocrRawText').textContent = result.rawText;
-      }
+      setTimeout(() => progressEl.classList.add('hidden'), 5000);
 
-      setTimeout(() => progressEl.classList.add('hidden'), 3000);
     } catch (err) {
-      console.error('[OCR] 실패:', err);
-      const errMsg = (err && err.message) ? err.message : '알 수 없는 오류';
-      textEl.textContent = 'OCR 인식 실패: ' + errMsg;
-      fillEl.style.width = '0%';
+      console.error(`[OCR] ${step} 단계 실패:`, err);
+      const errMsg = (err && err.message) ? err.message : String(err);
+      fillEl.style.width = '100%';
       fillEl.style.background = 'var(--color-danger)';
+      textEl.textContent = `OCR 실패 (${step}): ${errMsg}`;
+      document.getElementById('ocrNotice').classList.remove('hidden');
 
-      // 로컬 파일 환경 안내
-      const isLocal = window.location.protocol === 'file:';
-      if (isLocal) {
-        Utils.showToast('로컬 파일 환경에서 OCR이 제한될 수 있습니다. 거래처 정보를 직접 입력해 주세요.', 'warning', 5000);
-      } else {
-        Utils.showToast('OCR 인식에 실패했습니다. 거래처 정보를 직접 입력해 주세요.', 'error');
-      }
+      // 에러 상세를 원문 영역에 표시
+      rawArea.classList.remove('hidden');
+      rawText.textContent = `[오류 상세]\n단계: ${step}\n메시지: ${errMsg}\n\n브라우저: ${navigator.userAgent}\nURL: ${location.href}\n\n※ 사업자등록증을 보고 거래처 정보를 직접 입력해 주세요.`;
     }
   },
 

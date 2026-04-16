@@ -30,26 +30,34 @@ const OCREngine = {
   },
 
   async _recognizeV4(imageSource, onProgress) {
-    const worker = await Tesseract.createWorker({
-      logger: (m) => {
-        if (m.status === 'recognizing text' && onProgress) onProgress(Math.round(m.progress * 100));
-        if (m.status === 'loading language traineddata' && onProgress) onProgress(Math.round(m.progress * 30));
-      },
-      workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
-      corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
-    });
+    console.log('[OCR] Worker 생성 시작...');
+    let worker;
+    try {
+      worker = await Tesseract.createWorker({
+        logger: (m) => {
+          console.log('[OCR] logger:', m.status, m.progress);
+          if (m.status === 'recognizing text' && onProgress) onProgress(50 + Math.round(m.progress * 50));
+          if (m.status === 'loading language traineddata' && onProgress) onProgress(Math.round(m.progress * 40));
+        },
+        workerPath: 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/worker.min.js',
+        corePath: 'https://cdn.jsdelivr.net/npm/tesseract.js-core@4/tesseract-core.wasm.js',
+      });
+    } catch (e) {
+      console.error('[OCR] Worker 생성 실패:', e);
+      throw new Error('OCR Worker 생성 실패: ' + (e.message || e));
+    }
 
     try {
+      console.log('[OCR] 한글 언어 데이터 로드...');
       await worker.loadLanguage('kor+eng');
+      console.log('[OCR] 언어 초기화...');
       await worker.initialize('kor+eng');
-      // 사업자등록증 인식에 최적화된 설정
-      await worker.setParameters({
-        tessedit_pageseg_mode: '6', // 단일 텍스트 블록
-      });
 
-      if (onProgress) onProgress(40);
+      if (onProgress) onProgress(45);
+      console.log('[OCR] 이미지 인식 시작...');
       const { data } = await worker.recognize(imageSource);
       await worker.terminate();
+      console.log('[OCR] 인식 완료, 텍스트 길이:', data.text.length);
 
       console.log('[OCR] 인식 완료, 텍스트:\n', data.text);
       return this.parseBusinessRegistration(data.text);

@@ -205,10 +205,10 @@ const DepositModule = {
       // 입금액이 0이면 건너뜀 (출금 내역)
       if (depositAmount <= 0) continue;
 
-      // 입금자명: cols[4]가 계좌번호일 수 있으므로 여러 컬럼에서 추출
+      // 입금자명: 은행마다 컬럼 위치가 다르므로 cols[3]부터 탐색
       let accountNo = '';
       let depositorName = '';
-      for (let i = 4; i < cols.length; i++) {
+      for (let i = 3; i < cols.length; i++) {
         const val = (cols[i] || '').trim();
         if (!val) continue;
         if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;

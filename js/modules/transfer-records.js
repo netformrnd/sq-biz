@@ -167,13 +167,12 @@ const TransferModule = {
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       if (withdrawAmount <= 0) continue;
 
-      // 수취인: cols[4]가 계좌번호일 수 있으므로 여러 컬럼에서 이름+계좌 추출
-      // 은행 형식: [4]거래처명/계좌번호, [5](빈), [6]은행, ... [11]거래처명2
+      // 수취인: 은행마다 컬럼 위치가 다르므로 cols[3]부터 탐색
+      // 형식A: [3]잔액 [4]거래처명 | 형식B: [3]수취인 [4]계좌번호
       let accountNo = '';
       let recipientName = '';
 
-      // cols 전체에서 한글 이름이 있는 컬럼 찾기
-      for (let i = 4; i < cols.length; i++) {
+      for (let i = 3; i < cols.length; i++) {
         const val = (cols[i] || '').trim();
         if (!val) continue;
         // 순수 숫자 = 계좌번호

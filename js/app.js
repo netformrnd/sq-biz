@@ -202,19 +202,11 @@ const App = {
       }
       if (showTransfers) {
         html += `
-          <div class="nav-item" data-path="/transfers/my" onclick="Router.navigate('/transfers/my')">
+          <div class="nav-item" data-path="/transfers/admin" onclick="Router.navigate('/transfers/admin')">
             <span class="nav-icon">💸</span>
-            <span>나의 송금내역</span>
+            <span>송금내역</span>
           </div>
         `;
-        if (isAdmin) {
-          html += `
-            <div class="nav-item" data-path="/transfers/admin" onclick="Router.navigate('/transfers/admin')">
-              <span class="nav-icon">📑</span>
-              <span>송금내역 관리</span>
-            </div>
-          `;
-        }
       }
       html += `</div>`;
     }

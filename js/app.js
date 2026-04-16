@@ -219,6 +219,17 @@ const App = {
       html += `</div>`;
     }
 
+    // 문서보관
+    html += `
+      <div class="nav-section">
+        <div class="nav-section-title">문서</div>
+        <div class="nav-item" data-path="/documents" onclick="Router.navigate('/documents')">
+          <span class="nav-icon">📁</span>
+          <span>문서보관</span>
+        </div>
+      </div>
+    `;
+
     // 연차 신청 (leave 권한)
     if (hasPerm('leave')) {
       html += `
@@ -307,6 +318,11 @@ const App = {
       title: '송금내역 관리',
       roles: ['admin'],
       action: 'admin'
+    });
+    Router.register('/documents', {
+      module: 'DocumentsModule',
+      title: '문서보관',
+      roles: ['admin', 'employee']
     });
     Router.register('/leave', {
       module: 'LeaveModule',

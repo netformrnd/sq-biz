@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 
 const DB = {
   db: null,
@@ -70,6 +70,15 @@ const DB = {
           store.createIndex('entityType', 'entityType', { unique: false });
           store.createIndex('userId', 'userId', { unique: false });
           store.createIndex('timestamp', 'timestamp', { unique: false });
+        }
+
+        // documents (문서보관)
+        if (!db.objectStoreNames.contains('documents')) {
+          const store = db.createObjectStore('documents', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('companyName', 'companyName', { unique: false });
+          store.createIndex('regNumber', 'regNumber', { unique: false });
+          store.createIndex('category', 'category', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };
 
@@ -177,7 +186,7 @@ const DB = {
 
   async exportAll() {
     await this.open();
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
     const data = {};
     for (const name of storeNames) {
       data[name] = await this.getAll(name);
@@ -202,7 +211,7 @@ const DB = {
 
   async importAll(backup) {
     await this.open();
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
     for (const name of storeNames) {
       await this.clear(name);
       if (backup.data[name]) {

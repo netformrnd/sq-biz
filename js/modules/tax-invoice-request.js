@@ -68,6 +68,23 @@ const TaxInvoiceRequestModule = {
                 <div class="progress-text" id="ocrProgressText">OCR 인식 준비중...</div>
               </div>
               <div id="uploadPreview" class="hidden upload-preview"></div>
+              <!-- OCR 인식 원문 보기 -->
+              <div id="ocrRawTextArea" class="hidden mt-2">
+                <button class="btn btn-ghost btn-sm" onclick="document.getElementById('ocrRawText').classList.toggle('hidden')">🔍 OCR 인식 원문 보기/닫기</button>
+                <pre id="ocrRawText" class="hidden" style="margin-top:var(--sp-2);padding:var(--sp-3);background:#F1F5F9;border:1px solid var(--color-border);border-radius:var(--radius-sm);font-size:11px;max-height:150px;overflow-y:auto;white-space:pre-wrap;"></pre>
+              </div>
+            </div>
+
+            <!-- 계약서 첨부 (선택) -->
+            <div class="form-group">
+              <label>계약서 첨부 <span class="text-muted text-xs">(선택)</span></label>
+              <div class="upload-area" id="contractUploadArea" style="padding:var(--sp-4);">
+                <div class="upload-icon" style="font-size:24px;">📑</div>
+                <div class="upload-text">계약서 파일을 드래그하거나 클릭하여 업로드</div>
+                <div class="upload-hint">여러 파일 첨부 가능 (이미지, PDF)</div>
+                <input type="file" id="contractFileInput" accept="image/*,.pdf" multiple style="display:none;">
+              </div>
+              <div id="contractPreviewList" style="margin-top:var(--sp-2);"></div>
             </div>
 
             <!-- 거래처 정보 -->
@@ -167,6 +184,22 @@ const TaxInvoiceRequestModule = {
       if (e.dataTransfer.files[0]) this._handleFile(e.dataTransfer.files[0]);
     });
 
+    // 계약서 업로드
+    const contractArea = document.getElementById('contractUploadArea');
+    const contractInput = document.getElementById('contractFileInput');
+    this.contractFiles = [];
+
+    contractArea.addEventListener('click', () => contractInput.click());
+    contractInput.addEventListener('change', (e) => {
+      for (const f of e.target.files) this._addContractFile(f);
+    });
+    contractArea.addEventListener('dragover', (e) => { e.preventDefault(); contractArea.classList.add('dragover'); });
+    contractArea.addEventListener('dragleave', () => contractArea.classList.remove('dragover'));
+    contractArea.addEventListener('drop', (e) => {
+      e.preventDefault(); contractArea.classList.remove('dragover');
+      for (const f of e.dataTransfer.files) this._addContractFile(f);
+    });
+
     // 클립보드 붙여넣기 (Ctrl+V)
     document.addEventListener('paste', this._pasteHandler = (e) => {
       const items = e.clipboardData?.items;
@@ -185,6 +218,29 @@ const TaxInvoiceRequestModule = {
       e.preventDefault();
       await this._submitForm();
     });
+  },
+
+  _addContractFile(file) {
+    if (!file) return;
+    this.contractFiles.push(file);
+    this._renderContractPreviews();
+  },
+
+  _removeContractFile(idx) {
+    this.contractFiles.splice(idx, 1);
+    this._renderContractPreviews();
+  },
+
+  _renderContractPreviews() {
+    const list = document.getElementById('contractPreviewList');
+    if (!list) return;
+    if (this.contractFiles.length === 0) { list.innerHTML = ''; return; }
+    list.innerHTML = this.contractFiles.map((f, i) => `
+      <div style="display:inline-flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--color-surface-hover);border:1px solid var(--color-border);border-radius:var(--radius-sm);margin:2px;font-size:var(--font-size-sm);">
+        📑 ${Utils.escapeHtml(f.name || 'file')}
+        <span style="cursor:pointer;color:var(--color-danger);" onclick="TaxInvoiceRequestModule._removeContractFile(${i})">&times;</span>
+      </div>
+    `).join('');
   },
 
   async _handleFile(file) {
@@ -294,6 +350,12 @@ const TaxInvoiceRequestModule = {
         Utils.showToast(`${filledCount}개 항목이 자동 인식되었습니다. 확인 후 수정해 주세요.`, 'success');
       }
 
+      // OCR 인식 원문 표시
+      if (result.rawText && result.rawText.trim()) {
+        document.getElementById('ocrRawTextArea').classList.remove('hidden');
+        document.getElementById('ocrRawText').textContent = result.rawText;
+      }
+
       setTimeout(() => progressEl.classList.add('hidden'), 3000);
     } catch (err) {
       console.error('[OCR] 실패:', err);
@@ -377,15 +439,28 @@ const TaxInvoiceRequestModule = {
     const taxAmount = Math.round(amount * 0.1);
     const requestNumber = await DB.generateRequestNumber();
 
-    // 첨부파일 준비
+    // 첨부파일 준비 (사업자등록증)
     let attachments = [];
     if (this.uploadedFile) {
       attachments.push({
         fileName: this.uploadedFile.name || 'screenshot.png',
         fileType: this.uploadedFile.type,
         fileData: this.uploadedFile,
+        category: 'bizCert',
         uploadedAt: new Date().toISOString()
       });
+    }
+    // 계약서 첨부
+    if (this.contractFiles && this.contractFiles.length > 0) {
+      for (const cf of this.contractFiles) {
+        attachments.push({
+          fileName: cf.name || 'contract.pdf',
+          fileType: cf.type,
+          fileData: cf,
+          category: 'contract',
+          uploadedAt: new Date().toISOString()
+        });
+      }
     }
 
     const data = {
@@ -421,6 +496,25 @@ const TaxInvoiceRequestModule = {
       const id = await DB.add('taxInvoiceRequests', data);
       await DB.log('CREATE', 'taxInvoice', id, `세금계산서 발행 요청: ${requestNumber}`);
       App.updateNotificationBadges();
+
+      // 문서보관에 자동 저장 (사업자등록증 + 계약서)
+      if (attachments.length > 0) {
+        for (const att of attachments) {
+          await DB.add('documents', {
+            companyName: partnerCompanyName,
+            regNumber: partnerRegNumber,
+            fileName: att.fileName,
+            fileType: att.fileType,
+            fileData: att.fileData,
+            category: att.category === 'contract' ? '계약서' : '사업자등록증',
+            relatedInvoiceId: id,
+            relatedRequestNumber: requestNumber,
+            registeredBy: user.id,
+            registeredByName: user.displayName,
+            createdAt: new Date().toISOString()
+          });
+        }
+      }
 
       // 잔디 알림 전송
       JandiWebhook.notifyNewRequest(data);

@@ -33,12 +33,10 @@ const TaxInvoiceAdminModule = {
         let actionBtns = '';
 
         if (item.status === '요청') {
-          // 새 요청 → "검토하기" 버튼 (클릭 시 상세보기 + 검토중 상태변경)
           actionBtns = `
             <button class="btn btn-primary btn-sm" onclick="TaxInvoiceAdminModule._reviewRequest(${item.id})">검토하기</button>
           `;
         } else if (item.status === '검토중') {
-          // 검토중 → 상세보기 + 발행/반려 바로 처리
           actionBtns = `
             <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail(${item.id})" title="상세보기">👁️</button>
             <button class="btn btn-success btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '발행완료')">발행</button>
@@ -57,6 +55,8 @@ const TaxInvoiceAdminModule = {
             <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '검토중')">검토중으로</button>
           `;
         }
+        // 삭제 버튼 (모든 상태에서)
+        actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest(${item.id})" title="삭제">🗑️</button>`;
 
         return `
           <tr>
@@ -139,6 +139,23 @@ const TaxInvoiceAdminModule = {
     await this._openReviewDetail(id);
 
     // 목록 갱신
+    await this.render();
+  },
+
+  // ===== 삭제 =====
+  async _deleteRequest(id) {
+    const item = await DB.get('taxInvoiceRequests', id);
+    if (!item) return;
+
+    const confirmed = await Utils.confirm(
+      `${item.requestNumber} (${item.partnerCompanyName || '-'}) 발행 요청을 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`,
+      '발행 요청 삭제'
+    );
+    if (!confirmed) return;
+
+    await DB.delete('taxInvoiceRequests', id);
+    await DB.log('DELETE', 'taxInvoice', id, `발행 요청 삭제: ${item.requestNumber}`);
+    App.updateNotificationBadges();
     await this.render();
   },
 

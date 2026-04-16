@@ -187,27 +187,13 @@ const TaxInvoiceAdminModule = {
       `;
     }
 
-    // 상단 액션 버튼 (검토중일 때)
-    let topActionBtns = '';
-    if (item.status === '검토중') {
-      topActionBtns = `
-        <div class="d-flex gap-2">
-          <button class="btn btn-danger btn-sm" onclick="Utils.closeModal(); TaxInvoiceAdminModule._reject(${item.id})">반려</button>
-          <button class="btn btn-success" onclick="Utils.closeModal(); TaxInvoiceAdminModule._changeStatus(${item.id}, '발행완료')">발행완료 처리</button>
-        </div>
-      `;
-    }
-
     Utils.openModal(`
-      <div class="modal-header" style="flex-wrap:wrap;gap:var(--sp-2);">
+      <div class="modal-header">
         <div class="d-flex items-center gap-2">
           <h3 style="margin:0;">${Utils.escapeHtml(item.requestNumber)}</h3>
           ${Utils.statusBadge(item.status)}
         </div>
-        <div class="d-flex items-center gap-2">
-          ${topActionBtns}
-          <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
-        </div>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
       <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
         <!-- 요청 정보 -->

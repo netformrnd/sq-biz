@@ -99,14 +99,13 @@ const OCREngine = {
     }
 
     // === 2. 상호 ===
-    // "상호(단체명)" 또는 "상호(법인명)" 뒤에서 대표자/성명 전까지
     const companyMatch = fullText.match(
       /(?:상호|단체명|법인명)[^:]*?[:\s]\s*(.+?)(?=대표자|성명|개업|사업장|소재지|\d{3}-\d{2}|$)/
     );
     if (companyMatch) {
       let name = companyMatch[1].trim();
-      // 끝에 붙은 불필요한 텍스트 제거
-      name = name.replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
+      // 앞뒤 ":", 괄호, 특수문자 제거
+      name = name.replace(/^[:\s.·]+/, '').replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
       if (name.length >= 2 && name.length <= 50) {
         result.companyName = name;
         result.confidence.companyName = 'high';
@@ -114,9 +113,9 @@ const OCREngine = {
     }
 
     // === 3. 대표자 ===
-    // "대표자" 또는 "성명" 뒤에서 한글 이름(2~5자) 추출
+    // 한글 이름 2~4자, "개업/연월/사업" 등 키워드 전에서 끊기
     const repMatch = fullText.match(
-      /(?:대표자|성명)[^:]*?[:\s]\s*([가-힣]{2,5})/
+      /(?:대표자|성명)[^가-힣]*([가-힣]{2,4}?)(?=개업|연월|사업|주소|소재|\d|$)/
     );
     if (repMatch) {
       result.repName = repMatch[1];
@@ -124,55 +123,81 @@ const OCREngine = {
     }
 
     // === 4. 사업장 주소 ===
-    // "사업장소재지" 또는 "소재지" 뒤에서 주소 추출
-    // 실제 주소는 시/도/구/군/동/로/길 패턴으로 시작
-    const addrMatch = fullText.match(
-      /(?:사업장소재지|소재지|주소)[^:]*?[:\s]\s*(.+?)(?=업태|종목|개업|교부|사업의|발급|$)/
-    );
-    if (addrMatch) {
+    // 시/도 이름으로 시작하는 실제 주소 패턴을 직접 찾기
+    const SIDO = '서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주';
+    const addrRegex = new RegExp(`((?:${SIDO})(?:특별시|광역시|특별자치시|도|특별자치도)?\\s*[가-힣0-9\\s,.\\-()]+?)(?=업태|종목|개업|교부|사업의|발급|본점|법인|${SIDO}|$)`);
+    const addrMatch = fullText.match(addrRegex);
+    if (addrMatch && addrMatch[1].length >= 8) {
       let addr = addrMatch[1].trim();
-      // 레이블 잔해 제거
-      addr = addr.replace(/\(?\s*법인사업자\s*:?\s*본점\s*\)?/g, '').trim();
-      addr = addr.replace(/본점소재지\s*:?\s*/g, '').trim();
-      // 실제 주소 부분만 추출 (시/도로 시작하는 부분)
-      const realAddr = addr.match(/(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주).+/);
-      if (realAddr) {
-        addr = realAddr[0];
-      }
-      if (addr.length >= 5) {
-        result.address = addr;
-        result.confidence.address = 'high';
-      }
+      // 끝에 붙은 불필요한 문자 제거
+      addr = addr.replace(/\s+$/, '').replace(/[,.\s]+$/, '').trim();
+      result.address = addr;
+      result.confidence.address = 'high';
     }
 
-    // 주소를 못 찾았으면 시/도 패턴으로 직접 검색
+    // 주소를 못 찾았으면 "소재지" 레이블 기반
     if (!result.address) {
-      const directAddr = fullText.match(
-        /((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|도|특별자치도)?\s*[가-힣0-9\s,.\-()]+?)(?=업태|종목|개업|교부|사업의|대표|$)/
-      );
-      if (directAddr && directAddr[1].length >= 8) {
-        result.address = directAddr[1].trim();
+      const labelAddr = fullText.match(/(?:소재지|주소)\s*[:\s]\s*((?:${SIDO}).+?)(?=업태|종목|개업|본점|법인|$)/);
+      if (labelAddr && labelAddr[1].length >= 8) {
+        result.address = labelAddr[1].trim();
         result.confidence.address = 'medium';
       }
     }
 
     // === 5. 업태 ===
-    const typeMatch = fullText.match(/업태\s*[:\s]\s*(.+?)(?=종목|개업|교부|사업의|$)/);
-    if (typeMatch) {
-      let val = typeMatch[1].trim().replace(/[|]/g, '');
-      if (val.length >= 1 && val.length <= 30) {
-        result.businessType = val;
-        result.confidence.businessType = 'medium';
+    // "업태" 뒤 콜론/공백 유무 상관없이, "종목" 전까지 추출
+    const typePatterns = [
+      /업태\s*[:\s]\s*(.+?)(?=종목|개업|교부|사업의|사업자|$)/,
+      /업태\s*(.+?)(?=종목|개업|교부|$)/,
+    ];
+    for (const p of typePatterns) {
+      const m = fullText.match(p);
+      if (m) {
+        let val = m[1].trim().replace(/^[:\s]+/, '').replace(/[|]/g, '').trim();
+        if (val.length >= 1 && val.length <= 30) {
+          result.businessType = val;
+          result.confidence.businessType = 'medium';
+          break;
+        }
       }
     }
 
     // === 6. 종목 ===
-    const itemMatch = fullText.match(/종목\s*[:\s]\s*(.+?)(?=개업|교부|사업의|사업자|발급|$)/);
-    if (itemMatch) {
-      let val = itemMatch[1].trim().replace(/[|]/g, '');
-      if (val.length >= 1 && val.length <= 30) {
-        result.businessItem = val;
-        result.confidence.businessItem = 'medium';
+    const itemPatterns = [
+      /종목\s*[:\s]\s*(.+?)(?=개업|교부|사업의|사업자|발급|사업|$)/,
+      /종목\s*(.+?)(?=개업|교부|사업|발급|$)/,
+    ];
+    for (const p of itemPatterns) {
+      const m = fullText.match(p);
+      if (m) {
+        let val = m[1].trim().replace(/^[:\s]+/, '').replace(/[|]/g, '').trim();
+        if (val.length >= 1 && val.length <= 30) {
+          result.businessItem = val;
+          result.confidence.businessItem = 'medium';
+          break;
+        }
+      }
+    }
+
+    // === 주소 중복 제거 ===
+    if (result.address && result.address.length > 15) {
+      const half = Math.floor(result.address.length / 2);
+      // 앞뒤 절반이 거의 같으면 앞 절반만 사용
+      const first = result.address.substring(0, half).trim();
+      const second = result.address.substring(half).trim();
+      if (first === second) {
+        result.address = first;
+      } else {
+        // 공백 기준 반복 체크
+        const words = result.address.split(/\s+/);
+        const halfW = Math.floor(words.length / 2);
+        if (halfW >= 2) {
+          const firstHalf = words.slice(0, halfW).join(' ');
+          const secondHalf = words.slice(halfW).join(' ');
+          if (firstHalf === secondHalf) {
+            result.address = firstHalf;
+          }
+        }
       }
     }
 

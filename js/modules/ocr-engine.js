@@ -1,7 +1,8 @@
 /* ============================================
    사업자등록증 OCR 엔진
    - 화면캡쳐(Ctrl+V) 기반 최적화
-   - 한글 공백 정규화 처리
+   - 한글 공백 + 점(.) 정규화
+   - 필드 경계 분리 파싱
    ============================================ */
 
 const OCREngine = {
@@ -14,7 +15,7 @@ const OCREngine = {
       const script = document.createElement('script');
       script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js';
       script.onload = () => { this.isLoaded = true; resolve(); };
-      script.onerror = () => reject(new Error('Tesseract.js 로드 실패. 인터넷 연결을 확인하세요.'));
+      script.onerror = () => reject(new Error('Tesseract.js 로드 실패'));
       document.head.appendChild(script);
     });
   },
@@ -24,13 +25,11 @@ const OCREngine = {
     try {
       return await this._recognize(imageSource, onProgress);
     } catch (err) {
-      console.error('[OCR] 인식 오류:', err);
       throw new Error((err && err.message) ? err.message : 'OCR 처리 중 오류');
     }
   },
 
   async _recognize(imageSource, onProgress) {
-    console.log('[OCR] Worker 생성...');
     let worker;
     try {
       worker = await Tesseract.createWorker({
@@ -49,11 +48,9 @@ const OCREngine = {
       await worker.loadLanguage('kor+eng');
       await worker.initialize('kor+eng');
       if (onProgress) onProgress(45);
-
       const { data } = await worker.recognize(imageSource);
       await worker.terminate();
-
-      console.log('[OCR] 원본 텍스트:\n', data.text);
+      console.log('[OCR] 원본:\n', data.text);
       return this.parseBusinessRegistration(data.text);
     } catch (err) {
       try { await worker.terminate(); } catch (e) {}
@@ -61,17 +58,20 @@ const OCREngine = {
     }
   },
 
-  // ===== 한글 공백 정규화 =====
-  // Tesseract가 "경 기 도 여 주 시" 처럼 글자 사이에 공백을 넣는 문제 해결
-  _collapseKoreanSpaces(text) {
-    let result = text;
-    // 한글 단일 글자 사이의 공백 제거 (반복 적용)
-    for (let i = 0; i < 5; i++) {
-      const prev = result;
-      result = result.replace(/([가-힣])\s([가-힣])/g, '$1$2');
-      if (result === prev) break;
+  // ===== 텍스트 정규화 =====
+  _normalize(text) {
+    let t = text;
+    // 1. 점+공백 사이의 한글 합치기: "대 . 표 . 자" → "대표자"
+    t = t.replace(/([가-힣])\s*\.\s*([가-힣])/g, '$1$2');
+    // 반복 적용
+    t = t.replace(/([가-힣])\s*\.\s*([가-힣])/g, '$1$2');
+    // 2. 한글 단일 글자 사이 공백 제거: "경 기 도" → "경기도"
+    for (let i = 0; i < 10; i++) {
+      const prev = t;
+      t = t.replace(/([가-힣])\s([가-힣])/g, '$1$2');
+      if (t === prev) break;
     }
-    return result;
+    return t;
   },
 
   // ===== 사업자등록증 파싱 =====
@@ -84,159 +84,99 @@ const OCREngine = {
 
     if (!rawText || rawText.trim().length < 5) return result;
 
-    // 원본 + 공백 정규화 버전 모두 준비
-    const normalized = this._collapseKoreanSpaces(rawText);
-    const lines = normalized.split('\n').map(l => l.trim()).filter(Boolean);
-    const fullText = lines.join(' ');
+    // 정규화 적용
+    const normalized = this._normalize(rawText);
+    console.log('[OCR] 정규화:\n', normalized);
 
-    console.log('[OCR] 정규화 텍스트:\n', normalized);
+    // 전체 텍스트를 하나의 문자열로 (줄바꿈 → 공백)
+    const fullText = normalized.replace(/\n/g, ' ').replace(/\s{2,}/g, ' ');
 
     // === 1. 사업자등록번호 ===
-    const regPatterns = [
-      /(\d{3})\s*[-–—·.]\s*(\d{2})\s*[-–—·.]\s*(\d{5})/,
-      /등록번호\s*[:\s]*(\d{3})\s*[-–—·.]?\s*(\d{2})\s*[-–—·.]?\s*(\d{5})/,
-    ];
-    for (const p of regPatterns) {
-      const m = fullText.match(p);
-      if (m) {
-        result.regNumber = `${m[1]}-${m[2]}-${m[3]}`;
-        result.confidence.regNumber = 'high';
-        break;
-      }
+    const regMatch = fullText.match(/(\d{3})\s*[-–—·.]\s*(\d{2})\s*[-–—·.]\s*(\d{5})/);
+    if (regMatch) {
+      result.regNumber = `${regMatch[1]}-${regMatch[2]}-${regMatch[3]}`;
+      result.confidence.regNumber = 'high';
     }
 
-    // === 2. 상호 (법인명/단체명) ===
-    // "상호(단체명)" 또는 "상호(법인명)" 레이블 뒤의 실제 회사명 추출
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      // "상호" 또는 "단체명" 또는 "법인명" 레이블이 있는 줄 찾기
-      if (line.match(/상호|단체명|법인명/)) {
-        // 같은 줄에서 레이블 뒤의 값 추출
-        let name = line
-          .replace(/.*(?:상호|법인명|단체명)\s*[\(\)단체명법인]*\s*[:\s]*/i, '')
-          .replace(/^[\s:()（）]+/, '')
-          .trim();
-
-        // 추출된 값이 너무 짧거나 레이블만이면 다음 줄 확인
-        if (name.length < 2 || name.match(/^(단체명|법인명|상호)$/)) {
-          // 다음 줄에 실제 이름이 있을 수 있음
-          if (i + 1 < lines.length) {
-            const nextLine = lines[i + 1].trim();
-            if (nextLine.length >= 2 && !nextLine.match(/대표자|성명|사업장|등록|주소/)) {
-              name = nextLine;
-            }
-          }
-        }
-
-        if (name.length >= 2) {
-          result.companyName = name.replace(/[|[\]]/g, '').trim();
-          result.confidence.companyName = 'high';
-          break;
-        }
+    // === 2. 상호 ===
+    // "상호(단체명)" 또는 "상호(법인명)" 뒤에서 대표자/성명 전까지
+    const companyMatch = fullText.match(
+      /(?:상호|단체명|법인명)[^:]*?[:\s]\s*(.+?)(?=대표자|성명|개업|사업장|소재지|\d{3}-\d{2}|$)/
+    );
+    if (companyMatch) {
+      let name = companyMatch[1].trim();
+      // 끝에 붙은 불필요한 텍스트 제거
+      name = name.replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
+      if (name.length >= 2 && name.length <= 50) {
+        result.companyName = name;
+        result.confidence.companyName = 'high';
       }
     }
 
     // === 3. 대표자 ===
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.match(/대표자|성명/)) {
-        let rep = line
-          .replace(/.*(?:대표자|성명)\s*[\(\)성명]*\s*[:\s]*/i, '')
-          .replace(/^[\s:()（）]+/, '')
-          .trim();
-
-        // 너무 짧으면 다음 줄
-        if (rep.length < 2 || rep.match(/^(성명|대표자)$/)) {
-          if (i + 1 < lines.length) {
-            const nextLine = lines[i + 1].trim();
-            if (nextLine.length >= 2 && nextLine.length <= 10 && !nextLine.match(/사업장|주소|업태|개업/)) {
-              rep = nextLine;
-            }
-          }
-        }
-
-        if (rep.length >= 2 && rep.length <= 20) {
-          result.repName = rep.replace(/[|[\]]/g, '').trim();
-          result.confidence.repName = 'high';
-          break;
-        }
-      }
+    // "대표자" 또는 "성명" 뒤에서 한글 이름(2~5자) 추출
+    const repMatch = fullText.match(
+      /(?:대표자|성명)[^:]*?[:\s]\s*([가-힣]{2,5})/
+    );
+    if (repMatch) {
+      result.repName = repMatch[1];
+      result.confidence.repName = 'high';
     }
 
     // === 4. 사업장 주소 ===
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (line.match(/사업장|소재지|본점/)) {
-        let addr = line
-          .replace(/.*(?:사업장소재지|사업장주소|소재지|본점소재지)\s*[:\s]*/i, '')
-          .replace(/^[\s:]+/, '')
-          .trim();
-
-        // 다음 줄도 주소일 수 있음
-        if (i + 1 < lines.length) {
-          const nextLine = lines[i + 1].trim();
-          if (nextLine.length > 3 && !nextLine.match(/업태|종목|개업|대표|등록|사업자|상호/)) {
-            // "본점소재지:" 같은 중복 레이블 제거
-            const cleanNext = nextLine.replace(/.*(?:본점소재지|소재지)\s*[:\s]*/i, '').trim();
-            if (cleanNext.length > 3 && !addr.includes(cleanNext)) {
-              addr += ' ' + cleanNext;
-            }
-          }
-        }
-
-        // "본점소재지:" 레이블이 주소 안에 포함된 경우 제거
-        addr = addr.replace(/본점소재지\s*[:]\s*/g, '').trim();
-
-        if (addr.length >= 5) {
-          result.address = addr;
-          result.confidence.address = 'high';
-          break;
-        }
+    // "사업장소재지" 또는 "소재지" 뒤에서 주소 추출
+    // 실제 주소는 시/도/구/군/동/로/길 패턴으로 시작
+    const addrMatch = fullText.match(
+      /(?:사업장소재지|소재지|주소)[^:]*?[:\s]\s*(.+?)(?=업태|종목|개업|교부|사업의|발급|$)/
+    );
+    if (addrMatch) {
+      let addr = addrMatch[1].trim();
+      // 레이블 잔해 제거
+      addr = addr.replace(/\(?\s*법인사업자\s*:?\s*본점\s*\)?/g, '').trim();
+      addr = addr.replace(/본점소재지\s*:?\s*/g, '').trim();
+      // 실제 주소 부분만 추출 (시/도로 시작하는 부분)
+      const realAddr = addr.match(/(서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주).+/);
+      if (realAddr) {
+        addr = realAddr[0];
+      }
+      if (addr.length >= 5) {
+        result.address = addr;
+        result.confidence.address = 'high';
       }
     }
 
-    // === 5. 업태 & 종목 ===
-    for (const line of lines) {
-      // 같은 줄에 업태와 종목이 있는 경우
-      const combined = line.match(/업태\s*[:\s]*(.+?)\s+종목\s*[:\s]*(.+)/);
-      if (combined) {
-        result.businessType = combined[1].replace(/[|]/g, '').trim();
-        result.businessItem = combined[2].replace(/[|]/g, '').trim();
+    // 주소를 못 찾았으면 시/도 패턴으로 직접 검색
+    if (!result.address) {
+      const directAddr = fullText.match(
+        /((?:서울|부산|대구|인천|광주|대전|울산|세종|경기|강원|충북|충남|전북|전남|경북|경남|제주)(?:특별시|광역시|특별자치시|도|특별자치도)?\s*[가-힣0-9\s,.\-()]+?)(?=업태|종목|개업|교부|사업의|대표|$)/
+      );
+      if (directAddr && directAddr[1].length >= 8) {
+        result.address = directAddr[1].trim();
+        result.confidence.address = 'medium';
+      }
+    }
+
+    // === 5. 업태 ===
+    const typeMatch = fullText.match(/업태\s*[:\s]\s*(.+?)(?=종목|개업|교부|사업의|$)/);
+    if (typeMatch) {
+      let val = typeMatch[1].trim().replace(/[|]/g, '');
+      if (val.length >= 1 && val.length <= 30) {
+        result.businessType = val;
         result.confidence.businessType = 'medium';
+      }
+    }
+
+    // === 6. 종목 ===
+    const itemMatch = fullText.match(/종목\s*[:\s]\s*(.+?)(?=개업|교부|사업의|사업자|발급|$)/);
+    if (itemMatch) {
+      let val = itemMatch[1].trim().replace(/[|]/g, '');
+      if (val.length >= 1 && val.length <= 30) {
+        result.businessItem = val;
         result.confidence.businessItem = 'medium';
-        break;
       }
     }
 
-    if (!result.businessType) {
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].match(/업태/) && !lines[i].match(/종목/)) {
-          let val = lines[i].replace(/.*업태\s*[:\s]*/i, '').trim();
-          if (val.length < 1 && i + 1 < lines.length) val = lines[i + 1].trim();
-          if (val.length >= 1) {
-            result.businessType = val.replace(/[|]/g, '').trim();
-            result.confidence.businessType = 'medium';
-            break;
-          }
-        }
-      }
-    }
-
-    if (!result.businessItem) {
-      for (let i = 0; i < lines.length; i++) {
-        if (lines[i].match(/종목/)) {
-          let val = lines[i].replace(/.*종목\s*[:\s]*/i, '').trim();
-          if (val.length < 1 && i + 1 < lines.length) val = lines[i + 1].trim();
-          if (val.length >= 1) {
-            result.businessItem = val.replace(/[|]/g, '').trim();
-            result.confidence.businessItem = 'medium';
-            break;
-          }
-        }
-      }
-    }
-
-    console.log('[OCR] 파싱 결과:', JSON.stringify(result, (k, v) => k === 'rawText' ? '(생략)' : v, 2));
+    console.log('[OCR] 결과:', JSON.stringify(result, (k, v) => k === 'rawText' ? '(생략)' : v, 2));
     return result;
   }
 };

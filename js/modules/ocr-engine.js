@@ -100,12 +100,12 @@ const OCREngine = {
 
     // === 2. 상호 ===
     const companyMatch = fullText.match(
-      /(?:상호|단체명|법인명)[^:]*?[:\s]\s*(.+?)(?=대표자|성명|개업|사업장|소재지|\d{3}-\d{2}|$)/
+      /(?:상호|단체명|법인명)[^:：]*?[:\s：]\s*(.+?)(?=대표자|성명|개업|사업장|소재지|\d{3}-\d{2}|$)/
     );
     if (companyMatch) {
       let name = companyMatch[1].trim();
-      // 앞뒤 ":", 괄호, 특수문자 제거
-      name = name.replace(/^[:\s.·]+/, '').replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
+      // 앞뒤 콜론(반각/전각), 괄호, 특수문자 모두 제거
+      name = name.replace(/^[:：\s.·,;]+/, '').replace(/[()（）\[\]|]/g, '').replace(/\s{2,}/g, ' ').trim();
       if (name.length >= 2 && name.length <= 50) {
         result.companyName = name;
         result.confidence.companyName = 'high';

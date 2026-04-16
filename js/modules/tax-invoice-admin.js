@@ -62,7 +62,11 @@ const TaxInvoiceAdminModule = {
           <tr>
             <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
             <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
-            <td>${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
+            <td>
+              <span onclick="TaxInvoiceAdminModule._editPartnerName(${item.id})" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
+                ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
+              </span>
+            </td>
             <td>${Utils.escapeHtml(item.reason ? (item.reason.length > 25 ? item.reason.slice(0, 25) + '...' : item.reason) : '-')}</td>
             <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
             <td class="text-center">${Utils.statusBadge(item.status)}</td>
@@ -139,6 +143,56 @@ const TaxInvoiceAdminModule = {
     await this._openReviewDetail(id);
 
     // 목록 갱신
+    await this.render();
+  },
+
+  // ===== 거래처명 수정 =====
+  async _editPartnerName(id) {
+    const item = await DB.get('taxInvoiceRequests', id);
+    if (!item) return;
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>거래처명 수정 - ${Utils.escapeHtml(item.requestNumber)}</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label for="editPartnerName">거래처명 <span class="required">*</span></label>
+          <input type="text" id="editPartnerName" class="form-control" value="${Utils.escapeHtml(item.partnerCompanyName || '')}" placeholder="거래처 상호 입력">
+        </div>
+        <div class="form-group">
+          <label for="editPartnerRegNum">사업자등록번호</label>
+          <input type="text" id="editPartnerRegNum" class="form-control" value="${Utils.escapeHtml(item.partnerRegNumber || '')}" placeholder="000-00-00000">
+        </div>
+        <div class="form-group">
+          <label for="editPartnerEmail">이메일</label>
+          <input type="email" id="editPartnerEmail" class="form-control" value="${Utils.escapeHtml(item.partnerEmail || '')}" placeholder="tax@example.com">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="TaxInvoiceAdminModule._savePartnerName(${id})">저장</button>
+      </div>
+    `);
+
+    setTimeout(() => { const el = document.getElementById('editPartnerName'); if (el) el.focus(); }, 100);
+  },
+
+  async _savePartnerName(id) {
+    const name = document.getElementById('editPartnerName').value.trim();
+    const regNum = document.getElementById('editPartnerRegNum').value.trim();
+    const email = document.getElementById('editPartnerEmail').value.trim();
+
+    const item = await DB.get('taxInvoiceRequests', id);
+    item.partnerCompanyName = name;
+    item.partnerRegNumber = regNum || item.partnerRegNumber;
+    item.partnerEmail = email || item.partnerEmail;
+    item.updatedAt = new Date().toISOString();
+    await DB.update('taxInvoiceRequests', item);
+    await DB.log('UPDATE', 'taxInvoice', id, `거래처 수정: ${name}`);
+
+    Utils.closeModal();
     await this.render();
   },
 

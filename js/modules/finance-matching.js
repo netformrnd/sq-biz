@@ -341,8 +341,12 @@ const FinanceMatchingModule = {
       </div>
       <div class="modal-body">
         <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
-          <strong>사용법:</strong> 은행/위하고 통장내역 엑셀에서 행을 복사(Ctrl+C)한 후 붙여넣기(Ctrl+V) 하세요.<br>
-          <span class="text-muted">시스템이 자동으로 <strong>입금</strong>과 <strong>출금(송금)</strong>을 분리해서 보여줍니다. 확인 후 등록할 항목만 선택하세요.</span>
+          <strong>✨ 정확한 인식을 위해 헤더 행을 함께 복사해 주세요:</strong><br>
+          <span class="text-muted">
+            • <strong>위하고:</strong> <code>월/일 | 적요 | 입금액 | 출금액 | 잔액</code> 헤더 + 데이터 행<br>
+            • <strong>은행:</strong> <code>거래일시 | 출금 | 입금 | 잔액 | 거래처명</code> 헤더 + 데이터 행<br>
+            헤더를 포함하면 컬럼 순서가 달라도 자동 인식됩니다.
+          </span>
         </div>
 
         <div class="form-group">
@@ -426,38 +430,64 @@ const FinanceMatchingModule = {
     `, { size: 'modal-xl' });
   },
 
-  // 텍스트를 라인 → 탭/공백으로 분리 (탭 없으면 여러 공백을 구분자로)
+  // 텍스트를 라인 → 탭/공백으로 분리
   _splitCols(line) {
-    // 탭이 있으면 탭 기준
     if (line.includes('\t')) return line.split('\t').map(c => c.trim());
-    // 탭이 없으면 2개 이상의 공백 기준 (위하고 복사 시 공백으로 나올 수 있음)
     return line.split(/\s{2,}|\t/).map(c => c.trim()).filter(c => c);
   },
 
-  // 숫자인지 판별 (콤마 제거)
   _isNumber(s) {
     if (!s) return false;
     const n = Number(s.replace(/[,\s]/g, ''));
     return !isNaN(n) && s.replace(/[,\s\d]/g, '') === '';
   },
 
-  // 컬럼 구조 자동 감지
-  // 반환: { nameIdx, withdrawIdx, depositIdx }
+  // 헤더 행에서 컬럼 매핑 추출
+  // 예: ["월/일", "적요", "입금액", "출금액", "잔액"] → {dateIdx:0, nameIdx:1, depositIdx:2, withdrawIdx:3}
+  _parseHeader(cols) {
+    const mapping = { dateIdx: -1, nameIdx: -1, depositIdx: -1, withdrawIdx: -1 };
+
+    for (let i = 0; i < cols.length; i++) {
+      const c = (cols[i] || '').trim();
+      if (!c) continue;
+      // 날짜 컬럼
+      if (/날짜|월\/일|월일|거래일자|거래일시/.test(c) && mapping.dateIdx < 0) {
+        mapping.dateIdx = i; continue;
+      }
+      // 이름 컬럼
+      if (/적요|거래내용|거래처|수취인|입금자|내용/.test(c) && mapping.nameIdx < 0) {
+        mapping.nameIdx = i; continue;
+      }
+      // 입금액
+      if (/^입금/.test(c) && mapping.depositIdx < 0) {
+        mapping.depositIdx = i; continue;
+      }
+      // 출금액 (송금)
+      if (/^출금|^송금/.test(c) && mapping.withdrawIdx < 0) {
+        mapping.withdrawIdx = i; continue;
+      }
+    }
+
+    // 필수 컬럼이 다 찾아졌는지 확인
+    if (mapping.dateIdx >= 0 && mapping.depositIdx >= 0 && mapping.withdrawIdx >= 0) {
+      return mapping;
+    }
+    return null;
+  },
+
+  // 헤더 없을 때 자동 감지 (폴백)
   _detectFormat(cols) {
     if (cols.length < 4) return null;
-
-    // 위하고: [날짜, 이름(한글), 출금(숫자), 입금(숫자), 잔액(숫자)]
-    // 은행:   [날짜, 출금(숫자), 입금(숫자), 잔액(숫자), 이름(한글), ...]
 
     const c1HasKorean = /[가-힣]/.test(cols[1] || '');
     const c1IsNumber = this._isNumber(cols[1] || '');
 
     if (c1HasKorean || (!c1IsNumber && (cols[1] || '').length > 0)) {
-      // 위하고 형식 (cols[1]=이름)
-      return { nameIdx: 1, withdrawIdx: 2, depositIdx: 3, format: 'wehago' };
+      // 위하고 형식 (cols[1]=이름, cols[2]=입금, cols[3]=출금)
+      return { dateIdx: 0, nameIdx: 1, depositIdx: 2, withdrawIdx: 3, format: 'wehago' };
     }
-    // 은행 형식 (cols[1]=출금)
-    return { nameIdx: 4, withdrawIdx: 1, depositIdx: 2, format: 'bank' };
+    // 은행 형식 (cols[1]=출금, cols[2]=입금)
+    return { dateIdx: 0, nameIdx: 4, withdrawIdx: 1, depositIdx: 2, format: 'bank' };
   },
 
   _parseBankStatement() {
@@ -469,41 +499,60 @@ const FinanceMatchingModule = {
 
     const lines = raw.split('\n').filter(l => l.trim());
     this._bankParsed = { deposits: [], withdrawals: [] };
-    let detectedFormat = null;
 
-    for (const line of lines) {
-      const cols = this._splitCols(line);
+    // 1) 헤더 행 자동 감지 (첫 5줄 중 찾기)
+    let mapping = null;
+    let startLine = 0;
+    for (let i = 0; i < Math.min(5, lines.length); i++) {
+      const cols = this._splitCols(lines[i]);
+      const m = this._parseHeader(cols);
+      if (m) {
+        mapping = m;
+        startLine = i + 1;
+        break;
+      }
+    }
+
+    let detectedFormat = mapping ? '헤더 기반' : '자동 감지';
+
+    // 2) 데이터 행 파싱
+    for (let i = startLine; i < lines.length; i++) {
+      const cols = this._splitCols(lines[i]);
       if (cols.length < 4) continue;
 
-      // 헤더 행 건너뛰기 (날짜 형식이 아니면 skip)
-      const dateMatch = (cols[0] || '').match(/(\d{2,4})[-.\/](\d{1,2})(?:[-.\/](\d{1,2}))?/);
+      // 매핑이 없으면 자동 감지
+      let map = mapping;
+      if (!map) {
+        const fmt = this._detectFormat(cols);
+        if (!fmt) continue;
+        map = fmt;
+        if (!detectedFormat || detectedFormat === '자동 감지') detectedFormat = fmt.format === 'wehago' ? '위하고' : '은행';
+      }
+
+      const dateStr = (cols[map.dateIdx] || '').trim();
+      const dateMatch = dateStr.match(/(\d{2,4})[-.\/](\d{1,2})(?:[-.\/](\d{1,2}))?/);
       if (!dateMatch) continue;
 
-      const fmt = this._detectFormat(cols);
-      if (!fmt) continue;
-      if (!detectedFormat) detectedFormat = fmt.format;
-
-      const withdrawStr = (cols[fmt.withdrawIdx] || '').trim();
-      const depositStr = (cols[fmt.depositIdx] || '').trim();
+      const withdrawStr = (cols[map.withdrawIdx] || '').trim();
+      const depositStr = (cols[map.depositIdx] || '').trim();
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
 
-      // 이름 추출
-      let name = (cols[fmt.nameIdx] || '').trim();
+      // 이름
+      let name = (cols[map.nameIdx] || '').trim();
       let accountNo = '';
 
-      // 은행 형식은 cols[4]부터 계좌번호/이름 추가 탐색
-      if (fmt.format === 'bank') {
-        for (let i = 3; i < cols.length; i++) {
-          const val = (cols[i] || '').trim();
+      // 은행 형식이면 cols[3+]부터 추가 탐색
+      if (!name || /^\d+$/.test(name)) {
+        for (let j = 3; j < cols.length; j++) {
+          const val = (cols[j] || '').trim();
           if (!val) continue;
           if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;
           if (/[가-힣]/.test(val) && !name) name = val;
         }
-        if (!name) name = (cols[4] || '').trim();
       }
 
-      // 괄호 형식 이름에서 계좌번호 추출 시도: "홍정란(3511-374-957813)"
+      // 괄호 안 계좌번호 추출
       if (!accountNo && name) {
         const m = name.match(/\(([^)]+)\)/);
         if (m && /\d{4,}/.test(m[1])) accountNo = m[1].trim();
@@ -513,13 +562,15 @@ const FinanceMatchingModule = {
         ? `${name} (${accountNo})`
         : name || accountNo || '-';
 
-      // 날짜: 2자리 연도면 현재 연도 사용
+      // 날짜
       let date = '';
       if (dateMatch[3]) {
-        // YYYY-MM-DD
-        date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+        // YYYY-MM-DD 또는 YY-MM-DD
+        let y = dateMatch[1];
+        if (y.length === 2) y = '20' + y;
+        date = `${y}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
       } else {
-        // MM-DD (연도 없음) → 올해 연도 사용
+        // MM-DD (연도 없음) → 올해 연도
         const year = new Date().getFullYear();
         date = `${year}-${dateMatch[1].padStart(2, '0')}-${dateMatch[2].padStart(2, '0')}`;
       }
@@ -533,12 +584,12 @@ const FinanceMatchingModule = {
 
     const { deposits, withdrawals } = this._bankParsed;
     if (deposits.length === 0 && withdrawals.length === 0) {
-      Utils.showToast('인식 가능한 내역이 없습니다. 복사 형식을 확인하세요.', 'warning');
+      Utils.showToast('인식 가능한 내역이 없습니다. 헤더(월/일, 적요, 입금액, 출금액)를 함께 복사해 보세요.', 'warning', 5000);
       return;
     }
 
     this._detectedFormat = detectedFormat;
-    Utils.showToast(`${detectedFormat === 'wehago' ? '위하고' : '은행'} 형식으로 인식: 입금 ${deposits.length}건, 송금 ${withdrawals.length}건`, 'success');
+    Utils.showToast(`[${detectedFormat}] 입금 ${deposits.length}건, 송금 ${withdrawals.length}건 인식`, 'success');
     this._renderBankParseResult();
   },
 

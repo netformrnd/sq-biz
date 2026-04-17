@@ -18,11 +18,14 @@ const DepositModule = {
     const deposits = await DB.getAll('deposits');
     const items = deposits.reverse();
 
+    // 날짜 필터
+    DateFilter.onChange('deposits', () => this.render());
+    let filtered = DateFilter.filter(items, 'depositDate', 'deposits');
+
     // 검색 필터
-    let filtered = items;
     if (this.searchText) {
       const q = this.searchText.toLowerCase();
-      filtered = items.filter(d =>
+      filtered = filtered.filter(d =>
         (d.depositorName || '').toLowerCase().includes(q) ||
         (d.projectName || '').toLowerCase().includes(q) ||
         (d.memo || '').toLowerCase().includes(q) ||
@@ -40,7 +43,7 @@ const DepositModule = {
       </td></tr>`;
     } else {
       tableRows = filtered.map(d => `
-        <tr>
+        <tr oncontextmenu="DepositModule._showContextMenu(event, ${d.id})">
           <td>${Utils.formatDate(d.depositDate)}</td>
           <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
           <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
@@ -86,6 +89,8 @@ const DepositModule = {
           </div>
         </div>
       </div>
+
+      <div class="mb-4">${DateFilter.render('deposits')}</div>
 
       <div class="table-wrapper">
         <div class="table-toolbar">
@@ -421,6 +426,22 @@ const DepositModule = {
     await DB.delete('deposits', id);
     await DB.log('DELETE', 'deposit', id, '입금내역 삭제');
     await this.render();
+  },
+
+  // 우클릭 컨텍스트 메뉴
+  _showContextMenu(event, id) {
+    const isAdmin = Auth.isAdmin();
+    const items = [];
+
+    if (isAdmin) {
+      items.push({ icon: '✏️', label: '수정', onClick: () => this._edit(id) });
+      items.push({ divider: true });
+      items.push({ icon: '🗑️', label: '삭제', danger: true, onClick: () => this._delete(id) });
+    } else {
+      items.push({ icon: 'ℹ️', label: '관리자만 수정/삭제 가능', onClick: () => {} });
+    }
+
+    ContextMenu.show(event, items);
   },
 
   destroy() {}

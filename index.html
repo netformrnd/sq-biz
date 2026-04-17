@@ -104,6 +104,9 @@
         <h1 class="page-title" id="pageTitle">대시보드</h1>
       </div>
       <div class="header-right">
+        <button class="btn btn-ghost btn-sm" onclick="GlobalSearch.open()" title="전체 검색 (Ctrl+K)" style="display:flex;align-items:center;gap:var(--sp-2);">
+          🔍 <span style="color:var(--color-text-muted);font-size:var(--font-size-xs);">Ctrl+K</span>
+        </button>
         <div class="user-info">
           <span class="user-name" id="userName">-</span>
           <span class="user-role" id="userRole">-</span>
@@ -120,9 +123,15 @@
 
   <!-- ====== JavaScript ====== -->
   <script src="js/utils.js"></script>
+  <script src="js/crypto-helper.js"></script>
   <script src="js/db.js"></script>
   <script src="js/auth.js"></script>
   <script src="js/router.js"></script>
+
+  <!-- 공통 컴포넌트 -->
+  <script src="js/modules/date-filter.js"></script>
+  <script src="js/modules/context-menu.js"></script>
+  <script src="js/modules/global-search.js"></script>
 
   <!-- 모듈 -->
   <script src="js/modules/jandi-webhook.js"></script>

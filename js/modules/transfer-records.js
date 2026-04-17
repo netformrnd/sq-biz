@@ -14,7 +14,12 @@ const TransferModule = {
 
   async render() {
     const isAdmin = Auth.isAdmin();
-    const records = (await DB.getAll('transferRecords')).reverse();
+    const allRecords = (await DB.getAll('transferRecords')).reverse();
+
+    // 날짜 필터 적용
+    DateFilter.onChange('transfers', () => this.render());
+    const records = DateFilter.filter(allRecords, 'transferDate', 'transfers');
+
     const totalAmount = records.reduce((s, r) => s + (r.amount || 0), 0);
 
     let tableRows = '';
@@ -24,7 +29,7 @@ const TransferModule = {
       </td></tr>`;
     } else {
       tableRows = records.map(r => `
-        <tr>
+        <tr oncontextmenu="TransferModule._showContextMenu(event, ${r.id})">
           <td>${Utils.formatDate(r.transferDate)}</td>
           <td class="fw-medium">${Utils.escapeHtml(r.recipientName || '-')}</td>
           <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
@@ -71,6 +76,8 @@ const TransferModule = {
         </div>
       </div>
 
+      <div class="mb-4">${DateFilter.render('transfers')}</div>
+
       <div class="table-wrapper">
         <table class="data-table">
           <thead>
@@ -88,6 +95,20 @@ const TransferModule = {
         </table>
       </div>
     `;
+  },
+
+  // 우클릭 컨텍스트 메뉴
+  _showContextMenu(event, id) {
+    const isAdmin = Auth.isAdmin();
+    const items = [];
+    if (isAdmin) {
+      items.push({ icon: '✏️', label: '수정', onClick: () => this._edit(id) });
+      items.push({ divider: true });
+      items.push({ icon: '🗑️', label: '삭제', danger: true, onClick: () => this._delete(id) });
+    } else {
+      items.push({ icon: 'ℹ️', label: '관리자만 수정/삭제 가능', onClick: () => {} });
+    }
+    ContextMenu.show(event, items);
   },
 
   // ===== 엑셀 붙여넣기 일괄 등록 =====

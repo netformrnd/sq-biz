@@ -157,14 +157,65 @@ const SettingsModule = {
   },
 
   async _exportBackup() {
+    // 비밀번호 입력 팝업
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>🔒 백업 파일 암호화</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <p class="mb-4 text-sm">백업 파일을 암호화할 비밀번호를 입력하세요.<br>
+        <span class="text-muted">※ 이 비밀번호는 복원 시 필요합니다. 분실 시 복원 불가!</span></p>
+        <div class="form-group">
+          <label for="backupPw">백업 비밀번호 (8자 이상)</label>
+          <input type="password" id="backupPw" class="form-control" minlength="8" autofocus>
+        </div>
+        <div class="form-group">
+          <label for="backupPwConfirm">비밀번호 확인</label>
+          <input type="password" id="backupPwConfirm" class="form-control" minlength="8">
+        </div>
+        <div style="display:flex;align-items:center;gap:var(--sp-2);">
+          <input type="checkbox" id="backupNoEncrypt">
+          <label for="backupNoEncrypt" class="text-sm text-muted" style="margin:0;cursor:pointer;">암호화 없이 저장 (권장하지 않음)</label>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="SettingsModule._confirmExport()">백업 다운로드</button>
+      </div>
+    `);
+  },
+
+  async _confirmExport() {
+    const noEncrypt = document.getElementById('backupNoEncrypt').checked;
+    const pw = document.getElementById('backupPw').value;
+    const pwConfirm = document.getElementById('backupPwConfirm').value;
+
+    if (!noEncrypt) {
+      if (pw.length < 8) { Utils.showToast('비밀번호는 8자 이상이어야 합니다.', 'error'); return; }
+      if (pw !== pwConfirm) { Utils.showToast('비밀번호가 일치하지 않습니다.', 'error'); return; }
+    }
+
     try {
       const backup = await DB.exportAll();
-      const json = JSON.stringify(backup, null, 2);
+      const json = JSON.stringify(backup);
       const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-      Utils.downloadFile(json, `sq_backup_${date}.json`, 'application/json');
+
+      let output, filename;
+      if (noEncrypt) {
+        output = json;
+        filename = `sq_backup_${date}.json`;
+      } else {
+        const encrypted = await CryptoHelper.encrypt(json, pw);
+        output = JSON.stringify({ encrypted: true, data: encrypted, version: 2 });
+        filename = `sq_backup_${date}.enc.json`;
+      }
+
+      Utils.downloadFile(output, filename, 'application/json');
       localStorage.setItem('sq_lastBackup', new Date().toISOString());
-      Utils.showToast('백업 파일이 다운로드되었습니다.', 'success');
-      await this.render(); // 마지막 백업 날짜 갱신
+      Utils.closeModal();
+      Utils.showToast(noEncrypt ? '백업 파일이 다운로드되었습니다.' : '암호화된 백업 파일이 다운로드되었습니다.', 'success');
+      await this.render();
     } catch (err) {
       Utils.showToast('백업 실패: ' + err.message, 'error');
     }
@@ -173,28 +224,70 @@ const SettingsModule = {
   async _importBackup(file) {
     if (!file) return;
 
+    try {
+      const text = await file.text();
+      const parsed = JSON.parse(text);
+
+      // 암호화 여부 확인
+      if (parsed.encrypted) {
+        Utils.openModal(`
+          <div class="modal-header">
+            <h3>🔒 암호화된 백업 복원</h3>
+            <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+          </div>
+          <div class="modal-body">
+            <p class="mb-4 text-sm">백업 시 설정한 비밀번호를 입력하세요.</p>
+            <div class="form-group">
+              <label for="restorePw">백업 비밀번호</label>
+              <input type="password" id="restorePw" class="form-control" autofocus>
+            </div>
+            <div id="restoreError" class="text-danger text-sm"></div>
+          </div>
+          <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+            <button class="btn btn-primary" onclick='SettingsModule._confirmImportEncrypted(${JSON.stringify(parsed.data)})'>복원</button>
+          </div>
+        `);
+        return;
+      }
+
+      // 평문 백업
+      await this._doImport(parsed);
+    } catch (err) {
+      Utils.showToast('복원 실패: ' + err.message, 'error');
+    }
+  },
+
+  async _confirmImportEncrypted(encryptedData) {
+    const pw = document.getElementById('restorePw').value;
+    const errEl = document.getElementById('restoreError');
+    if (!pw) { errEl.textContent = '비밀번호를 입력하세요.'; return; }
+
+    try {
+      const decrypted = await CryptoHelper.decrypt(encryptedData, pw);
+      const backup = JSON.parse(decrypted);
+      Utils.closeModal();
+      await this._doImport(backup);
+    } catch (err) {
+      errEl.textContent = '비밀번호가 일치하지 않거나 파일이 손상되었습니다.';
+    }
+  },
+
+  async _doImport(backup) {
+    if (!backup.data || !backup.version) {
+      throw new Error('유효하지 않은 백업 파일입니다.');
+    }
+
     const confirmed = await Utils.confirm(
       '기존 데이터를 모두 삭제하고 백업 파일로 복원합니다.\n이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?',
       '⚠️ 데이터 복원'
     );
     if (!confirmed) return;
 
-    try {
-      const text = await file.text();
-      const backup = JSON.parse(text);
-
-      if (!backup.data || !backup.version) {
-        throw new Error('유효하지 않은 백업 파일입니다.');
-      }
-
-      await DB.importAll(backup);
-      await DB.log('IMPORT', 'system', null, '데이터 복원 완료');
-      Utils.showToast('데이터가 성공적으로 복원되었습니다. 페이지를 새로고침합니다.', 'success');
-
-      setTimeout(() => location.reload(), 1500);
-    } catch (err) {
-      Utils.showToast('복원 실패: ' + err.message, 'error');
-    }
+    await DB.importAll(backup);
+    await DB.log('IMPORT', 'system', null, '데이터 복원 완료');
+    Utils.showToast('데이터가 성공적으로 복원되었습니다. 페이지를 새로고침합니다.', 'success');
+    setTimeout(() => location.reload(), 1500);
   },
 
   async _exportCSV(storeName, label) {

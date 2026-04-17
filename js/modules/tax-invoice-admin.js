@@ -14,7 +14,11 @@ const TaxInvoiceAdminModule = {
 
   async render() {
     const all = await DB.getAll('taxInvoiceRequests');
-    const items = all.reverse();
+    let items = all.reverse();
+
+    // 날짜 필터
+    DateFilter.onChange('taxInvoices', () => this.render());
+    items = DateFilter.filter(items, 'createdAt', 'taxInvoices');
 
     const counts = { all: items.length };
     ['요청', '검토중', '발행완료', '반려'].forEach(s => {
@@ -59,7 +63,7 @@ const TaxInvoiceAdminModule = {
         actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest(${item.id})" title="삭제">🗑️</button>`;
 
         return `
-          <tr>
+          <tr oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, ${item.id}, '${item.status}')">
             <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
             <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
             <td>
@@ -98,6 +102,8 @@ const TaxInvoiceAdminModule = {
         </div>
       </div>
 
+      <div class="mb-4">${DateFilter.render('taxInvoices')}</div>
+
       <div class="table-wrapper">
         <table class="data-table">
           <thead>
@@ -116,6 +122,25 @@ const TaxInvoiceAdminModule = {
         </table>
       </div>
     `;
+  },
+
+  // 우클릭 컨텍스트 메뉴
+  _showContextMenu(event, id, status) {
+    const items = [
+      { icon: '👁️', label: '상세보기', onClick: () => this._openReviewDetail(id) },
+      { icon: '✏️', label: '거래처 수정', onClick: () => this._editPartnerName(id) },
+      { divider: true }
+    ];
+
+    if (status !== '요청') items.push({ icon: '🔄', label: '요청으로 되돌리기', onClick: () => this._changeStatus(id, '요청') });
+    if (status !== '검토중') items.push({ icon: '🔍', label: '검토중으로', onClick: () => this._changeStatus(id, '검토중') });
+    if (status !== '발행완료') items.push({ icon: '✅', label: '발행완료 처리', onClick: () => this._changeStatus(id, '발행완료') });
+    if (status !== '반려') items.push({ icon: '❌', label: '반려', onClick: () => this._reject(id) });
+
+    items.push({ divider: true });
+    items.push({ icon: '🗑️', label: '삭제', danger: true, onClick: () => this._deleteRequest(id) });
+
+    ContextMenu.show(event, items);
   },
 
   _setFilter(status) {

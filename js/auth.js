@@ -5,7 +5,54 @@
 const Auth = {
   SESSION_KEY: 'sq_session',
   TIMEOUT_MS: 30 * 60 * 1000, // 30분
+  LOGIN_ATTEMPTS_KEY: 'sq_login_attempts',
+  MAX_ATTEMPTS: 5,
+  LOCKOUT_MS: 10 * 60 * 1000, // 10분
   _activityTimer: null,
+
+  // 로그인 시도 기록 조회
+  _getAttempts(username) {
+    try {
+      const data = JSON.parse(localStorage.getItem(this.LOGIN_ATTEMPTS_KEY) || '{}');
+      return data[username] || { count: 0, lockedUntil: 0 };
+    } catch { return { count: 0, lockedUntil: 0 }; }
+  },
+
+  _setAttempts(username, attempts) {
+    try {
+      const data = JSON.parse(localStorage.getItem(this.LOGIN_ATTEMPTS_KEY) || '{}');
+      data[username] = attempts;
+      localStorage.setItem(this.LOGIN_ATTEMPTS_KEY, JSON.stringify(data));
+    } catch {}
+  },
+
+  _clearAttempts(username) {
+    try {
+      const data = JSON.parse(localStorage.getItem(this.LOGIN_ATTEMPTS_KEY) || '{}');
+      delete data[username];
+      localStorage.setItem(this.LOGIN_ATTEMPTS_KEY, JSON.stringify(data));
+    } catch {}
+  },
+
+  // 잠금 시간 확인
+  _checkLockout(username) {
+    const attempts = this._getAttempts(username);
+    if (attempts.lockedUntil > Date.now()) {
+      const remainMin = Math.ceil((attempts.lockedUntil - Date.now()) / 60000);
+      throw new Error(`로그인 시도가 너무 많습니다. ${remainMin}분 후 다시 시도하세요.`);
+    }
+  },
+
+  // 실패 기록
+  _recordFailedAttempt(username) {
+    const attempts = this._getAttempts(username);
+    attempts.count++;
+    if (attempts.count >= this.MAX_ATTEMPTS) {
+      attempts.lockedUntil = Date.now() + this.LOCKOUT_MS;
+      attempts.count = 0;
+    }
+    this._setAttempts(username, attempts);
+  },
 
   // SHA-256 해시
   async hashPassword(password) {
@@ -42,9 +89,13 @@ const Auth = {
 
   // 로그인
   async login(username, password) {
+    // 잠금 확인
+    this._checkLockout(username);
+
     await DB.open();
     const users = await DB.getByIndex('users', 'username', username);
     if (users.length === 0) {
+      this._recordFailedAttempt(username);
       throw new Error('아이디가 존재하지 않습니다.');
     }
 
@@ -55,8 +106,17 @@ const Auth = {
 
     const hash = await this.hashPassword(password);
     if (hash !== user.passwordHash) {
-      throw new Error('비밀번호가 일치하지 않습니다.');
+      this._recordFailedAttempt(username);
+      const attempts = this._getAttempts(username);
+      const remaining = this.MAX_ATTEMPTS - attempts.count;
+      if (remaining > 0) {
+        throw new Error(`비밀번호가 일치하지 않습니다. (${remaining}회 남음)`);
+      }
+      throw new Error(`로그인 시도가 ${this.MAX_ATTEMPTS}회 초과되어 10분간 잠금됩니다.`);
     }
+
+    // 로그인 성공 → 시도 기록 초기화
+    this._clearAttempts(username);
 
     // 세션 저장
     const session = {

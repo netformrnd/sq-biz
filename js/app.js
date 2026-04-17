@@ -121,6 +121,9 @@ const App = {
     // 라우터 시작
     Router.init();
 
+    // 전체 검색 초기화 (Ctrl+K)
+    if (window.GlobalSearch) GlobalSearch.init();
+
     // 대시보드로 알림 뱃지 업데이트
     this.updateNotificationBadges();
   },

@@ -59,6 +59,46 @@ const SettingsModule = {
         </div>
       </div>
 
+      <!-- Firebase 연동 -->
+      <div class="card mb-6">
+        <div class="card-header">
+          <h3>☁️ 클라우드 동기화 (Firebase)</h3>
+        </div>
+        <div class="card-body">
+          <div class="mb-4">
+            현재 상태:
+            ${FirebaseDB.isConfigured()
+              ? '<span class="badge badge-complete">✅ 클라우드 연결됨 (모든 직원이 실시간 공유)</span>'
+              : '<span class="badge badge-reject">❌ 연결 안됨 (각 브라우저 로컬 저장)</span>'}
+          </div>
+          <p class="text-sm text-muted mb-4">
+            Firebase 설정 시 모든 직원이 같은 데이터를 공유합니다.<br>
+            <strong>설정 방법:</strong>
+            <a href="https://console.firebase.google.com" target="_blank" style="color:var(--color-primary);">Firebase Console</a>에서 프로젝트 생성 → Firestore Database 활성화 → 웹 앱 등록 → firebaseConfig 복사
+          </p>
+
+          <div class="form-group">
+            <label for="firebaseConfigInput">Firebase 설정 (firebaseConfig 객체 전체 붙여넣기)</label>
+            <textarea id="firebaseConfigInput" class="form-control" rows="10" placeholder='{
+  "apiKey": "AIza...",
+  "authDomain": "sq-biz.firebaseapp.com",
+  "projectId": "sq-biz",
+  "storageBucket": "sq-biz.appspot.com",
+  "messagingSenderId": "...",
+  "appId": "..."
+}' style="font-family:monospace;font-size:12px;">${FirebaseDB.isConfigured() ? JSON.stringify(FirebaseDB.getConfig(), null, 2) : ''}</textarea>
+          </div>
+
+          <div class="d-flex gap-2" style="flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="SettingsModule._saveFirebaseConfig()">💾 설정 저장</button>
+            ${FirebaseDB.isConfigured() ? `
+              <button class="btn btn-success" onclick="SettingsModule._migrateToFirebase()">🚀 로컬 데이터를 클라우드로 이관</button>
+              <button class="btn btn-danger" onclick="SettingsModule._disconnectFirebase()">🔌 연결 해제</button>
+            ` : ''}
+          </div>
+        </div>
+      </div>
+
       <!-- 백업/복원 -->
       <div class="card mb-6">
         <div class="card-header">
@@ -138,6 +178,104 @@ const SettingsModule = {
     `;
 
     await this._renderAuditLog();
+  },
+
+  // ===== Firebase 설정 =====
+  async _saveFirebaseConfig() {
+    const raw = document.getElementById('firebaseConfigInput').value.trim();
+    if (!raw) {
+      Utils.showToast('Firebase 설정을 입력하세요.', 'error');
+      return;
+    }
+
+    try {
+      // JSON 파싱 (JS 객체 형태도 허용)
+      let config;
+      try {
+        config = JSON.parse(raw);
+      } catch {
+        // "key: value" 형식을 JSON으로 변환 시도
+        const jsonStr = raw
+          .replace(/(\w+):/g, '"$1":')  // key: -> "key":
+          .replace(/'/g, '"');           // ' -> "
+        config = JSON.parse(jsonStr);
+      }
+
+      if (!config.apiKey || !config.projectId) {
+        throw new Error('apiKey와 projectId가 필수입니다.');
+      }
+
+      FirebaseDB.setConfig(config);
+      Utils.showToast('Firebase 설정 저장 완료. 페이지를 새로고침합니다.', 'success');
+      setTimeout(() => location.reload(), 1500);
+    } catch (err) {
+      Utils.showToast('설정 실패: ' + err.message, 'error');
+    }
+  },
+
+  async _migrateToFirebase() {
+    const confirmed = await Utils.confirm(
+      '현재 이 브라우저의 로컬 데이터를 Firebase 클라우드로 이관합니다.\n' +
+      '이미 클라우드에 데이터가 있으면 중복될 수 있습니다.\n\n' +
+      '계속하시겠습니까?',
+      '클라우드로 데이터 이관'
+    );
+    if (!confirmed) return;
+
+    try {
+      Utils.showToast('데이터 이관 중... 잠시만 기다려주세요.', 'warning', 30000);
+
+      // IndexedDB에서 직접 읽어서 Firebase에 쓰기
+      const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
+
+      // IndexedDB 직접 열기 (useFirebase 우회)
+      const idb = await new Promise((resolve, reject) => {
+        const req = indexedDB.open('sq_architects_db', 2);
+        req.onsuccess = (e) => resolve(e.target.result);
+        req.onerror = () => reject(req.error);
+      });
+
+      let totalCount = 0;
+      for (const storeName of storeNames) {
+        if (!idb.objectStoreNames.contains(storeName)) continue;
+        const records = await new Promise((resolve) => {
+          const tx = idb.transaction(storeName, 'readonly');
+          const req = tx.objectStore(storeName).getAll();
+          req.onsuccess = () => resolve(req.result || []);
+          req.onerror = () => resolve([]);
+        });
+        for (const record of records) {
+          const { id, ...rest } = record;
+          // attachments의 Blob은 별도 처리 필요 - 일단 제거
+          if (rest.attachments) {
+            rest.attachments = rest.attachments.filter(a => !(a.fileData instanceof Blob));
+          }
+          if (rest.fileData instanceof Blob) {
+            delete rest.fileData;
+          }
+          await FirebaseDB.add(storeName, rest);
+          totalCount++;
+        }
+      }
+
+      idb.close();
+      Utils.showToast(`${totalCount}개 데이터 이관 완료! (첨부파일은 제외됨)`, 'success');
+      setTimeout(() => location.reload(), 2000);
+    } catch (err) {
+      Utils.showToast('이관 실패: ' + err.message, 'error');
+    }
+  },
+
+  async _disconnectFirebase() {
+    const confirmed = await Utils.confirm(
+      'Firebase 연결을 해제하면 로컬(IndexedDB)만 사용합니다.\n' +
+      '클라우드 데이터는 삭제되지 않고 보존됩니다.\n\n계속하시겠습니까?',
+      'Firebase 연결 해제'
+    );
+    if (!confirmed) return;
+    FirebaseDB.setConfig(null);
+    Utils.showToast('Firebase 연결이 해제되었습니다. 페이지를 새로고침합니다.', 'success');
+    setTimeout(() => location.reload(), 1500);
   },
 
   _saveJandiUrl() {

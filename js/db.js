@@ -8,7 +8,17 @@ const DB_VERSION = 2;
 const DB = {
   db: null,
 
+  // Firebase 사용 여부 (설정이 있으면 자동으로 true)
+  get useFirebase() {
+    return window.FirebaseDB && window.FirebaseDB.isConfigured();
+  },
+
   async open() {
+    // Firebase 모드: FirebaseDB로 위임
+    if (this.useFirebase) {
+      return FirebaseDB.open();
+    }
+
     if (this.db) return this.db;
 
     return new Promise((resolve, reject) => {
@@ -99,6 +109,7 @@ const DB = {
   },
 
   async add(storeName, data) {
+    if (this.useFirebase) return FirebaseDB.add(storeName, data);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
@@ -109,6 +120,7 @@ const DB = {
   },
 
   async get(storeName, id) {
+    if (this.useFirebase) return FirebaseDB.get(storeName, id);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName);
@@ -119,6 +131,7 @@ const DB = {
   },
 
   async getAll(storeName) {
+    if (this.useFirebase) return FirebaseDB.getAll(storeName);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName);
@@ -129,6 +142,7 @@ const DB = {
   },
 
   async getByIndex(storeName, indexName, value) {
+    if (this.useFirebase) return FirebaseDB.getByIndex(storeName, indexName, value);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName);
@@ -140,6 +154,7 @@ const DB = {
   },
 
   async update(storeName, data) {
+    if (this.useFirebase) return FirebaseDB.update(storeName, data);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
@@ -150,6 +165,7 @@ const DB = {
   },
 
   async delete(storeName, id) {
+    if (this.useFirebase) return FirebaseDB.delete(storeName, id);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
@@ -160,6 +176,7 @@ const DB = {
   },
 
   async count(storeName, indexName, value) {
+    if (this.useFirebase) return FirebaseDB.count(storeName, indexName, value);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName);
@@ -175,6 +192,7 @@ const DB = {
   },
 
   async clear(storeName) {
+    if (this.useFirebase) return FirebaseDB.clear(storeName);
     await this.open();
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
@@ -185,6 +203,7 @@ const DB = {
   },
 
   async exportAll() {
+    if (this.useFirebase) return FirebaseDB.exportAll();
     await this.open();
     const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
     const data = {};
@@ -210,6 +229,7 @@ const DB = {
   },
 
   async importAll(backup) {
+    if (this.useFirebase) return FirebaseDB.importAll(backup);
     await this.open();
     const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
     for (const name of storeNames) {

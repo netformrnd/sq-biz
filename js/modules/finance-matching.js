@@ -76,6 +76,11 @@ const FinanceMatchingModule = {
     this.container.innerHTML = `
       <div class="page-header">
         <h2>💰 재무 (입금내역 · 매칭관리)</h2>
+        ${isAdmin ? `
+          <div class="page-actions">
+            <button class="btn btn-primary" onclick="FinanceMatchingModule._openBankStatementModal()">📊 통장내역 일괄 업로드</button>
+          </div>
+        ` : ''}
       </div>
 
       <!-- 요약 -->
@@ -322,6 +327,280 @@ const FinanceMatchingModule = {
     } else {
       Utils.showToast('자동 추천할 항목이 없습니다.', 'warning');
     }
+  },
+
+  // ===== 통장내역 일괄 업로드 (입금/송금 자동 분리) =====
+  _bankParsed: { deposits: [], withdrawals: [] },
+
+  _openBankStatementModal() {
+    this._bankParsed = { deposits: [], withdrawals: [] };
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📊 통장내역 일괄 업로드</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
+          <strong>사용법:</strong> 은행/위하고 통장내역 엑셀에서 행을 복사(Ctrl+C)한 후 붙여넣기(Ctrl+V) 하세요.<br>
+          <span class="text-muted">시스템이 자동으로 <strong>입금</strong>과 <strong>출금(송금)</strong>을 분리해서 보여줍니다. 확인 후 등록할 항목만 선택하세요.</span>
+        </div>
+
+        <div class="form-group">
+          <label>통장내역 붙여넣기 <span class="required">*</span></label>
+          <textarea id="bankStatementArea" class="form-control" rows="8"
+                    placeholder="통장내역 엑셀에서 복사한 데이터를 여기에 붙여넣기 (Ctrl+V)"
+                    style="font-family:monospace;font-size:12px;"></textarea>
+        </div>
+
+        <div class="d-flex gap-2 mb-4">
+          <button class="btn btn-secondary" onclick="FinanceMatchingModule._parseBankStatement()">🔍 데이터 분석</button>
+          <div class="form-group d-flex items-center gap-2" style="margin:0;">
+            <label class="text-sm" style="margin:0;white-space:nowrap;">송금 용도 기본값:</label>
+            <select id="bankDefaultPurpose" class="form-control" style="width:140px;">
+              <option value="용역비">용역비</option>
+              <option value="외주비">외주비</option>
+              <option value="매입비">매입비</option>
+              <option value="기타">기타</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="bankParseResult" class="hidden">
+          <!-- 입금내역 -->
+          <div class="card mb-4">
+            <div class="card-header" style="background:var(--color-info-light);">
+              <h3>💰 입금내역 <span id="bankDepositCount" class="text-sm text-muted"></span></h3>
+              <div class="d-flex gap-2">
+                <label class="text-sm d-flex items-center gap-1" style="margin:0;">
+                  <input type="checkbox" id="bankDepositAll" checked onchange="FinanceMatchingModule._toggleAllDeposits(this.checked)"> 전체 선택
+                </label>
+              </div>
+            </div>
+            <div class="card-body" style="padding:0;max-height:250px;overflow-y:auto;">
+              <table class="data-table" id="bankDepositTable">
+                <thead>
+                  <tr>
+                    <th style="width:40px;"></th>
+                    <th>날짜</th>
+                    <th>입금자</th>
+                    <th class="text-right">금액</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 송금(출금) 내역 -->
+          <div class="card mb-4">
+            <div class="card-header" style="background:var(--color-warning-light);">
+              <h3>💸 송금(출금)내역 <span id="bankWithdrawCount" class="text-sm text-muted"></span></h3>
+              <div class="d-flex gap-2">
+                <label class="text-sm d-flex items-center gap-1" style="margin:0;">
+                  <input type="checkbox" id="bankWithdrawAll" checked onchange="FinanceMatchingModule._toggleAllWithdrawals(this.checked)"> 전체 선택
+                </label>
+              </div>
+            </div>
+            <div class="card-body" style="padding:0;max-height:250px;overflow-y:auto;">
+              <table class="data-table" id="bankWithdrawTable">
+                <thead>
+                  <tr>
+                    <th style="width:40px;"></th>
+                    <th>날짜</th>
+                    <th>수취인</th>
+                    <th class="text-right">금액</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+
+          <div id="bankSummary" class="text-sm text-muted"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" id="bankSaveBtn" onclick="FinanceMatchingModule._saveBankStatement()" disabled>선택 항목 등록</button>
+      </div>
+    `, { size: 'modal-xl' });
+  },
+
+  _parseBankStatement() {
+    const raw = document.getElementById('bankStatementArea').value.trim();
+    if (!raw) {
+      Utils.showToast('데이터를 붙여넣기 하세요.', 'error');
+      return;
+    }
+
+    const lines = raw.split('\n').filter(l => l.trim());
+    this._bankParsed = { deposits: [], withdrawals: [] };
+
+    for (const line of lines) {
+      const cols = line.split('\t');
+      if (cols.length < 5) continue;
+
+      const dateStr = (cols[0] || '').trim();
+      const withdrawStr = (cols[1] || '').trim();
+      const depositStr = (cols[2] || '').trim();
+
+      const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
+      const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
+
+      // 수취인/입금자: cols[3]부터 탐색 (계좌번호 + 이름)
+      let accountNo = '';
+      let name = '';
+      for (let i = 3; i < cols.length; i++) {
+        const val = (cols[i] || '').trim();
+        if (!val) continue;
+        if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;
+        if (/[가-힣]/.test(val) && !name) name = val;
+      }
+      if (!name) name = (cols[4] || '').trim();
+      const displayName = accountNo && name ? `${name} (${accountNo})` : name || accountNo;
+
+      // 날짜 파싱
+      let date = '';
+      const dateMatch = dateStr.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+      if (dateMatch) {
+        date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+      }
+
+      if (depositAmount > 0) {
+        this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, selected: true });
+      } else if (withdrawAmount > 0) {
+        this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, selected: true });
+      }
+    }
+
+    const { deposits, withdrawals } = this._bankParsed;
+    if (deposits.length === 0 && withdrawals.length === 0) {
+      Utils.showToast('인식 가능한 내역이 없습니다.', 'warning');
+      return;
+    }
+
+    this._renderBankParseResult();
+  },
+
+  _renderBankParseResult() {
+    const { deposits, withdrawals } = this._bankParsed;
+    document.getElementById('bankParseResult').classList.remove('hidden');
+    document.getElementById('bankDepositCount').textContent = `(${deposits.length}건)`;
+    document.getElementById('bankWithdrawCount').textContent = `(${withdrawals.length}건)`;
+
+    const depTbody = document.querySelector('#bankDepositTable tbody');
+    depTbody.innerHTML = deposits.length === 0
+      ? '<tr><td colspan="4" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">입금 내역 없음</td></tr>'
+      : deposits.map((r, i) => `
+          <tr>
+            <td><input type="checkbox" data-type="dep" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('dep', ${i}, this.checked)"></td>
+            <td>${Utils.escapeHtml(r.date)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
+            <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
+          </tr>
+        `).join('');
+
+    const wdTbody = document.querySelector('#bankWithdrawTable tbody');
+    wdTbody.innerHTML = withdrawals.length === 0
+      ? '<tr><td colspan="4" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">송금 내역 없음</td></tr>'
+      : withdrawals.map((r, i) => `
+          <tr>
+            <td><input type="checkbox" data-type="wd" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('wd', ${i}, this.checked)"></td>
+            <td>${Utils.escapeHtml(r.date)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
+            <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
+          </tr>
+        `).join('');
+
+    this._updateBankSummary();
+    document.getElementById('bankSaveBtn').disabled = false;
+  },
+
+  _toggleBankRow(type, idx, checked) {
+    const arr = type === 'dep' ? this._bankParsed.deposits : this._bankParsed.withdrawals;
+    arr[idx].selected = checked;
+    this._updateBankSummary();
+  },
+
+  _toggleAllDeposits(checked) {
+    this._bankParsed.deposits.forEach((r, i) => {
+      r.selected = checked;
+      const cb = document.querySelector(`#bankDepositTable input[data-idx="${i}"]`);
+      if (cb) cb.checked = checked;
+    });
+    this._updateBankSummary();
+  },
+
+  _toggleAllWithdrawals(checked) {
+    this._bankParsed.withdrawals.forEach((r, i) => {
+      r.selected = checked;
+      const cb = document.querySelector(`#bankWithdrawTable input[data-idx="${i}"]`);
+      if (cb) cb.checked = checked;
+    });
+    this._updateBankSummary();
+  },
+
+  _updateBankSummary() {
+    const depSel = this._bankParsed.deposits.filter(r => r.selected);
+    const wdSel = this._bankParsed.withdrawals.filter(r => r.selected);
+    const depAmt = depSel.reduce((s, r) => s + r.amount, 0);
+    const wdAmt = wdSel.reduce((s, r) => s + r.amount, 0);
+    document.getElementById('bankSummary').innerHTML = `
+      ✅ 등록 예정: <strong>입금 ${depSel.length}건 (${Utils.formatCurrency(depAmt)})</strong>
+      · <strong>송금 ${wdSel.length}건 (${Utils.formatCurrency(wdAmt)})</strong>
+    `;
+    document.getElementById('bankSaveBtn').disabled = depSel.length === 0 && wdSel.length === 0;
+  },
+
+  async _saveBankStatement() {
+    const depSel = this._bankParsed.deposits.filter(r => r.selected);
+    const wdSel = this._bankParsed.withdrawals.filter(r => r.selected);
+    if (depSel.length === 0 && wdSel.length === 0) return;
+
+    const user = Auth.currentUser();
+    const purpose = document.getElementById('bankDefaultPurpose').value;
+    let depCount = 0, wdCount = 0;
+
+    for (const row of depSel) {
+      await DB.add('deposits', {
+        depositDate: row.date,
+        depositorName: row.name,
+        amount: row.amount,
+        projectName: '',
+        memo: '',
+        bankAccount: '',
+        matchStatus: '미매칭',
+        matchedInvoiceId: null,
+        registeredBy: user.id,
+        registeredByName: user.displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      depCount++;
+    }
+
+    for (const row of wdSel) {
+      await DB.add('transferRecords', {
+        transferDate: row.date,
+        recipientName: row.name,
+        amount: row.amount,
+        purpose,
+        projectName: '',
+        memo: '',
+        registeredBy: user.id,
+        registeredByName: user.displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      wdCount++;
+    }
+
+    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건`);
+    this._bankParsed = { deposits: [], withdrawals: [] };
+
+    Utils.closeModal();
+    Utils.showToast(`입금 ${depCount}건, 송금 ${wdCount}건 등록 완료`, 'success');
+    await this.render();
   },
 
   destroy() {}

@@ -14,10 +14,19 @@ const FirebaseDB = {
   CONFIG_KEY: 'sq_firebase_config',
 
   getConfig() {
+    // 1순위: localStorage에 저장된 사용자 설정 (관리자가 직접 변경한 경우)
     try {
       const raw = localStorage.getItem(this.CONFIG_KEY);
-      return raw ? JSON.parse(raw) : null;
-    } catch { return null; }
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.apiKey && parsed.projectId) return parsed;
+      }
+    } catch {}
+    // 2순위: 앱에 내장된 기본 설정 (직원들은 자동으로 이 설정 사용)
+    if (window.EMBEDDED_FIREBASE_CONFIG && window.EMBEDDED_FIREBASE_CONFIG.apiKey) {
+      return window.EMBEDDED_FIREBASE_CONFIG;
+    }
+    return null;
   },
 
   setConfig(config) {
@@ -31,6 +40,12 @@ const FirebaseDB = {
   isConfigured() {
     const cfg = this.getConfig();
     return !!(cfg && cfg.apiKey && cfg.projectId);
+  },
+
+  // 내장 설정 사용 중인지 확인
+  isUsingEmbedded() {
+    const stored = localStorage.getItem(this.CONFIG_KEY);
+    return !stored && !!(window.EMBEDDED_FIREBASE_CONFIG && window.EMBEDDED_FIREBASE_CONFIG.apiKey);
   },
 
   // Firebase SDK 로드 + 초기화

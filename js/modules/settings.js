@@ -68,13 +68,15 @@ const SettingsModule = {
           <div class="mb-4">
             현재 상태:
             ${FirebaseDB.isConfigured()
-              ? '<span class="badge badge-complete">✅ 클라우드 연결됨 (모든 직원이 실시간 공유)</span>'
+              ? (FirebaseDB.isUsingEmbedded()
+                  ? '<span class="badge badge-complete">✅ 클라우드 자동 연결됨 (앱 내장 설정 사용)</span>'
+                  : '<span class="badge badge-complete">✅ 클라우드 연결됨 (사용자 정의 설정)</span>')
               : '<span class="badge badge-reject">❌ 연결 안됨 (각 브라우저 로컬 저장)</span>'}
           </div>
           <p class="text-sm text-muted mb-4">
-            Firebase 설정 시 모든 직원이 같은 데이터를 공유합니다.<br>
-            <strong>설정 방법:</strong>
-            <a href="https://console.firebase.google.com" target="_blank" style="color:var(--color-primary);">Firebase Console</a>에서 프로젝트 생성 → Firestore Database 활성화 → 웹 앱 등록 → firebaseConfig 복사
+            ${FirebaseDB.isUsingEmbedded()
+              ? '✨ <strong>이 앱은 이미 Firebase에 자동 연결됩니다.</strong> 직원들은 URL만 접속하면 모두 같은 데이터를 공유합니다.<br>다른 Firebase 프로젝트를 사용하려면 아래에 새 설정을 입력하세요.'
+              : 'Firebase 설정 시 모든 직원이 같은 데이터를 공유합니다.<br><strong>설정 방법:</strong> <a href="https://console.firebase.google.com" target="_blank" style="color:var(--color-primary);">Firebase Console</a>에서 프로젝트 생성 → Firestore Database 활성화 → 웹 앱 등록 → firebaseConfig 복사'}
           </p>
 
           <div class="form-group">

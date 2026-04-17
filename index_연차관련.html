@@ -1,0 +1,1400 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>스퀘어건축사사무소 26년 연차 신청 시스템</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        :root {
+            --bg-primary: #F1F5F9; --bg-secondary: #ffffff; --bg-tertiary: #F8FAFC;
+            --text-primary: #0F172A; --text-secondary: #64748B;
+            --accent-blue: #3B82F6; --accent-green: #10b981; --accent-yellow: #ECC468;
+            --accent-purple: #8b5cf6; --accent-red: #ef4444; --accent-pink: #ec4899;
+            --accent-orange: #f97316; --border-color: #E2E8F0;
+        }
+        body { font-family: 'Pretendard','Segoe UI','Malgun Gothic',sans-serif; background: #F1F5F9; color: #0F172A; min-height: 100vh; -webkit-font-smoothing: antialiased; }
+
+        /* ── 상단 헤더 (sticky dark navy) ── */
+        .top-header { background: linear-gradient(180deg, #0F172A 0%, #1E293B 100%); padding: 0 30px; height: 56px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+        .top-header h1 { font-size: 1.1rem; font-weight: 700; color: #fff; letter-spacing: -0.3px; }
+        .hdr-right { display: flex; align-items: center; gap: 12px; }
+        .hdr-right .sync { font-size: 0.75rem; color: #64748B; display: flex; align-items: center; gap: 6px; }
+        .hdr-btn { padding: 6px 16px; border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer; font-family: inherit; border: none; transition: all .15s; text-decoration: none; }
+        .hdr-btn.ghost { background: rgba(255,255,255,.08); color: #94A3B8; border: 1px solid #334155; }
+        .hdr-btn.ghost:hover { background: rgba(255,255,255,.15); color: #fff; }
+        .notification-badge { background: #ef4444; color: white; font-size: 0.65rem; padding: 1px 5px; border-radius: 10px; margin-left: 4px; }
+
+        /* ── 메인 섹션 (white rounded card) ── */
+        .container { max-width: 1340px; margin: 20px auto 40px; padding: 0; }
+        .main-section { background: #fff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,.08); overflow: hidden; }
+
+        /* ── 유저 탭 영역 ── */
+        .user-bar { background: #F8FAFC; border-bottom: 1px solid #E2E8F0; padding: 16px 24px 12px; }
+        .user-tabs { display: flex; justify-content: center; gap: 8px; flex-wrap: wrap; }
+        .user-tab { padding: 10px 20px; border-radius: 10px; border: 1.5px solid #E2E8F0; background: #fff; color: #64748B; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; gap: 8px; }
+        .user-tab:hover { border-color: #CBD5E1; }
+        .user-tab.active { border-color: #3B82F6; background: rgba(59,130,246,.08); color: #0F172A; }
+        .user-tab .user-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .user-tab .user-leave-info { font-family: 'JetBrains Mono', monospace; font-size: 0.75rem; background: #F1F5F9; padding: 2px 8px; border-radius: 6px; }
+        .user-tab .user-leave-info.unlimited { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+        .user-help { text-align: center; font-size: 0.82rem; color: #94A3B8; margin-top: 10px; }
+
+        /* ── 퀵 참여 ── */
+        #quickJoinArea { display: inline-flex; align-items: center; gap: 8px; background: #fff; padding: 10px 16px; border-radius: 12px; border: 1px solid #E2E8F0; margin-top: 10px; }
+
+        /* ── 통계 바 ── */
+        .stats-bar { background: #F8FAFC; padding: 0 24px 16px; }
+        .leave-stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+        .leave-stats.unlimited-user { grid-template-columns: repeat(2, 1fr); }
+        .stat-card { background: #fff; border: 1px solid #E2E8F0; border-radius: 10px; padding: 14px; text-align: center; }
+        .stat-value { font-family: 'JetBrains Mono', monospace; font-size: 1.5rem; font-weight: 700; margin-bottom: 2px; }
+        .stat-value.total { color: #3b82f6; }
+        .stat-value.used { color: #8b5cf6; }
+        .stat-value.remaining { color: #10b981; }
+        .stat-value.pending { color: #f97316; }
+        .stat-label { font-size: 0.7rem; color: #94A3B8; font-weight: 500; }
+
+        /* ── 레이아웃 (calendar + side) ── */
+        .layout-side { display: flex; min-height: 0; }
+        .cal-main { flex: 1; min-width: 0; }
+        .cal-wrap { padding: 16px 20px 24px; overflow-x: auto; }
+
+        /* ── 캘린더 네비게이션 ── */
+        .nav-bar { display: flex; align-items: center; justify-content: space-between; padding: 0 0 14px; flex-wrap: wrap; gap: 10px; }
+        .m-nav { display: flex; align-items: center; gap: 6px; }
+        .nav-btn { width: 30px; height: 30px; border-radius: 6px; border: 1px solid #E2E8F0; background: #fff; cursor: pointer; font-size: 15px; color: #64748B; display: flex; align-items: center; justify-content: center; transition: all .12s; }
+        .nav-btn:hover { background: #F1F5F9; color: #0F172A; }
+        .m-title { font-size: 1rem; font-weight: 800; min-width: 110px; text-align: center; }
+        .btn-today { font-size: 0.72rem; font-weight: 700; color: #3B82F6; background: #EFF6FF; border: 1px solid #BFDBFE; border-radius: 6px; padding: 5px 12px; cursor: pointer; font-family: inherit; }
+        .btn-today:hover { background: #DBEAFE; }
+
+        /* month-nav kept for JS compatibility */
+        .month-nav { display: flex; align-items: center; justify-content: center; gap: 14px; margin-bottom: 14px; }
+        .month-nav-btn { width: 30px; height: 30px; border-radius: 6px; border: 1px solid #E2E8F0; background: #fff; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: all .12s; color: #64748B; }
+        .month-nav-btn:hover { background: #F1F5F9; color: #0F172A; }
+        .month-nav-title { font-size: 1rem; font-weight: 800; min-width: 110px; text-align: center; }
+
+        /* ── 범례 ── */
+        .team-legend { display: flex; justify-content: center; gap: 16px; margin-bottom: 14px; flex-wrap: wrap; }
+        .team-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: #475569; }
+        .team-legend-dot { width: 10px; height: 10px; border-radius: 3px; }
+        .legend { display: flex; gap: 14px; font-size: 0.73rem; color: #475569; font-weight: 500; }
+        .legend span { display: flex; align-items: center; gap: 5px; }
+        .legend .bar { width: 3px; height: 12px; border-radius: 2px; display: inline-block; }
+
+        /* ── 캘린더 그리드 ── */
+        .calendar-single { border-radius: 0; padding: 0; background: transparent; }
+        .weekdays-row { display: grid; grid-template-columns: repeat(7, 1fr); border-bottom: 1px solid #E2E8F0; }
+        .weekday-cell { text-align: center; font-size: 0.78rem; font-weight: 600; color: #94A3B8; padding: 10px 0; }
+        .weekday-cell:first-child { color: #EF4444; }
+        .weekday-cell:last-child { color: #3B82F6; }
+        .days-grid { display: grid; grid-template-columns: repeat(7, 1fr); }
+        .day-cell { min-height: 110px; border-right: 1px solid #F1F5F9; border-bottom: 1px solid #F1F5F9; padding: 0; cursor: pointer; transition: background .1s; display: flex; flex-direction: column; position: relative; overflow: hidden; }
+        .day-cell:nth-child(7n) { border-right: none; }
+        .day-cell:hover:not(.empty):not(.weekend):not(.holiday) { background: #FAFBFC; }
+        .day-cell.empty { background: transparent; cursor: default; min-height: 40px; }
+        .day-cell.weekend { background: #F8F9FB; cursor: not-allowed; }
+        .day-cell.holiday { background: #FFF5F5; cursor: not-allowed; }
+        .day-cell.sunday { background: #F8F9FB; }
+        .day-cell.saturday { background: #F8F9FB; }
+        .day-cell.selected { box-shadow: inset 0 0 0 2px #3B82F6; border-radius: 2px; z-index: 1; }
+        .day-number { font-size: 0.8rem; font-weight: 700; color: #475569; padding: 6px 7px 2px; }
+        .day-cell.sunday .day-number { color: #EF4444; }
+        .day-cell.saturday .day-number { color: #3B82F6; }
+        .day-cell.holiday .day-number { color: #EF4444; }
+        .day-leaves { display: flex; flex-direction: column; gap: 1px; flex: 1; overflow: hidden; margin-top: 2px; padding: 0 3px; }
+        .day-leave-item { font-size: 0.65rem; padding: 2px 5px; border-radius: 3px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; color: #475569; border-left: 2.5px solid; background: transparent; line-height: 1.4; }
+        .day-leave-item.user-0 { border-left-color: #3b82f6; background: rgba(59,130,246,.06); }
+        .day-leave-item.user-1 { border-left-color: #10b981; background: rgba(16,185,129,.06); }
+        .day-leave-item.user-2 { border-left-color: #ec4899; background: rgba(236,72,153,.06); }
+        .day-leave-item.user-3 { border-left-color: #f59e0b; background: rgba(245,158,11,.06); }
+        .day-leave-item.user-4 { border-left-color: #8b5cf6; background: rgba(139,92,246,.06); }
+        .day-leave-item.user-5 { border-left-color: #06b6d4; background: rgba(6,182,212,.06); }
+        .day-leave-item.user-6 { border-left-color: #f97316; background: rgba(249,115,22,.06); }
+        .day-leave-item.user-7 { border-left-color: #22c55e; background: rgba(34,197,94,.06); }
+        .day-leave-item.user-8 { border-left-color: #a855f7; background: rgba(168,85,247,.06); }
+        .day-leave-item.user-9 { border-left-color: #f43f5e; background: rgba(244,63,94,.06); }
+        .day-leave-item.user-10 { border-left-color: #14b8a6; background: rgba(20,184,166,.06); }
+        .day-leave-item.user-11 { border-left-color: #6366f1; background: rgba(99,102,241,.06); }
+        .day-leave-item.user-12 { border-left-color: #eab308; background: rgba(234,179,8,.06); }
+        .day-leave-item.user-13 { border-left-color: #d946ef; background: rgba(217,70,239,.06); }
+        .day-leave-item.user-14 { border-left-color: #fb923c; background: rgba(251,146,60,.06); }
+        .day-leave-item.pending { opacity: 0.6; border-left-style: dashed; }
+        .day-leave-item.cancel-requested { background: rgba(239,68,68,.06); border-left-color: #ef4444; }
+
+        /* ── 상태 뱃지 ── */
+        .status-badge { display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; font-weight: 600; }
+        .status-badge.pending { background: rgba(249,115,22,.12); color: #f97316; }
+        .status-badge.approved { background: rgba(16,185,129,.12); color: #10b981; }
+        .status-badge.cancel-requested { background: rgba(239,68,68,.12); color: #ef4444; }
+
+        /* ── 하단 범례 ── */
+        .bottom-legend { display: flex; gap: 16px; justify-content: center; padding: 16px 20px; flex-wrap: wrap; border-top: 1px solid #F1F5F9; }
+        .legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #64748B; font-weight: 500; }
+        .legend-dot { width: 3px; height: 12px; border-radius: 2px; }
+        .leave-type-legend { display: flex; gap: 16px; justify-content: center; padding: 16px 20px; flex-wrap: wrap; border-top: 1px solid #F1F5F9; }
+
+        /* ── 사이드 패널 ── */
+        .side-d { width: 270px; min-width: 270px; background: #F0F8FF; padding: 24px 20px; flex-shrink: 0; border: 1.5px solid #BFDBFE; border-radius: 14px; box-shadow: 0 1px 6px rgba(144,202,249,.10); margin: 8px 0 8px 8px; }
+        .sd-hdr { background: linear-gradient(135deg, #0F172A, #1E3A5F); border-radius: 12px; padding: 18px 16px; margin-bottom: 16px; color: #fff; }
+        .sd-dr { display: flex; align-items: center; gap: 8px; }
+        .sd-live { width: 8px; height: 8px; background: #34D399; border-radius: 50%; box-shadow: 0 0 8px rgba(52,211,153,.5); animation: pulse 2s infinite; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+        .sd-date { font-size: 1.05rem; font-weight: 800; }
+        .sd-day { font-size: 0.72rem; color: #94A3B8; font-weight: 500; }
+        .sd-card { background: #fff; border-radius: 10px; margin-bottom: 8px; border: 1px solid #E2E8F0; overflow: hidden; }
+        .sd-ch { display: flex; align-items: center; gap: 8px; padding: 10px 14px; cursor: pointer; transition: background .1s; }
+        .sd-ch:hover { background: #FAFBFC; }
+        .sd-ch.vh { background: rgba(180,206,249,0.15); }
+        .sd-ch.vh:hover { background: rgba(180,206,249,0.25); }
+        .sd-ch.hh { background: rgba(250,224,160,0.18); }
+        .sd-ch.hh:hover { background: rgba(250,224,160,0.3); }
+        .sd-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
+        .sd-dot.stats { background: #3B82F6; }
+        .sd-dot.team { background: #10B981; }
+        .sd-dot.list { background: #8B5CF6; }
+        .sd-title { font-size: 0.75rem; font-weight: 700; color: #0F172A; }
+        .sd-cnt { font-size: 0.65rem; color: #94A3B8; margin-left: auto; font-weight: 600; }
+
+        /* ── 사이드 내부: panel 호환 ── */
+        .panel { background: #fff; border-radius: 10px; border: 1px solid #E2E8F0; overflow: hidden; margin-bottom: 8px; }
+        .panel-header { padding: 12px 14px; border-bottom: 1px solid #F1F5F9; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+        .panel-title { font-size: 0.82rem; font-weight: 700; display: flex; align-items: center; gap: 8px; color: #0F172A; }
+        .panel-title svg { width: 16px; height: 16px; }
+        .panel-body { padding: 14px; }
+
+        /* ── 팀 멤버 ── */
+        .team-member { display: flex; align-items: center; gap: 10px; padding: 10px; background: #F8FAFC; border-radius: 8px; margin-bottom: 6px; }
+        .team-member-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .team-member-info { flex: 1; }
+        .team-member-name { font-weight: 600; font-size: 0.82rem; margin-bottom: 2px; color: #334155; }
+        .team-member-stats { font-size: 0.72rem; color: #94A3B8; }
+        .team-member-bar { width: 50px; height: 5px; background: #F1F5F9; border-radius: 3px; overflow: hidden; }
+        .team-member-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+        .unlimited-badge { font-size: 0.7rem; padding: 2px 8px; background: rgba(16,185,129,.12); color: #10b981; border-radius: 10px; }
+
+        /* ── 선택 리스트 ── */
+        .selected-list { max-height: 350px; overflow-y: auto; }
+        .selected-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #F8FAFC; border-radius: 8px; margin-bottom: 5px; }
+        .selected-item.pending { border-left: 3px solid #f97316; }
+        .selected-item.approved { border-left: 3px solid #10b981; }
+        .selected-item.cancel-requested { border-left: 3px solid #ef4444; }
+        .selected-item-info { display: flex; align-items: center; gap: 10px; flex: 1; }
+        .selected-item-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .selected-item-date { font-weight: 500; font-size: 0.82rem; color: #334155; }
+        .selected-item-type { font-size: 0.72rem; color: #94A3B8; }
+        .empty-state { text-align: center; padding: 24px; color: #94A3B8; }
+        .empty-state svg { width: 36px; height: 36px; margin-bottom: 8px; opacity: 0.5; }
+
+        /* ── 모달 ── */
+        .modal-overlay { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15,23,42,.4); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; opacity: 0; visibility: hidden; transition: all 0.2s; }
+        .modal-overlay.active { opacity: 1; visibility: visible; }
+        .modal { background: #fff; border-radius: 12px; width: 100%; max-width: 500px; transform: scale(0.95); transition: transform 0.2s; max-height: 90vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.15); }
+        .modal.large { max-width: 900px; }
+        .modal-overlay.active .modal { transform: scale(1); }
+        .modal-header { padding: 18px 22px; border-bottom: 1px solid #F1F5F9; display: flex; justify-content: space-between; align-items: center; }
+        .modal-title { font-size: 1.05rem; font-weight: 700; color: #0F172A; }
+        .modal-close { background: #F1F5F9; border: none; color: #64748B; cursor: pointer; padding: 4px; display: flex; transition: all 0.15s; border-radius: 6px; width: 28px; height: 28px; align-items: center; justify-content: center; }
+        .modal-close:hover { background: #E2E8F0; color: #0F172A; }
+        .modal-body { padding: 22px; }
+        .modal-footer { padding: 14px 22px; border-top: 1px solid #F1F5F9; display: flex; gap: 10px; justify-content: flex-end; }
+
+        /* ── 버튼 ── */
+        .btn { padding: 9px 18px; border-radius: 6px; font-size: 0.85rem; font-weight: 600; cursor: pointer; transition: all 0.15s; border: none; font-family: inherit; display: inline-flex; align-items: center; gap: 6px; }
+        .btn-primary { background: #3B82F6; color: white; }
+        .btn-primary:hover { background: #2563EB; }
+        .btn-secondary { background: #fff; color: #64748B; border: 1px solid #E2E8F0; }
+        .btn-secondary:hover { background: #F8FAFC; }
+        .btn-danger { background: #ef4444; color: white; }
+        .btn-danger:hover { background: #DC2626; }
+        .btn-success { background: #10b981; color: white; }
+        .btn-success:hover { background: #059669; }
+        .btn-warning { background: #f97316; color: white; }
+        .btn-warning:hover { background: #EA580C; }
+        .btn-small { padding: 5px 12px; font-size: 0.78rem; }
+        .btn svg { width: 16px; height: 16px; }
+
+        /* ── 연차 옵션 ── */
+        .leave-options { display: flex; flex-direction: column; gap: 8px; }
+        .leave-option { display: flex; align-items: center; gap: 12px; padding: 12px 14px; background: #F8FAFC; border: 1.5px solid transparent; border-radius: 10px; cursor: pointer; transition: all 0.15s; }
+        .leave-option:hover { border-color: #E2E8F0; }
+        .leave-option.selected { border-color: #3B82F6; background: rgba(59,130,246,.06); }
+        .leave-option-dot { width: 12px; height: 12px; border-radius: 50%; }
+        .leave-option-dot.full { background: #85A8F0; }
+        .leave-option-dot.half { background: #ECC468; }
+        .leave-option-dot.quarter { background: #B89AF8; }
+        .leave-option-info { flex: 1; }
+        .leave-option-name { font-weight: 600; font-size: 0.88rem; color: #0F172A; }
+        .leave-option-desc { font-size: 0.75rem; color: #94A3B8; }
+
+        /* ── 시간 선택 ── */
+        .time-picker-area { display: none; margin-top: 12px; padding: 16px; background: #F8FAFC; border-radius: 10px; border: 1px solid #E2E8F0; }
+        .time-picker-area.show { display: block; }
+        .time-picker-row { display: flex; align-items: center; gap: 10px; }
+        .time-picker-row label { font-size: 0.82rem; color: #64748B; font-weight: 600; min-width: 50px; }
+        .time-picker-row select { flex: 1; padding: 9px 12px; border: 1px solid #E2E8F0; border-radius: 6px; font-size: 0.88rem; font-family: inherit; background: #fff; color: #0F172A; cursor: pointer; }
+        .time-picker-row select:focus { outline: none; border-color: #3B82F6; }
+        .time-picker-row .time-sep { font-size: 1rem; color: #94A3B8; }
+        .time-picker-info { margin-top: 10px; font-size: 0.8rem; color: #3B82F6; font-weight: 500; }
+        .time-picker-hours { font-family: 'JetBrains Mono', monospace; font-weight: 600; color: #8b5cf6; }
+        .time-preset-btns { display: flex; gap: 6px; margin-top: 10px; flex-wrap: wrap; }
+        .time-preset-btn { padding: 6px 12px; border-radius: 6px; border: 1px solid #E2E8F0; background: #fff; color: #64748B; font-size: 0.78rem; font-weight: 500; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+        .time-preset-btn:hover { border-color: #3B82F6; color: #3B82F6; }
+        .time-preset-btn.active { border-color: #3B82F6; background: rgba(59,130,246,.06); color: #3B82F6; }
+
+        /* ── 날짜 연차 정보 ── */
+        .date-leaves-info { margin-bottom: 20px; padding: 14px; background: #F8FAFC; border-radius: 10px; border: 1px solid #E2E8F0; }
+        .date-leaves-title { font-size: 0.78rem; color: #94A3B8; margin-bottom: 10px; font-weight: 600; }
+        .date-leave-user { display: flex; align-items: center; gap: 8px; padding: 6px 0; font-size: 0.82rem; color: #475569; }
+        .date-leave-user-dot { width: 8px; height: 8px; border-radius: 50%; }
+
+        /* ── 폼 ── */
+        .form-group { margin-bottom: 14px; }
+        .form-label { display: block; font-size: 0.82rem; color: #475569; margin-bottom: 4px; font-weight: 600; }
+        .form-input, .form-textarea { width: 100%; background: #F8FAFC; border: 1px solid #E2E8F0; border-radius: 6px; padding: 9px 12px; color: #0F172A; font-size: 0.88rem; font-family: inherit; transition: border-color 0.15s; }
+        .form-textarea { resize: vertical; min-height: 80px; }
+        .form-input:focus, .form-textarea:focus { outline: none; border-color: #3B82F6; background: #fff; }
+        .form-checkbox { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+        .form-checkbox input { width: 18px; height: 18px; accent-color: #3B82F6; }
+        .form-checkbox label { font-size: 0.82rem; color: #64748B; }
+
+        /* ── 포상 ── */
+        .bonus-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px; background: #F8FAFC; border-radius: 8px; margin-bottom: 6px; border-left: 3px solid #ECC468; }
+        .bonus-item-info { flex: 1; }
+        .bonus-item-days { font-weight: 600; color: #D97706; margin-right: 10px; }
+        .bonus-item-reason { font-size: 0.82rem; color: #64748B; }
+        .bonus-item-date { font-size: 0.72rem; color: #94A3B8; }
+
+        /* ── 관리자 탭 ── */
+        .tabs { display: flex; gap: 4px; margin-bottom: 20px; border-bottom: 1px solid #E2E8F0; padding-bottom: 10px; flex-wrap: wrap; }
+        .tab { padding: 8px 16px; background: transparent; border: none; color: #94A3B8; cursor: pointer; font-size: 0.85rem; font-weight: 500; border-radius: 6px; transition: all 0.15s; font-family: inherit; }
+        .tab:hover { background: #F8FAFC; color: #475569; }
+        .tab.active { background: #0F172A; color: white; }
+        .admin-tab-content { }
+
+        /* ── 승인 대기 ── */
+        .pending-item { display: flex; align-items: center; gap: 12px; padding: 12px; background: #F8FAFC; border-radius: 10px; margin-bottom: 8px; border-left: 3px solid #f97316; }
+        .pending-item-info { flex: 1; }
+        .pending-item-user { font-weight: 600; margin-bottom: 4px; color: #334155; }
+        .pending-item-date { font-size: 0.82rem; color: #64748B; }
+        .pending-item-actions { display: flex; gap: 6px; }
+
+        /* ── 리포트 ── */
+        .report-table { width: 100%; border-collapse: collapse; margin-top: 16px; }
+        .report-table th, .report-table td { padding: 12px; text-align: left; border-bottom: 1px solid #F1F5F9; }
+        .report-table th { background: #F8FAFC; font-weight: 600; font-size: 0.82rem; color: #64748B; }
+        .report-table td { font-size: 0.88rem; color: #334155; }
+        .report-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .report-summary-card { background: #F8FAFC; padding: 16px; border-radius: 10px; text-align: center; border: 1px solid #E2E8F0; }
+        .report-summary-value { font-family: 'JetBrains Mono', monospace; font-size: 1.8rem; font-weight: 700; }
+        .report-summary-label { font-size: 0.78rem; color: #94A3B8; margin-top: 4px; }
+
+        /* ── 토스트 ── */
+        .toast { position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%) translateY(100px); background: #fff; border: 1px solid #E2E8F0; padding: 12px 24px; border-radius: 10px; font-size: 0.88rem; opacity: 0; transition: all 0.3s; z-index: 2000; box-shadow: 0 8px 30px rgba(0,0,0,.1); font-weight: 500; color: #334155; }
+        .toast.show { transform: translateX(-50%) translateY(0); opacity: 1; }
+        .toast.error { border-color: #FCA5A5; background: #FEF2F2; color: #B91C1C; }
+        .toast.success { border-color: #A7F3D0; background: #ECFDF5; color: #065F46; }
+
+        /* ── 동기화 ── */
+        .sync-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.75rem; color: #64748B; }
+        .sync-dot { width: 8px; height: 8px; border-radius: 50%; }
+        .sync-dot.online { background: #34D399; box-shadow: 0 0 6px rgba(52,211,153,.5); }
+        .sync-dot.offline { background: #ef4444; box-shadow: 0 0 6px rgba(239,68,68,.5); }
+        .sync-dot.syncing { background: #fbbf24; animation: pulse 1s infinite; }
+        .sync-update-flash { animation: flashBg 1.5s ease; }
+        @keyframes flashBg { 0% { background: rgba(59,130,246,.08); } 100% { background: transparent; } }
+
+        /* ── 스크롤바 ── */
+        ::-webkit-scrollbar { width: 5px; }
+        ::-webkit-scrollbar-track { background: #F8FAFC; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb { background: #E2E8F0; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #CBD5E1; }
+
+        /* ── 반응형 ── */
+        @media (max-width: 1200px) {
+            .layout-side { flex-direction: column; }
+            .side-d { width: 100%; min-width: 0; border: 1.5px solid #BFDBFE; margin: 8px; border-radius: 14px; }
+        }
+        @media (max-width: 768px) {
+            .main-section { margin: 8px; border-radius: 10px; }
+            .container { margin: 8px auto; }
+            .top-header { padding: 8px 12px; height: auto; flex-wrap: wrap; gap: 6px; }
+            .top-header h1 { font-size: 0.85rem; white-space: nowrap; }
+            .hdr-right { gap: 5px; }
+            .hdr-right .sync { display: none; }
+            .hdr-btn { padding: 4px 8px; font-size: 0.68rem; }
+            .day-cell { min-height: 70px; }
+            .day-number { font-size: 0.7rem; padding: 4px 5px 1px; }
+            .day-leave-item { font-size: 0.55rem; padding: 1px 3px; }
+            .user-tab { padding: 8px 14px; font-size: 0.78rem; }
+        }
+
+        /* dashboard class for JS compatibility */
+        .dashboard { display: contents; }
+        .sidebar { display: contents; }
+    </style>
+</head>
+
+<body>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" style="position:fixed;inset:0;background:rgba(241,245,249,.92);display:flex;align-items:center;justify-content:center;z-index:9999;flex-direction:column;gap:12px;">
+        <div style="width:32px;height:32px;border:3px solid #E2E8F0;border-top-color:#3B82F6;border-radius:50%;animation:spin .7s linear infinite;"></div>
+        <div style="color:#64748B;font-size:0.88rem;font-weight:500;">데이터를 불러오는 중...</div>
+        <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+    </div>
+
+    <!-- Header (sticky dark navy bar) -->
+    <div class="top-header">
+        <h1>스퀘어건축사사무소 26년 연차 신청 시스템</h1>
+        <div class="hdr-right">
+            <div class="sync sync-status" id="syncStatus">
+                <div class="sync-dot online" id="syncDot"></div>
+                <span id="syncText">실시간 연결됨</span>
+                <span id="lastSyncTime" style="margin-left:6px;font-size:0.65rem;color:#64748B"></span>
+            </div>
+            <button class="hdr-btn ghost" onclick="openReportModal()">연차 리포트</button>
+            <button class="hdr-btn ghost" onclick="openAdminModal()">관리자 <span class="notification-badge" id="pendingBadge" style="display:none;">0</span></button>
+            <button class="hdr-btn ghost" onclick="location.reload()">새로고침</button>
+        </div>
+    </div>
+
+    <!-- Main Section (white rounded card) -->
+    <div class="container">
+    <div class="main-section">
+        <!-- User tabs + help -->
+        <div class="user-bar">
+            <div class="user-tabs" id="userTabs"></div>
+            <div class="user-help">본인 이름을 선택하고 달력에서 날짜를 클릭하여 연차를 신청하세요</div>
+            <div style="text-align:center;">
+                <div id="quickJoinArea">
+                    <span style="font-size:0.82rem;color:#94A3B8;">처음이신가요?</span>
+                    <input type="text" id="quickJoinName" class="form-input" placeholder="이름 입력" style="width:140px;padding:8px 12px;font-size:0.85rem;">
+                    <button class="btn btn-primary btn-small" onclick="quickJoin()">참여하기</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Stats bar -->
+        <div class="stats-bar">
+            <div class="leave-stats" id="leaveStats"></div>
+        </div>
+
+        <!-- Layout: calendar + side panel -->
+        <div class="layout-side">
+            <div class="cal-main">
+                <div class="cal-wrap">
+                    <!-- Month Navigation -->
+                    <div class="month-nav">
+                        <button class="month-nav-btn" onclick="changeMonth(-1)"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"></path></svg></button>
+                        <div class="month-nav-title" id="monthTitle">2026년 1월</div>
+                        <button class="month-nav-btn" onclick="changeMonth(1)"><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path></svg></button>
+                    </div>
+
+                    <!-- Team Legend -->
+                    <div class="team-legend" id="teamLegend"></div>
+
+                    <!-- Calendar -->
+                    <div class="calendar-single" id="calendar"></div>
+
+                    <!-- Bottom Legend -->
+                    <div class="leave-type-legend">
+                        <div class="legend-item"><div class="legend-dot" style="background:#85A8F0;"></div>연차 (1일)</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#ECC468;"></div>반차 (0.5일)</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#B89AF8;"></div>반반차 (0.25일)</div>
+                        <div class="legend-item" style="margin-left:20px;"><div class="legend-dot" style="background:#f97316;opacity:.6;"></div>승인대기</div>
+                        <div class="legend-item"><div class="legend-dot" style="background:#10b981;"></div>승인완료</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Side Panel -->
+            <div class="side-d">
+                <div class="sd-hdr">
+                    <div class="sd-dr">
+                        <div class="sd-live"></div>
+                        <span class="sd-date" id="currentUserTitle">내 연차 현황</span>
+                    </div>
+                </div>
+
+                <!-- Stats Card (mirror of main leaveStats) -->
+                <div class="sd-card">
+                    <div class="sd-ch vh">
+                        <div class="sd-dot stats"></div>
+                        <span class="sd-title">연차 현황</span>
+                    </div>
+                    <div style="padding:10px 14px;">
+                        <div class="leave-stats" id="sideLeaveStats"></div>
+                    </div>
+                </div>
+
+                <!-- Team Overview Card -->
+                <div class="sd-card">
+                    <div class="sd-ch hh">
+                        <div class="sd-dot team"></div>
+                        <span class="sd-title">전체 팀원 현황</span>
+                    </div>
+                    <div style="padding:10px 14px;">
+                        <div class="team-overview" id="teamOverview"></div>
+                    </div>
+                </div>
+
+                <!-- Selected List Card -->
+                <div class="sd-card">
+                    <div class="sd-ch">
+                        <div class="sd-dot list"></div>
+                        <span class="sd-title">내 신청 내역</span>
+                    </div>
+                    <div style="padding:10px 14px;">
+                        <div class="selected-list" id="selectedList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    </div>
+
+
+    <!-- 연차 선택 모달 -->
+    <div class="modal-overlay" id="leaveModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="leaveModalTitle">연차 선택</div>
+                <button class="modal-close" onclick="closeLeaveModal()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="date-leaves-info" id="dateLeavesInfo"></div>
+                <div class="leave-options">
+                    <div class="leave-option" data-type="full" onclick="selectLeaveType('full')"><div class="leave-option-dot full"></div><div class="leave-option-info"><div class="leave-option-name">연차</div><div class="leave-option-desc">1일 차감 (종일)</div></div></div>
+                    <div class="leave-option" data-type="half" onclick="selectLeaveType('half')"><div class="leave-option-dot half"></div><div class="leave-option-info"><div class="leave-option-name">반차</div><div class="leave-option-desc">0.5일 차감 (시간 선택)</div></div></div>
+                    <div class="leave-option" data-type="quarter" onclick="selectLeaveType('quarter')"><div class="leave-option-dot quarter"></div><div class="leave-option-info"><div class="leave-option-name">반반차</div><div class="leave-option-desc">0.25일 차감 (시간 선택)</div></div></div>
+                </div>
+                <!-- 시간 선택 영역 (반차/반반차 선택 시 표시) -->
+                <div class="time-picker-area" id="timePickerArea">
+                    <div style="font-size:0.82rem;font-weight:700;color:#0F172A;margin-bottom:12px;">시간 선택</div>
+                    <div class="time-preset-btns" id="timePresetBtns">
+                        <button class="time-preset-btn" onclick="applyTimePreset('am')">오전반차 (08:30~13:00)</button>
+                        <button class="time-preset-btn" onclick="applyTimePreset('pm')">오후반차 (13:00~17:30)</button>
+                    </div>
+                    <div class="time-picker-row" style="margin-top:12px;">
+                        <label>시작</label>
+                        <select id="leaveStartTime" onchange="onTimeChange()"></select>
+                        <span class="time-sep">~</span>
+                        <label>종료</label>
+                        <select id="leaveEndTime" onchange="onTimeChange()"></select>
+                    </div>
+                    <div class="time-picker-info" id="timePickerInfo"></div>
+                </div>
+                <p style="margin-top:16px;font-size:0.78rem;color:#f97316;font-weight:500;">※ 신청 후 관리자 승인이 필요합니다.</p>
+                <p style="margin-top:8px;font-size:0.72rem;color:#94A3B8;">※ 연차는 회계연도(1월~12월) 기준으로 지급되며, 퇴사 시 재산정될 수 있습니다.</p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeLeaveModal()">닫기</button>
+                <button class="btn btn-primary" onclick="confirmLeave()">신청</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 관리자 모달 -->
+    <div class="modal-overlay" id="adminModal">
+        <div class="modal large">
+            <div class="modal-header">
+                <div class="modal-title">관리자 설정 (주유진)</div>
+                <button class="modal-close" onclick="closeAdminModal()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="modal-body">
+                <div id="adminLoginForm">
+                    <div class="form-group"><label class="form-label">관리자 비밀번호</label><input type="password" class="form-input" id="adminPassword" placeholder="비밀번호를 입력하세요" onkeypress="if(event.key==='Enter')adminLogin()"></div>
+                    <button class="btn btn-primary" style="width: 100%;" onclick="adminLogin()">로그인</button>
+                </div>
+                <div id="adminContent" style="display: none;">
+                    <div class="tabs">
+                        <button class="tab active" onclick="switchAdminTab('pending')">승인 대기 / 취소 요청 <span id="pendingCount"></span></button>
+                        <button class="tab" onclick="switchAdminTab('users')">팀원 관리</button>
+                        <button class="tab" onclick="switchAdminTab('leaves')">연차 관리</button>
+                        <button class="tab" onclick="switchAdminTab('history')">취소 이력</button>
+                        <button class="tab" onclick="switchAdminTab('settings')">설정</button>
+                    </div>
+                    <div id="adminTabPending" class="admin-tab-content"><div class="pending-list" id="pendingList"></div><div id="cancelRequestList" style="margin-top:16px"></div></div>
+                    <div id="adminTabUsers" class="admin-tab-content" style="display: none;">
+                        <div class="user-manage-list" id="userManageList"></div>
+                        <h4 style="margin: 20px 0 12px; font-size: 0.9rem;">팀원 추가</h4>
+                        <div class="form-group"><input type="text" class="form-input" id="newUserName" placeholder="이름 입력"></div>
+                        <div class="form-group"><input type="number" class="form-input" id="newUserLeave" placeholder="기본 연차" value="15"></div>
+                        <div class="form-checkbox"><input type="checkbox" id="newUserUnlimited"><label for="newUserUnlimited">무제한 연차</label></div>
+                        <button class="btn btn-primary" style="width: 100%; margin-top: 12px;" onclick="addUser()">팀원 추가</button>
+                    </div>
+                    <div id="adminTabLeaves" class="admin-tab-content" style="display: none;"><div id="leaveManageList"></div></div>
+                    <div id="adminTabSettings" class="admin-tab-content" style="display: none;">
+                        <div class="form-group"><label class="form-label">새 비밀번호</label><input type="password" class="form-input" id="newPassword" placeholder="새 비밀번호"></div>
+                        <button class="btn btn-secondary" style="width: 100%;" onclick="changePassword()">비밀번호 변경</button>
+                    </div>
+                    <div id="adminTabHistory" class="admin-tab-content" style="display: none;"><div id="cancelHistoryList"></div></div>
+                </div>
+            </div>
+            <div class="modal-footer"><button class="btn btn-secondary" onclick="closeAdminModal()">닫기</button></div>
+        </div>
+    </div>
+
+    <!-- 연차 수정 모달 -->
+    <div class="modal-overlay" id="editLeaveModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title" id="editLeaveTitle">연차 수정</div>
+                <button class="modal-close" onclick="closeEditLeaveModal()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group"><label class="form-label">기본 연차 개수</label><input type="number" class="form-input" id="editLeaveValue" min="0" step="0.5"></div>
+                <h4 style="margin: 20px 0 12px; font-size: 0.9rem;">포상 연차 추가</h4>
+                <div class="form-group"><label class="form-label">포상 일수</label><input type="number" class="form-input" id="newBonusDays" min="0" step="0.5" value="0"></div>
+                <div class="form-group"><label class="form-label">포상 사유</label><textarea class="form-textarea" id="newBonusReason" placeholder="포상 사유를 입력하세요"></textarea></div>
+                <button class="btn btn-success btn-small" onclick="addBonusLeave()">포상 연차 추가</button>
+                <div id="bonusList"></div>
+                <div style="background:#F8FAFC;padding:12px;border-radius:8px;margin-top:16px;border:1px solid #E2E8F0;">
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="color:#64748B;font-size:0.82rem;">총 연차 (기본 + 포상)</span>
+                        <span id="editTotalDisplay" style="font-family:'JetBrains Mono',monospace;font-size:1.1rem;font-weight:600;color:#3B82F6;">15일</span>
+                    </div>
+                </div>
+                <div class="form-checkbox"><input type="checkbox" id="editUnlimited"><label for="editUnlimited">무제한 연차</label></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeEditLeaveModal()">취소</button>
+                <button class="btn btn-primary" onclick="saveUserLeave()">저장</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 취소 요청 모달 -->
+    <div class="modal-overlay" id="cancelRequestModal">
+        <div class="modal">
+            <div class="modal-header">
+                <div class="modal-title">연차 취소 요청</div>
+                <button class="modal-close" onclick="closeCancelRequestModal()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="modal-body">
+                <p id="cancelRequestInfo" style="margin-bottom:16px;font-size:0.92rem;color:#334155;"></p>
+                <div class="form-group">
+                    <label class="form-label">취소 사유</label>
+                    <textarea class="form-textarea" id="cancelReason" placeholder="취소 사유를 입력하세요"></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeCancelRequestModal()">닫기</button>
+                <button class="btn btn-danger" onclick="submitCancelRequest()">취소 요청</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 연차 리포트 모달 -->
+    <div class="modal-overlay" id="reportModal">
+        <div class="modal large">
+            <div class="modal-header">
+                <div class="modal-title">스퀘어건축사사무소 26년 연차 리포트</div>
+                <button class="modal-close" onclick="closeReportModal()"><svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg></button>
+            </div>
+            <div class="modal-body">
+                <div class="report-summary" id="reportSummary"></div>
+                <h4 style="margin-bottom: 12px; font-size: 0.9rem;">팀원별 연차 현황</h4>
+                <table class="report-table">
+                    <thead><tr><th>이름</th><th>기본</th><th>포상</th><th>총</th><th>사용</th><th>잔여</th><th>대기</th></tr></thead>
+                    <tbody id="reportTableBody"></tbody>
+                </table>
+                <h4 style="margin: 30px 0 12px; font-size: 0.9rem;">상세 사용 내역</h4>
+                <div id="reportDetails"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-secondary" onclick="closeReportModal()">닫기</button>
+                <button class="btn btn-primary" onclick="exportReport()">내보내기</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="toast" id="toast"></div>
+
+
+    <script>
+        // Firebase 초기화
+        const FB_CONFIG={apiKey:"AIzaSyCzngaCcenhH1tmZ7syugpI3H1wYBVhiJQ",authDomain:"test-168a4.firebaseapp.com",databaseURL:"https://test-168a4-default-rtdb.asia-southeast1.firebasedatabase.app",projectId:"test-168a4",storageBucket:"test-168a4.firebasestorage.app",messagingSenderId:"955362696992",appId:"1:955362696992:web:234b098db17412be27c145"};
+        const fbApp=firebase.initializeApp(FB_CONFIG);
+        const fbDb=firebase.database();
+        const DB_ROOT = '/sq_vc_shared'; // Firebase 공유 데이터 경로
+
+        const userColors = ['#3b82f6', '#10b981', '#ec4899', '#f59e0b', '#8b5cf6', '#06b6d4', '#f97316', '#22c55e', '#a855f7', '#f43f5e', '#14b8a6', '#6366f1', '#eab308', '#d946ef', '#fb923c'];
+        const defaultState = {
+            users: [
+                { id: 1, name: '김영성', totalLeave: 15, bonusLeaves: [], unlimited: false, leaves: {} },
+                { id: 2, name: '신수진', totalLeave: 15, bonusLeaves: [], unlimited: false, leaves: {} }
+            ],
+            adminPassword: 'ice080303', cancelHistory: []
+        };
+        // 공유 데이터 (Firebase에 저장) - users, adminPassword, cancelHistory
+        let state = {
+            users: [], currentUserId: 1, currentMonth: new Date().getMonth(),
+            adminPassword: 'ice080303', selectedDates: [], selectedType: null,
+            editingUserId: null, cancelHistory: [], cancelRequestDate: null
+        };
+        let isDragging = false, dragStartDate = null;
+        let isSaving = false; // 저장 중 플래그 (실시간 리스너 무한루프 방지)
+        const holidays2026 = {'2026-01-01':'신정','2026-02-16':'설날연휴','2026-02-17':'설날','2026-02-18':'설날연휴','2026-03-01':'삼일절','2026-05-05':'어린이날','2026-05-24':'부처님오신날','2026-06-06':'현충일','2026-08-15':'광복절','2026-09-24':'추석연휴','2026-09-25':'추석','2026-09-26':'추석연휴','2026-10-03':'개천절','2026-10-09':'한글날','2026-12-25':'크리스마스'};
+        const leaveDeduction = { full: 1, half: 0.5, 'half-am': 0.5, 'half-pm': 0.5, quarter: 0.25 };
+        const leaveLabels = { full: '연차', half: '반차', 'half-am': '오전반차', 'half-pm': '오후반차', quarter: '반반차' };
+
+        // 시간 선택 관련
+        function buildTimeOptions(selectId, defaultVal) {
+            const sel = document.getElementById(selectId);
+            sel.innerHTML = '';
+            // 08:30 ~ 18:00 (30분 단위)
+            for (let h = 8; h <= 18; h++) {
+                for (let m = (h === 8 ? 30 : 0); m < 60; m += 30) {
+                    if (h === 18 && m > 0) break;
+                    const val = String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+                    const opt = document.createElement('option');
+                    opt.value = val; opt.textContent = val;
+                    if (val === defaultVal) opt.selected = true;
+                    sel.appendChild(opt);
+                }
+            }
+        }
+        function showTimePicker(type) {
+            const area = document.getElementById('timePickerArea');
+            const presetBtns = document.getElementById('timePresetBtns');
+            if (type === 'half' || type === 'quarter') {
+                area.classList.add('show');
+                // 반차: 오전/오후 프리셋, 반반차: 2시간 프리셋 (출근 08:30 기준)
+                if (type === 'quarter') {
+                    presetBtns.innerHTML = `
+                        <button class="time-preset-btn" onclick="applyTimePreset('q-am1')">오전 (08:30~10:30)</button>
+                        <button class="time-preset-btn" onclick="applyTimePreset('q-am2')">점심전 (10:30~12:30)</button>
+                        <button class="time-preset-btn" onclick="applyTimePreset('q-pm1')">오후 (13:30~15:30)</button>
+                        <button class="time-preset-btn" onclick="applyTimePreset('q-pm2')">저녁전 (15:30~17:30)</button>`;
+                    buildTimeOptions('leaveStartTime', '08:30');
+                    buildTimeOptions('leaveEndTime', '10:30');
+                } else {
+                    presetBtns.innerHTML = `
+                        <button class="time-preset-btn" onclick="applyTimePreset('am')">오전반차 (08:30~13:00)</button>
+                        <button class="time-preset-btn" onclick="applyTimePreset('pm')">오후반차 (13:00~17:30)</button>`;
+                    buildTimeOptions('leaveStartTime', '08:30');
+                    buildTimeOptions('leaveEndTime', '13:00');
+                }
+                onTimeChange();
+            } else {
+                area.classList.remove('show');
+            }
+        }
+        function applyTimePreset(preset) {
+            const presets = {
+                'am': ['08:30', '13:00'], 'pm': ['13:00', '17:30'],
+                'q-am1': ['08:30', '10:30'], 'q-am2': ['10:30', '12:30'],
+                'q-pm1': ['13:30', '15:30'], 'q-pm2': ['15:30', '17:30']
+            };
+            const [s, e] = presets[preset] || ['08:30', '13:00'];
+            document.getElementById('leaveStartTime').value = s;
+            document.getElementById('leaveEndTime').value = e;
+            // 프리셋 버튼 활성화
+            document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+            event.target.classList.add('active');
+            onTimeChange();
+        }
+        function onTimeChange() {
+            const s = document.getElementById('leaveStartTime').value;
+            const e = document.getElementById('leaveEndTime').value;
+            const info = document.getElementById('timePickerInfo');
+            if (s && e) {
+                const sh = parseInt(s), sm = parseInt(s.substring(3));
+                const eh = parseInt(e), em = parseInt(e.substring(3));
+                const diffMin = (eh * 60 + em) - (sh * 60 + sm);
+                const diffH = (diffMin / 60).toFixed(1);
+                if (diffMin <= 0) {
+                    info.innerHTML = '<span style="color:var(--accent-red);">종료시간은 시작시간보다 이후여야 합니다</span>';
+                } else {
+                    const ampm = sh < 12 ? '오전' : '오후';
+                    info.innerHTML = `${s} ~ ${e} (<span class="time-picker-hours">${diffH}시간</span>)`;
+                }
+            }
+            // 프리셋 활성화 체크
+            document.querySelectorAll('.time-preset-btn').forEach(b => b.classList.remove('active'));
+        }
+        const months = ['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
+        const weekdays = ['일','월','화','수','목','금','토'];
+
+        // ===== Firebase 실시간 저장/로드 =====
+        let lastSyncTimestamp = null;
+
+        function updateSyncStatus(status, text) {
+            const dot = document.getElementById('syncDot');
+            const txt = document.getElementById('syncText');
+            if (!dot || !txt) return;
+            dot.className = 'sync-dot ' + status;
+            txt.textContent = text;
+        }
+        function updateLastSyncTime() {
+            const el = document.getElementById('lastSyncTime');
+            if (!el || !lastSyncTimestamp) return;
+            const now = new Date(), diff = Math.floor((now - lastSyncTimestamp) / 1000);
+            if (diff < 5) el.textContent = '(방금 동기화됨)';
+            else if (diff < 60) el.textContent = `(${diff}초 전 동기화)`;
+            else if (diff < 3600) el.textContent = `(${Math.floor(diff/60)}분 전 동기화)`;
+            else el.textContent = `(${lastSyncTimestamp.toLocaleTimeString('ko-KR')} 동기화)`;
+        }
+        setInterval(updateLastSyncTime, 10000);
+
+        function saveState() {
+            isSaving = true;
+            updateSyncStatus('syncing', '저장 중...');
+            // 공유 데이터만 Firebase에 저장
+            const sharedData = {
+                users: state.users,
+                adminPassword: state.adminPassword,
+                cancelHistory: state.cancelHistory || [],
+                lastUpdated: new Date().toISOString()
+            };
+            fbDb.ref(DB_ROOT).set(sharedData).then(() => {
+                lastSyncTimestamp = new Date();
+                updateSyncStatus('online', '실시간 연결됨');
+                updateLastSyncTime();
+                setTimeout(() => { isSaving = false; }, 500);
+            }).catch(e => {
+                console.error('Firebase save error:', e);
+                isSaving = false;
+                updateSyncStatus('offline', '저장 실패');
+                showToast('데이터 저장 실패. 다시 시도해주세요.', 'error');
+            });
+            // 개인 설정은 localStorage에 (현재 선택된 사용자 기억)
+            localStorage.setItem('sq_vc_local', JSON.stringify({
+                currentUserId: state.currentUserId
+            }));
+        }
+
+        function loadState() {
+            return new Promise((resolve) => {
+                fbDb.ref(DB_ROOT).once('value').then(snapshot => {
+                    const data = snapshot.val();
+                    if (data && data.users && data.users.length > 0) {
+                        state.users = data.users;
+                        state.adminPassword = data.adminPassword || 'ice080303';
+                        state.cancelHistory = data.cancelHistory || [];
+                        // users 데이터 정규화
+                        state.users.forEach(u => {
+                            if (!u.bonusLeaves) u.bonusLeaves = [];
+                            if (!u.leaves) u.leaves = {};
+                            Object.keys(u.leaves).forEach(d => {
+                                if (typeof u.leaves[d] === 'string') u.leaves[d] = { type: u.leaves[d], status: 'approved' };
+                            });
+                        });
+                    } else {
+                        // Firebase에 데이터 없음 → 기존 localStorage에서 마이그레이션 시도
+                        const oldSaved = localStorage.getItem('leaveSystem4');
+                        if (oldSaved) {
+                            const oldState = JSON.parse(oldSaved);
+                            state.users = (oldState.users || defaultState.users).filter(u => u.id !== 0);
+                            state.adminPassword = oldState.adminPassword || 'ice080303';
+                            state.cancelHistory = oldState.cancelHistory || [];
+                            state.users.forEach(u => {
+                                if (!u.bonusLeaves) u.bonusLeaves = [];
+                                if (!u.leaves) u.leaves = {};
+                                Object.keys(u.leaves).forEach(d => {
+                                    if (typeof u.leaves[d] === 'string') u.leaves[d] = { type: u.leaves[d], status: 'approved' };
+                                });
+                            });
+                            // Firebase에 마이그레이션 저장
+                            saveState();
+                            showToast('기존 데이터를 공유 서버로 이전했습니다.', 'success');
+                        } else {
+                            // 완전 초기 상태
+                            state.users = JSON.parse(JSON.stringify(defaultState.users));
+                            state.adminPassword = defaultState.adminPassword;
+                            state.cancelHistory = [];
+                            saveState();
+                        }
+                    }
+                    // 개인 설정 로드
+                    const local = localStorage.getItem('sq_vc_local');
+                    if (local) {
+                        const localData = JSON.parse(local);
+                        if (localData.currentUserId && state.users.find(u => u.id === localData.currentUserId)) {
+                            state.currentUserId = localData.currentUserId;
+                        } else if (state.users.length > 0) {
+                            state.currentUserId = state.users[0].id;
+                        }
+                    } else if (state.users.length > 0) {
+                        state.currentUserId = state.users[0].id;
+                    }
+                    state.currentMonth = new Date().getMonth();
+                    lastSyncTimestamp = new Date();
+                    updateSyncStatus('online', '실시간 연결됨');
+                    updateLastSyncTime();
+                    resolve();
+                }).catch(e => {
+                    console.error('Firebase load error:', e);
+                    updateSyncStatus('offline', '오프라인 모드');
+                    // 오프라인 폴백: localStorage 사용
+                    const oldSaved = localStorage.getItem('leaveSystem4');
+                    if (oldSaved) {
+                        const oldState = JSON.parse(oldSaved);
+                        state.users = oldState.users || defaultState.users;
+                        state.adminPassword = oldState.adminPassword || 'ice080303';
+                        state.cancelHistory = oldState.cancelHistory || [];
+                    } else {
+                        state.users = JSON.parse(JSON.stringify(defaultState.users));
+                        state.adminPassword = defaultState.adminPassword;
+                        state.cancelHistory = [];
+                    }
+                    state.currentMonth = new Date().getMonth();
+                    if (state.users.length > 0) state.currentUserId = state.users[0].id;
+                    showToast('오프라인 모드로 작동합니다.', 'error');
+                    resolve();
+                });
+            });
+        }
+
+        // ===== Firebase 실시간 리스너 (다른 사용자 변경 감지) =====
+        function startRealtimeSync() {
+            fbDb.ref(DB_ROOT).on('value', snapshot => {
+                if (isSaving) return; // 내가 저장한 것이면 무시
+                const data = snapshot.val();
+                if (!data || !data.users) return;
+
+                // 변경 사항 감지 (다른 사용자의 변경 알림용)
+                const prevUserCount = state.users.length;
+                const prevLeaveCount = state.users.reduce((s, u) => s + Object.keys(u.leaves || {}).length, 0);
+
+                // 공유 데이터 업데이트
+                state.users = data.users;
+                state.adminPassword = data.adminPassword || 'ice080303';
+                state.cancelHistory = data.cancelHistory || [];
+                // users 데이터 정규화
+                state.users.forEach(u => {
+                    if (!u.bonusLeaves) u.bonusLeaves = [];
+                    if (!u.leaves) u.leaves = {};
+                });
+                // 현재 선택된 사용자가 삭제된 경우 처리
+                if (!state.users.find(u => u.id === state.currentUserId) && state.users.length > 0) {
+                    state.currentUserId = state.users[0].id;
+                }
+
+                // 변경 감지 알림
+                const newUserCount = state.users.length;
+                const newLeaveCount = state.users.reduce((s, u) => s + Object.keys(u.leaves || {}).length, 0);
+                if (prevUserCount > 0 && (prevUserCount !== newUserCount || prevLeaveCount !== newLeaveCount)) {
+                    showToast('다른 사용자가 데이터를 업데이트했습니다. 화면이 갱신됩니다.', 'success');
+                    // 화면 깜빡임 효과로 갱신 알림
+                    document.querySelector('.container').classList.add('sync-update-flash');
+                    setTimeout(() => document.querySelector('.container').classList.remove('sync-update-flash'), 1500);
+                }
+
+                lastSyncTimestamp = new Date();
+                updateSyncStatus('online', '실시간 연결됨');
+                updateLastSyncTime();
+                updateUI();
+            });
+
+            // Firebase 연결 상태 모니터링
+            fbDb.ref('.info/connected').on('value', snap => {
+                if (snap.val() === true) {
+                    updateSyncStatus('online', '실시간 연결됨');
+                } else {
+                    updateSyncStatus('offline', '연결 끊김 - 재연결 시도 중');
+                }
+            });
+        }
+        function getCurrentUser() { return state.users.find(u => u.id === state.currentUserId); }
+        function getTotalBonus(user) { return (user.bonusLeaves || []).reduce((s, b) => s + b.days, 0); }
+        function getTotalLeave(user) { return user.totalLeave + getTotalBonus(user); }
+        function calculateUsed(user) { return Object.values(user.leaves).reduce((s, l) => (l.status === 'approved' || l.status === 'cancel-requested') ? s + leaveDeduction[l.type] : s, 0); }
+        function calculatePending(user) { return Object.values(user.leaves).reduce((s, l) => l.status === 'pending' ? s + leaveDeduction[l.type] : s, 0); }
+        function getPendingCount(user) { return Object.values(user.leaves).filter(l => l.status === 'pending').length; }
+        function getTotalPendingCount() { return state.users.reduce((s, u) => s + getPendingCount(u), 0); }
+        function getCancelRequestCount() { let c = 0; state.users.forEach(u => { c += Object.values(u.leaves).filter(l => l.status === 'cancel-requested').length; }); return c; }
+
+        function renderUserTabs() {
+            const c = document.getElementById('userTabs');
+            c.innerHTML = state.users.map(u => {
+                const used = calculateUsed(u), color = userColors[u.id % userColors.length];
+                let info = u.unlimited ? '' : `<span class="user-leave-info">${getTotalLeave(u) - used}/${getTotalLeave(u)}</span>`;
+                return `<div class="user-tab ${u.id === state.currentUserId ? 'active' : ''}" onclick="selectUser(${u.id})"><div class="user-dot" style="background:${color}"></div><span>${u.name}</span>${info}</div>`;
+            }).join('');
+            const pc = getTotalPendingCount() + getCancelRequestCount(), badge = document.getElementById('pendingBadge');
+            badge.textContent = pc; badge.style.display = pc > 0 ? 'inline' : 'none';
+        }
+
+        function renderTeamLegend() {
+            document.getElementById('teamLegend').innerHTML = state.users.map(u => `<div class="team-legend-item"><div class="team-legend-dot" style="background:${userColors[u.id % userColors.length]}"></div><span>${u.name}</span></div>`).join('');
+        }
+
+        function selectUser(id) { state.currentUserId = id; localStorage.setItem('sq_vc_local', JSON.stringify({currentUserId: id})); updateUI(); }
+        function changeMonth(d) { state.currentMonth += d; if (state.currentMonth < 0) state.currentMonth = 11; if (state.currentMonth > 11) state.currentMonth = 0; renderCalendar(); }
+
+        function renderCalendar() {
+            const m = state.currentMonth;
+            document.getElementById('monthTitle').textContent = `2026년 ${months[m]}`;
+            let html = '<div class="weekdays-row">' + weekdays.map(d => `<div class="weekday-cell">${d}</div>`).join('') + '</div><div class="days-grid">';
+            const fd = new Date(2026, m, 1).getDay(), dim = new Date(2026, m + 1, 0).getDate();
+            for (let i = 0; i < fd; i++) html += '<div class="day-cell empty"></div>';
+            for (let d = 1; d <= dim; d++) {
+                const date = new Date(2026, m, d), dow = date.getDay(), ds = `2026-${String(m+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+                let cls = ['day-cell']; if (dow === 0) cls.push('sunday','weekend'); if (dow === 6) cls.push('saturday','weekend'); if (holidays2026[ds]) cls.push('holiday');
+                if (state.selectedDates && state.selectedDates.includes(ds)) cls.push('selected');
+                const isClickable = dow !== 0 && dow !== 6 && !holidays2026[ds], leaves = getLeavesForDate(ds);
+                html += `<div class="${cls.join(' ')}" data-date="${ds}" ${isClickable ? `onmousedown="startDrag('${ds}')" onmouseenter="onDrag('${ds}')" onmouseup="endDrag()"` : ''}><div class="day-number">${d}</div><div class="day-leaves">`;
+                leaves.forEach(l => { let statusCls = l.status === 'cancel-requested' ? 'cancel-requested' : l.status; const timeStr = (l.start_time && l.end_time) ? ' '+l.start_time.substring(0,5)+'~'+l.end_time.substring(0,5) : ''; html += `<div class="day-leave-item user-${l.userId % 15} ${statusCls}">${l.userName} ${leaveLabels[l.type] || leaveLabels['half']}${timeStr}</div>`; });
+                html += '</div></div>';
+            }
+            document.getElementById('calendar').innerHTML = html + '</div>';
+        }
+
+        function isValidDate(ds) { const d = new Date(ds), dow = d.getDay(); return dow !== 0 && dow !== 6 && !holidays2026[ds]; }
+        function startDrag(ds) { const u = getCurrentUser(); if (u.leaves[ds]) return; isDragging = true; dragStartDate = ds; state.selectedDates = [ds]; renderCalendar(); }
+        function onDrag(ds) { if (!isDragging || !isValidDate(ds)) return; const u = getCurrentUser(); if (u.leaves[ds]) return; const all = getDateRange(dragStartDate, ds); state.selectedDates = all.filter(d => isValidDate(d) && !u.leaves[d]); renderCalendar(); }
+        function endDrag() { if (isDragging && state.selectedDates.length > 0) { isDragging = false; openLeaveModal(); } isDragging = false; }
+        function getDateRange(a, b) { const r = []; let s = new Date(a), e = new Date(b); if (s > e) { let t = s; s = e; e = t; } while (s <= e) { r.push(s.toISOString().split('T')[0]); s.setDate(s.getDate() + 1); } return r; }
+        document.addEventListener('mouseup', () => { if (isDragging) endDrag(); });
+
+        function getUserColorIndex(uid) { return state.users.findIndex(u => u.id === uid); }
+        function getLeavesForDate(ds) {
+            const r = [];
+            state.users.forEach((u, idx) => { if (u.leaves[ds]) { const l = u.leaves[ds]; r.push({ userId: u.id, userIndex: idx, userName: u.name, type: l.type, status: l.status, start_time: l.start_time || '', end_time: l.end_time || '', hours: l.hours || 0 }); } });
+            return r;
+        }
+
+        function updateStats() {
+            const u = getCurrentUser(), used = calculateUsed(u), pend = getPendingCount(u);
+            document.getElementById('currentUserTitle').textContent = `${u.name} 연차 현황`;
+            const c = document.getElementById('leaveStats');
+            if (u.unlimited) {
+                c.className = 'leave-stats unlimited-user';
+                c.innerHTML = `<div class="stat-card"><div class="stat-value used">${used}</div><div class="stat-label">승인 사용</div></div><div class="stat-card"><div class="stat-value pending">${pend}</div><div class="stat-label">승인 대기</div></div>`;
+            } else {
+                const t = getTotalLeave(u), r = t - used - calculatePending(u), bt = getTotalBonus(u);
+                c.className = 'leave-stats';
+                c.innerHTML = `<div class="stat-card"><div class="stat-value total">${t}${bt > 0 ? '<span style="font-size:0.7rem;color:var(--accent-yellow)">(+'+bt+')</span>' : ''}</div><div class="stat-label">총 연차</div></div><div class="stat-card"><div class="stat-value used">${used}</div><div class="stat-label">승인 사용</div></div><div class="stat-card"><div class="stat-value remaining">${r}</div><div class="stat-label">잔여</div></div><div class="stat-card"><div class="stat-value pending">${pend}</div><div class="stat-label">승인 대기</div></div>`;
+            }
+        }
+
+        function renderTeamOverview() {
+            document.getElementById('teamOverview').innerHTML = state.users.map(u => {
+                const used = calculateUsed(u), color = userColors[u.id % userColors.length], bt = getTotalBonus(u);
+                if (u.unlimited) return `<div class="team-member"><div class="team-member-dot" style="background:${color}"></div><div class="team-member-info"><div class="team-member-name">${u.name}</div><div class="team-member-stats">사용 ${used}일</div></div></div>`;
+                const t = getTotalLeave(u), r = t - used, pct = t > 0 ? (used / t) * 100 : 0;
+                return `<div class="team-member"><div class="team-member-dot" style="background:${color}"></div><div class="team-member-info"><div class="team-member-name">${u.name}${bt > 0 ? '<span style="color:var(--accent-yellow);font-size:0.7rem;margin-left:6px">포상+'+bt+'</span>' : ''}</div><div class="team-member-stats">사용 ${used}일 / 잔여 ${r}일</div></div><div class="team-member-bar"><div class="team-member-bar-fill" style="width:${pct}%;background:${color}"></div></div></div>`;
+            }).join('');
+        }
+
+        function renderSelectedList() {
+            const c = document.getElementById('selectedList'), u = getCurrentUser(), sorted = Object.entries(u.leaves).sort((a, b) => a[0].localeCompare(b[0]));
+            if (sorted.length === 0) { c.innerHTML = '<div class="empty-state"><p>신청된 연차가 없습니다</p></div>'; return; }
+            c.innerHTML = sorted.map(([ds, l]) => {
+                const [y, m, d] = ds.split('-'), date = new Date(2026, parseInt(m)-1, parseInt(d)), wd = weekdays[date.getDay()];
+                const dc = l.type === 'full' ? 'var(--accent-green)' : (l.type === 'half' || l.type === 'half-am' || l.type === 'half-pm') ? 'var(--accent-yellow)' : 'var(--accent-purple)';
+                let badge = '', actionBtn = '', itemCls = l.status;
+                if (l.status === 'pending') {
+                    badge = '<span class="status-badge pending">승인대기</span>';
+                    actionBtn = `<button class="btn btn-danger btn-small" onclick="cancelMyLeave('${ds}')">취소</button>`;
+                } else if (l.status === 'cancel-requested') {
+                    badge = '<span class="status-badge cancel-requested">취소요청중</span>';
+                } else {
+                    badge = '<span class="status-badge approved">승인완료</span>';
+                    actionBtn = `<button class="btn btn-secondary btn-small" onclick="openCancelRequestModal('${ds}')">취소요청</button>`;
+                }
+                const timeStr = (l.start_time && l.end_time) ? ` (${l.start_time.substring(0,5)}~${l.end_time.substring(0,5)})` : '';
+                return `<div class="selected-item ${itemCls}"><div class="selected-item-info"><div class="selected-item-dot" style="background:${dc}"></div><div><div class="selected-item-date">${parseInt(m)}월 ${parseInt(d)}일 (${wd}) ${badge}</div><div class="selected-item-type">${leaveLabels[l.type] || '반차'} - ${leaveDeduction[l.type] || 0.5}일${timeStr}</div></div></div><div>${actionBtn}</div></div>`;
+            }).join('');
+        }
+
+        function cancelMyLeave(ds) {
+            const u = getCurrentUser();
+            if (u.leaves[ds] && u.leaves[ds].status === 'pending') {
+                if (confirm('해당 연차 신청을 취소하시겠습니까?')) {
+                    delete u.leaves[ds];
+                    saveState();
+                    updateUI();
+                    showToast('연차 신청이 취소되었습니다.', 'success');
+                }
+            } else {
+                showToast('승인 완료된 연차는 관리자에게 문의하세요.', 'error');
+            }
+        }
+
+        function openCancelRequestModal(ds) {
+            state.cancelRequestDate = ds;
+            const u = getCurrentUser(), [y, m, d] = ds.split('-');
+            document.getElementById('cancelRequestInfo').textContent = `${parseInt(m)}월 ${parseInt(d)}일 ${leaveLabels[u.leaves[ds].type]} 취소를 요청합니다.`;
+            document.getElementById('cancelReason').value = '';
+            document.getElementById('cancelRequestModal').classList.add('active');
+        }
+        function closeCancelRequestModal() { document.getElementById('cancelRequestModal').classList.remove('active'); state.cancelRequestDate = null; }
+        function submitCancelRequest() {
+            const reason = document.getElementById('cancelReason').value.trim();
+            if (!reason) { showToast('취소 사유를 입력해주세요.', 'error'); return; }
+            const u = getCurrentUser(), ds = state.cancelRequestDate;
+            if (u.leaves[ds]) {
+                u.leaves[ds].status = 'cancel-requested';
+                u.leaves[ds].cancelReason = reason;
+                u.leaves[ds].cancelRequestDate = new Date().toISOString();
+                saveState(); updateUI(); closeCancelRequestModal();
+                showToast('취소 요청이 접수되었습니다.', 'success');
+            }
+        }
+
+        function openLeaveModal(ds) {
+            const u = getCurrentUser();
+            if (ds) {
+                if (u.leaves[ds]) { showToast('이미 신청된 연차입니다.', 'error'); return; }
+                state.selectedDates = [ds];
+            }
+            if (!state.selectedDates || state.selectedDates.length === 0) return;
+            state.selectedType = null;
+            const firstDs = state.selectedDates[0], [y, m, d] = firstDs.split('-');
+            if (state.selectedDates.length > 1) {
+                document.getElementById('leaveModalTitle').textContent = `${u.name} - ${state.selectedDates.length}일 연속 연차 신청`;
+                document.getElementById('dateLeavesInfo').innerHTML = `<div class="date-leaves-title">선택된 날짜</div><div style="font-size:0.85rem">${state.selectedDates.map(dd => { const p = dd.split('-'); return `${parseInt(p[1])}/${parseInt(p[2])}`; }).join(', ')}</div>`;
+                document.getElementById('dateLeavesInfo').style.display = 'block';
+            } else {
+                document.getElementById('leaveModalTitle').textContent = `${u.name} - ${parseInt(m)}월 ${parseInt(d)}일`;
+                const leaves = getLeavesForDate(firstDs), ic = document.getElementById('dateLeavesInfo');
+                if (leaves.length > 0) {
+                    ic.innerHTML = '<div class="date-leaves-title">이 날짜의 연차 현황</div>' + leaves.map(l => { const ts = (l.start_time && l.end_time) ? ' ('+l.start_time.substring(0,5)+'~'+l.end_time.substring(0,5)+')' : ''; return `<div class="date-leave-user"><div class="date-leave-user-dot" style="background:${userColors[l.userId % userColors.length]}"></div><span>${l.userName}</span><span style="color:var(--text-secondary);margin-left:auto">${leaveLabels[l.type] || '반차'}${ts}</span></div>`; }).join('');
+                    ic.style.display = 'block';
+                } else ic.style.display = 'none';
+            }
+            document.querySelectorAll('.leave-option').forEach(o => o.classList.remove('selected'));
+            document.getElementById('leaveModal').classList.add('active');
+        }
+        function closeLeaveModal() { document.getElementById('leaveModal').classList.remove('active'); state.selectedDates = []; state.selectedType = null; document.getElementById('timePickerArea').classList.remove('show'); renderCalendar(); }
+        function selectLeaveType(t) { state.selectedType = t; document.querySelectorAll('.leave-option').forEach(o => o.classList.remove('selected')); document.querySelector(`.leave-option[data-type="${t}"]`).classList.add('selected'); showTimePicker(t); }
+        function confirmLeave() {
+            if (!state.selectedDates || state.selectedDates.length === 0 || !state.selectedType) { showToast('연차 유형을 선택해주세요.', 'error'); return; }
+            const selType = state.selectedType;
+            const isTimeBased = (selType === 'half' || selType === 'quarter');
+
+            // 시간 기반 유형: 시간 유효성 검사
+            let startTime = '', endTime = '', hours = 0;
+            if (isTimeBased) {
+                startTime = document.getElementById('leaveStartTime').value;
+                endTime = document.getElementById('leaveEndTime').value;
+                if (!startTime || !endTime) { showToast('시간을 선택해주세요.', 'error'); return; }
+                const sh = parseInt(startTime), sm = parseInt(startTime.substring(3));
+                const eh = parseInt(endTime), em = parseInt(endTime.substring(3));
+                const diffMin = (eh * 60 + em) - (sh * 60 + sm);
+                if (diffMin <= 0) { showToast('종료시간은 시작시간보다 이후여야 합니다.', 'error'); return; }
+                hours = diffMin / 60;
+            }
+
+            const u = getCurrentUser(), totalDays = state.selectedDates.length * leaveDeduction[selType];
+            if (!u.unlimited) {
+                const t = getTotalLeave(u), will = calculateUsed(u) + calculatePending(u) + totalDays;
+                if (will > t) { showToast('잔여 연차가 부족합니다!', 'error'); return; }
+            }
+
+            // 저장할 type 결정 (반차는 시간에 따라 half-am/half-pm으로 구분)
+            let saveType = selType;
+            if (selType === 'half') {
+                const sh = parseInt(startTime);
+                const eh = parseInt(endTime);
+                const midH = (sh + eh) / 2;
+                saveType = midH < 13 ? 'half-am' : 'half-pm';
+            }
+
+            state.selectedDates.forEach(ds => {
+                const leaveData = { type: saveType, status: 'pending', requestDate: new Date().toISOString() };
+                if (isTimeBased) {
+                    leaveData.start_time = startTime + ':00';
+                    leaveData.end_time = endTime + ':00';
+                    leaveData.hours = hours;
+                }
+                u.leaves[ds] = leaveData;
+            });
+            const timeLabel = isTimeBased ? ` (${startTime}~${endTime})` : '';
+            const msg = state.selectedDates.length > 1 ? `${state.selectedDates.length}일 ${leaveLabels[saveType]} 신청 완료${timeLabel}` : `${leaveLabels[saveType]} 신청 완료${timeLabel}`;
+            showToast(`${msg}. 관리자 승인을 기다려주세요.`, 'success');
+            closeLeaveModal(); saveState(); updateUI();
+        }
+
+        function openAdminModal() { document.getElementById('adminModal').classList.add('active'); document.getElementById('adminPassword').value = ''; document.getElementById('adminLoginForm').style.display = 'block'; document.getElementById('adminContent').style.display = 'none'; }
+        function closeAdminModal() { document.getElementById('adminModal').classList.remove('active'); }
+        function adminLogin() {
+            if (document.getElementById('adminPassword').value === state.adminPassword) {
+                document.getElementById('adminLoginForm').style.display = 'none'; document.getElementById('adminContent').style.display = 'block';
+                renderPendingList(); renderCancelRequestList(); renderUserManageList(); renderLeaveManageList(); renderCancelHistory(); updatePendingCount(); showToast('관리자 로그인 성공', 'success');
+            } else showToast('비밀번호가 틀렸습니다.', 'error');
+        }
+        function switchAdminTab(tab) {
+            document.querySelectorAll('.admin-tab-content').forEach(e => e.style.display = 'none');
+            document.querySelectorAll('.tabs .tab').forEach(e => e.classList.remove('active'));
+            document.getElementById(`adminTab${tab.charAt(0).toUpperCase() + tab.slice(1)}`).style.display = 'block';
+            event.target.classList.add('active');
+            if (tab === 'pending') renderPendingList();
+            if (tab === 'cancelRequests') renderCancelRequestList();
+            if (tab === 'users') renderUserManageList();
+            if (tab === 'leaves') renderLeaveManageList();
+            if (tab === 'history') renderCancelHistory();
+        }
+        function updatePendingCount() { 
+            const pc = getTotalPendingCount(), cc = getCancelRequestCount(), total = pc + cc;
+            document.getElementById('pendingCount').textContent = total > 0 ? `(${total})` : '';
+        }
+
+        function renderPendingList() {
+            const c = document.getElementById('pendingList'), items = [];
+            state.users.forEach(u => Object.entries(u.leaves).forEach(([ds, l]) => { if (l.status === 'pending') items.push({ userId: u.id, userName: u.name, date: ds, type: l.type, start_time: l.start_time||'', end_time: l.end_time||'' }); }));
+            if (items.length === 0) { c.innerHTML = '<div class="empty-state"><p>승인 대기 중인 연차가 없습니다.</p></div>'; } else {
+                items.sort((a, b) => a.date.localeCompare(b.date));
+                c.innerHTML = '<div style="font-weight:600;margin-bottom:10px;color:var(--accent-orange)">📋 승인 대기</div>' + items.map(i => {
+                    const [y, m, d] = i.date.split('-'), date = new Date(2026, parseInt(m)-1, parseInt(d)), wd = weekdays[date.getDay()];
+                    const ts = (i.start_time && i.end_time) ? ' '+i.start_time.substring(0,5)+'~'+i.end_time.substring(0,5) : '';
+                    return `<div class="pending-item"><div style="width:12px;height:12px;border-radius:50%;background:${userColors[i.userId % userColors.length]}"></div><div class="pending-item-info"><div class="pending-item-user">${i.userName}</div><div class="pending-item-date">${parseInt(m)}월 ${parseInt(d)}일 (${wd}) - ${leaveLabels[i.type] || '반차'} (${leaveDeduction[i.type] || 0.5}일)${ts}</div></div><div class="pending-item-actions"><button class="btn btn-success btn-small" onclick="approveLeave(${i.userId},'${i.date}')">승인</button><button class="btn btn-danger btn-small" onclick="rejectLeave(${i.userId},'${i.date}')">반려</button></div></div>`;
+                }).join('');
+            }
+            renderCancelRequestList();
+        }
+        function approveLeave(uid, ds) { const u = state.users.find(x => x.id === uid); if (u && u.leaves[ds]) { u.leaves[ds].status = 'approved'; saveState(); renderPendingList(); updatePendingCount(); updateUI(); showToast(`${u.name}의 연차가 승인되었습니다.`, 'success'); } }
+        function rejectLeave(uid, ds) { const u = state.users.find(x => x.id === uid); if (u && u.leaves[ds] && confirm(`${u.name}의 연차 신청을 반려하시겠습니까?`)) { delete u.leaves[ds]; saveState(); renderPendingList(); updatePendingCount(); updateUI(); showToast(`${u.name}의 연차가 반려되었습니다.`, 'success'); } }
+
+        function renderCancelRequestList() {
+            const c = document.getElementById('cancelRequestList'), items = [];
+            state.users.forEach(u => Object.entries(u.leaves).forEach(([ds, l]) => { if (l.status === 'cancel-requested') items.push({ userId: u.id, userName: u.name, date: ds, type: l.type, reason: l.cancelReason }); }));
+            if (items.length === 0) { c.innerHTML = ''; return; }
+            items.sort((a, b) => a.date.localeCompare(b.date));
+            c.innerHTML = '<div style="font-weight:600;margin-bottom:10px;color:var(--accent-red)">🔄 취소 요청</div>' + items.map(i => {
+                const [y, m, d] = i.date.split('-'), date = new Date(2026, parseInt(m)-1, parseInt(d)), wd = weekdays[date.getDay()];
+                return `<div class="pending-item" style="border-left-color:var(--accent-red)"><div style="width:12px;height:12px;border-radius:50%;background:${userColors[i.userId % userColors.length]}"></div><div class="pending-item-info"><div class="pending-item-user">${i.userName}</div><div class="pending-item-date">${parseInt(m)}월 ${parseInt(d)}일 (${wd}) - ${leaveLabels[i.type]}</div><div style="font-size:0.8rem;color:var(--accent-red);margin-top:4px">사유: ${i.reason}</div></div><div class="pending-item-actions"><button class="btn btn-success btn-small" onclick="approveCancelRequest(${i.userId},'${i.date}')">승인</button><button class="btn btn-secondary btn-small" onclick="rejectCancelRequest(${i.userId},'${i.date}')">거부</button></div></div>`;
+            }).join('');
+        }
+        function approveCancelRequest(uid, ds) {
+            const u = state.users.find(x => x.id === uid);
+            if (u && u.leaves[ds]) {
+                state.cancelHistory.push({ userId: uid, userName: u.name, date: ds, type: u.leaves[ds].type, reason: u.leaves[ds].cancelReason, cancelledAt: new Date().toISOString() });
+                delete u.leaves[ds];
+                saveState(); renderCancelRequestList(); renderCancelHistory(); updatePendingCount(); updateUI();
+                showToast(`${u.name}의 연차 취소가 승인되었습니다.`, 'success');
+            }
+        }
+        function rejectCancelRequest(uid, ds) {
+            const u = state.users.find(x => x.id === uid);
+            if (u && u.leaves[ds] && confirm(`${u.name}의 취소 요청을 거부하시겠습니까?`)) {
+                u.leaves[ds].status = 'approved';
+                delete u.leaves[ds].cancelReason;
+                delete u.leaves[ds].cancelRequestDate;
+                saveState(); renderCancelRequestList(); updatePendingCount(); updateUI();
+                showToast('취소 요청이 거부되었습니다.', 'success');
+            }
+        }
+        function renderCancelHistory() {
+            const c = document.getElementById('cancelHistoryList');
+            if (!state.cancelHistory || state.cancelHistory.length === 0) { c.innerHTML = '<div class="empty-state"><p>취소 이력이 없습니다.</p></div>'; return; }
+            const sorted = [...state.cancelHistory].sort((a, b) => b.cancelledAt.localeCompare(a.cancelledAt));
+            c.innerHTML = sorted.map((h, idx) => {
+                const [y, m, d] = h.date.split('-'), cancelDate = new Date(h.cancelledAt).toLocaleDateString('ko-KR');
+                const origIdx = state.cancelHistory.findIndex(x => x.cancelledAt === h.cancelledAt && x.userId === h.userId && x.date === h.date);
+                return `<div style="padding:8px 12px;background:var(--bg-tertiary);border-radius:6px;margin-bottom:6px;border-left:3px solid var(--accent-red);display:flex;align-items:center;justify-content:space-between;font-size:0.85rem"><div style="flex:1;display:flex;flex-wrap:wrap;align-items:center;gap:8px"><span style="font-weight:500">${h.userName}</span><span style="color:var(--text-secondary)">${parseInt(m)}/${parseInt(d)} ${leaveLabels[h.type]}</span><span style="color:var(--accent-red);font-size:0.8rem">사유: ${h.reason}</span><span style="color:var(--text-secondary);font-size:0.75rem">(${cancelDate})</span></div><button class="btn btn-danger" style="padding:3px 8px;font-size:0.7rem" onclick="deleteCancelHistoryItem(${origIdx})">삭제</button></div>`;
+            }).join('');
+        }
+        function deleteCancelHistoryItem(idx) {
+            if (confirm('이 취소 이력을 삭제하시겠습니까?')) {
+                state.cancelHistory.splice(idx, 1);
+                saveState();
+                renderCancelHistory();
+                showToast('취소 이력이 삭제되었습니다.', 'success');
+            }
+        }
+        function clearCancelHistory() {
+            if (confirm('취소 이력을 전체 삭제하시겠습니까?')) {
+                state.cancelHistory = [];
+                saveState();
+                renderCancelHistory();
+                showToast('취소 이력이 삭제되었습니다.', 'success');
+            }
+        }
+
+        function renderUserManageList() {
+            document.getElementById('userManageList').innerHTML = state.users.map(u => {
+                const bt = getTotalBonus(u), lt = u.unlimited ? '무제한' : (bt > 0 ? `${getTotalLeave(u)}일 (기본 ${u.totalLeave} + 포상 ${bt})` : `${u.totalLeave}일`);
+                return `<div style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--bg-tertiary);border-radius:10px;margin-bottom:8px"><div style="width:12px;height:12px;border-radius:50%;background:${userColors[u.id % userColors.length]}"></div><div style="flex:1"><div style="font-weight:500">${u.name}</div><div style="font-size:0.8rem;color:var(--text-secondary)">연차: ${lt}</div></div><button class="btn btn-danger" style="padding:4px 10px;font-size:0.75rem" onclick="deleteUser(${u.id})">삭제</button></div>`;
+            }).join('');
+        }
+
+        function renderLeaveManageList() {
+            document.getElementById('leaveManageList').innerHTML = state.users.map(u => {
+                const used = calculateUsed(u), pend = getPendingCount(u), bt = getTotalBonus(u);
+                const info = u.unlimited ? `무제한 | 사용: ${used}일 | 대기: ${pend}건` : `총: ${getTotalLeave(u)}일 (기본 ${u.totalLeave} + 포상 ${bt}) | 사용: ${used}일 | 잔여: ${getTotalLeave(u) - used}일 | 대기: ${pend}건`;
+                const entries = Object.entries(u.leaves).sort((a, b) => a[0].localeCompare(b[0]));
+                return `<div style="background:var(--bg-tertiary);border-radius:10px;padding:14px;margin-bottom:10px"><div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><div style="width:10px;height:10px;border-radius:50%;background:${userColors[u.id % userColors.length]}"></div><div style="flex:1"><div style="font-weight:500;font-size:0.9rem">${u.name}</div><div style="font-size:0.85rem;color:var(--text-secondary)">${info}</div></div><button class="btn btn-secondary" style="padding:4px 10px;font-size:0.75rem" onclick="openEditLeaveModal(${u.id})">연차 설정</button></div>${entries.length > 0 ? `<div style="font-size:0.7rem;color:var(--text-secondary);margin-bottom:6px">신청 내역:</div><div style="display:flex;flex-wrap:wrap;gap:6px">${entries.map(([ds, l]) => { const [y, m, d] = ds.split('-'); const ts = (l.start_time && l.end_time) ? ' '+l.start_time.substring(0,5)+'~'+l.end_time.substring(0,5) : ''; return `<div style="display:flex;align-items:center;gap:5px;background:var(--bg-primary);padding:4px 8px;border-radius:5px;font-size:0.75rem"><span style="font-weight:500">${parseInt(m)}/${parseInt(d)} ${leaveLabels[l.type] || '반차'}${ts}</span><span style="color:${l.status === 'pending' ? 'var(--accent-orange)' : 'var(--accent-green)'};font-size:0.7rem">${l.status === 'pending' ? '대기' : '승인'}</span><button onclick="adminDeleteLeave(${u.id},'${ds}')" style="background:none;border:none;color:var(--accent-red);cursor:pointer;padding:1px;font-size:0.65rem">✕</button></div>`; }).join('')}</div>` : '<div style="font-size:0.75rem;color:var(--text-secondary)">신청 내역 없음</div>'}</div>`;
+            }).join('');
+        }
+        function adminDeleteLeave(uid, ds) { const u = state.users.find(x => x.id === uid); if (u && confirm(`${u.name}의 해당 연차를 삭제하시겠습니까?`)) { delete u.leaves[ds]; saveState(); renderLeaveManageList(); renderPendingList(); updatePendingCount(); updateUI(); showToast('연차가 삭제되었습니다.', 'success'); } }
+
+        function openEditLeaveModal(uid) {
+            state.editingUserId = uid; const u = state.users.find(x => x.id === uid);
+            document.getElementById('editLeaveTitle').textContent = `${u.name} 연차 수정`;
+            document.getElementById('editLeaveValue').value = u.totalLeave;
+            document.getElementById('editUnlimited').checked = u.unlimited;
+            document.getElementById('newBonusDays').value = 0; document.getElementById('newBonusReason').value = '';
+            renderBonusList(); updateEditTotalDisplay();
+            document.getElementById('editLeaveModal').classList.add('active');
+        }
+        function closeEditLeaveModal() { document.getElementById('editLeaveModal').classList.remove('active'); state.editingUserId = null; }
+        function renderBonusList() {
+            const u = state.users.find(x => x.id === state.editingUserId), c = document.getElementById('bonusList');
+            if (!u.bonusLeaves || u.bonusLeaves.length === 0) { c.innerHTML = '<p style="font-size:0.8rem;color:var(--text-secondary);margin-top:12px">포상 연차 내역이 없습니다.</p>'; return; }
+            c.innerHTML = '<h4 style="margin:16px 0 8px;font-size:0.85rem">포상 연차 내역</h4>' + u.bonusLeaves.map((b, i) => `<div class="bonus-item"><div class="bonus-item-info"><span class="bonus-item-days">+${b.days}일</span><span class="bonus-item-reason">${b.reason}</span><div class="bonus-item-date">${new Date(b.date).toLocaleDateString('ko-KR')}</div></div><button class="btn btn-danger btn-small" onclick="removeBonusLeave(${i})">삭제</button></div>`).join('');
+        }
+        function addBonusLeave() {
+            const days = parseFloat(document.getElementById('newBonusDays').value) || 0, reason = document.getElementById('newBonusReason').value.trim();
+            if (days <= 0) { showToast('포상 일수를 입력해주세요.', 'error'); return; }
+            if (!reason) { showToast('포상 사유를 입력해주세요.', 'error'); return; }
+            const u = state.users.find(x => x.id === state.editingUserId);
+            u.bonusLeaves.push({ days, reason, date: new Date().toISOString() });
+            document.getElementById('newBonusDays').value = 0; document.getElementById('newBonusReason').value = '';
+            renderBonusList(); updateEditTotalDisplay(); showToast('포상 연차가 추가되었습니다.', 'success');
+        }
+        function removeBonusLeave(idx) {
+            const u = state.users.find(x => x.id === state.editingUserId);
+            if (confirm('이 포상 연차를 삭제하시겠습니까?')) { u.bonusLeaves.splice(idx, 1); renderBonusList(); updateEditTotalDisplay(); showToast('포상 연차가 삭제되었습니다.', 'success'); }
+        }
+        function updateEditTotalDisplay() {
+            const u = state.users.find(x => x.id === state.editingUserId), base = parseFloat(document.getElementById('editLeaveValue').value) || 0, bonus = getTotalBonus(u);
+            document.getElementById('editTotalDisplay').textContent = (base + bonus) + '일';
+        }
+        document.getElementById('editLeaveValue').addEventListener('input', updateEditTotalDisplay);
+
+        function saveUserLeave() {
+            const val = parseFloat(document.getElementById('editLeaveValue').value) || 0, unlim = document.getElementById('editUnlimited').checked, u = state.users.find(x => x.id === state.editingUserId);
+            if (!unlim && val < 0) { showToast('연차는 0 이상이어야 합니다.', 'error'); return; }
+            if (!unlim) { const used = calculateUsed(u), nt = val + getTotalBonus(u); if (nt < used) { showToast(`이미 사용된 연차(${used}일)보다 적게 설정할 수 없습니다.`, 'error'); return; } }
+            u.totalLeave = val; u.unlimited = unlim;
+            closeEditLeaveModal(); saveState(); updateUI(); renderLeaveManageList(); showToast(`${u.name}의 연차 설정이 변경되었습니다.`, 'success');
+        }
+
+        function addUser() {
+            const name = document.getElementById('newUserName').value.trim(), leave = parseFloat(document.getElementById('newUserLeave').value) || 15, unlim = document.getElementById('newUserUnlimited').checked;
+            if (!name) { showToast('이름을 입력해주세요.', 'error'); return; }
+            const nid = Math.max(...state.users.map(u => u.id), -1) + 1;
+            state.users.push({ id: nid, name, totalLeave: unlim ? 0 : leave, bonusLeaves: [], unlimited: unlim, leaves: {} });
+            document.getElementById('newUserName').value = ''; document.getElementById('newUserLeave').value = '15'; document.getElementById('newUserUnlimited').checked = false;
+            saveState(); updateUI(); renderUserManageList(); showToast(`${name}이(가) 추가되었습니다.`, 'success');
+        }
+        function quickJoin() {
+            const name = document.getElementById('quickJoinName').value.trim();
+            if (!name) { showToast('이름을 입력해주세요.', 'error'); return; }
+            // 이미 등록된 이름인지 확인
+            const existing = state.users.find(u => u.name === name);
+            if (existing) {
+                state.currentUserId = existing.id;
+                localStorage.setItem('sq_vc_local', JSON.stringify({currentUserId: existing.id}));
+                updateUI();
+                document.getElementById('quickJoinName').value = '';
+                showToast(`${name}님, 환영합니다! 달력에서 날짜를 클릭하여 연차를 신청하세요.`, 'success');
+                return;
+            }
+            const nid = Math.max(...state.users.map(u => u.id), -1) + 1;
+            state.users.push({ id: nid, name, totalLeave: 15, bonusLeaves: [], unlimited: false, leaves: {} });
+            state.currentUserId = nid;
+            document.getElementById('quickJoinName').value = '';
+            saveState(); updateUI();
+            showToast(`${name}님이 등록되었습니다! 달력에서 날짜를 클릭하여 연차를 신청하세요.`, 'success');
+        }
+        document.getElementById('quickJoinName').addEventListener('keypress', function(e) { if (e.key === 'Enter') quickJoin(); });
+
+        function deleteUser(uid) {
+            if (state.users.length <= 1) { showToast('최소 1명의 팀원이 필요합니다.', 'error'); return; }
+            const u = state.users.find(x => x.id === uid);
+            if (confirm(`${u.name}을(를) 삭제하시겠습니까?`)) {
+                state.users = state.users.filter(x => x.id !== uid);
+                if (state.currentUserId === uid) state.currentUserId = state.users[0].id;
+                saveState(); updateUI(); renderUserManageList(); showToast(`${u.name}이(가) 삭제되었습니다.`, 'success');
+            }
+        }
+        function changePassword() {
+            const np = document.getElementById('newPassword').value;
+            if (!np) { showToast('새 비밀번호를 입력해주세요.', 'error'); return; }
+            state.adminPassword = np; document.getElementById('newPassword').value = ''; saveState(); showToast('비밀번호가 변경되었습니다.', 'success');
+        }
+
+        function openReportModal() { renderReport(); document.getElementById('reportModal').classList.add('active'); }
+        function closeReportModal() { document.getElementById('reportModal').classList.remove('active'); }
+        function renderReport() {
+            let totalAll = 0, usedAll = 0, pendAll = 0;
+            state.users.forEach(u => { if (!u.unlimited) { totalAll += getTotalLeave(u); usedAll += calculateUsed(u); pendAll += calculatePending(u); } });
+            document.getElementById('reportSummary').innerHTML = `<div class="report-summary-card"><div class="report-summary-value" style="color:var(--accent-blue)">${totalAll}</div><div class="report-summary-label">전체 부여 연차</div></div><div class="report-summary-card"><div class="report-summary-value" style="color:var(--accent-purple)">${usedAll}</div><div class="report-summary-label">전체 사용 연차</div></div><div class="report-summary-card"><div class="report-summary-value" style="color:var(--accent-green)">${totalAll - usedAll - pendAll}</div><div class="report-summary-label">전체 잔여 연차</div></div><div class="report-summary-card"><div class="report-summary-value" style="color:var(--accent-orange)">${pendAll}</div><div class="report-summary-label">승인 대기</div></div>`;
+            document.getElementById('reportTableBody').innerHTML = state.users.map(u => {
+                const bt = getTotalBonus(u), t = getTotalLeave(u), used = calculateUsed(u), pend = calculatePending(u), rem = u.unlimited ? '-' : (t - used - pend);
+                return `<tr><td><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${userColors[u.id % userColors.length]};margin-right:8px"></span>${u.name}</td><td>${u.unlimited ? '-' : u.totalLeave}</td><td>${u.unlimited ? '-' : bt}</td><td>${u.unlimited ? '-' : t}</td><td>${used}</td><td>${rem}</td><td>${getPendingCount(u)}</td></tr>`;
+            }).join('');
+            document.getElementById('reportDetails').innerHTML = state.users.map(u => {
+                const entries = Object.entries(u.leaves).sort((a, b) => a[0].localeCompare(b[0]));
+                if (entries.length === 0) return '';
+                return `<div style="margin-bottom:20px"><h5 style="margin-bottom:8px;display:flex;align-items:center;gap:8px"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${userColors[u.id % userColors.length]}"></span>${u.name}</h5><div style="display:flex;flex-wrap:wrap;gap:6px">${entries.map(([ds, l]) => { const [y, m, d] = ds.split('-'); return `<div style="background:var(--bg-tertiary);padding:6px 12px;border-radius:6px;font-size:0.85rem">${parseInt(m)}/${parseInt(d)} ${leaveLabels[l.type]} <span style="color:${l.status === 'pending' ? 'var(--accent-orange)' : 'var(--accent-green)'};">${l.status === 'pending' ? '(대기)' : '(승인)'}</span></div>`; }).join('')}</div></div>`;
+            }).join('');
+        }
+        function exportReport() {
+            // 시트1: 연차 현황 요약
+            const summaryData = [['이름', '기본연차', '포상연차', '총연차', '사용', '잔여', '대기']];
+            state.users.forEach(u => {
+                const bt = getTotalBonus(u), t = getTotalLeave(u), used = calculateUsed(u), pend = calculatePending(u);
+                summaryData.push([
+                    u.name,
+                    u.unlimited ? '-' : u.totalLeave,
+                    u.unlimited ? '-' : bt,
+                    u.unlimited ? '-' : t,
+                    used,
+                    u.unlimited ? '-' : (t - used - pend),
+                    getPendingCount(u)
+                ]);
+            });
+
+            // 시트2: 연차 사용일자 상세
+            const detailData = [['이름', '날짜', '연차유형', '시간', '차감일수', '상태']];
+            state.users.forEach(u => {
+                const entries = Object.entries(u.leaves).sort((a, b) => a[0].localeCompare(b[0]));
+                entries.forEach(([ds, l]) => {
+                    const [y, m, d] = ds.split('-');
+                    const ts = (l.start_time && l.end_time) ? l.start_time.substring(0,5)+'~'+l.end_time.substring(0,5) : '종일';
+                    detailData.push([
+                        u.name,
+                        `${y}년 ${parseInt(m)}월 ${parseInt(d)}일`,
+                        leaveLabels[l.type] || '반차',
+                        ts,
+                        leaveDeduction[l.type] || 0.5,
+                        l.status === 'pending' ? '승인대기' : l.status === 'cancel-requested' ? '취소요청' : '승인완료'
+                    ]);
+                });
+            });
+
+            // Excel 워크북 생성
+            const wb = XLSX.utils.book_new();
+            const ws1 = XLSX.utils.aoa_to_sheet(summaryData);
+            const ws2 = XLSX.utils.aoa_to_sheet(detailData);
+            
+            // 열 너비 설정
+            ws1['!cols'] = [{wch:10},{wch:10},{wch:10},{wch:10},{wch:8},{wch:8},{wch:8}];
+            ws2['!cols'] = [{wch:10},{wch:18},{wch:10},{wch:14},{wch:10},{wch:10}];
+            
+            XLSX.utils.book_append_sheet(wb, ws1, '연차현황');
+            XLSX.utils.book_append_sheet(wb, ws2, '사용일자상세');
+            
+            XLSX.writeFile(wb, '스퀘어건축사사무소_26년_연차_리포트.xlsx');
+            showToast('리포트가 다운로드되었습니다.', 'success');
+        }
+
+        function showToast(msg, type = 'success') { const t = document.getElementById('toast'); t.textContent = msg; t.className = `toast ${type} show`; setTimeout(() => t.classList.remove('show'), 3000); }
+        function updateUI() { renderUserTabs(); renderTeamLegend(); renderCalendar(); updateStats(); renderTeamOverview(); renderSelectedList(); }
+
+        document.addEventListener('keydown', e => { if (e.key === 'Escape') { closeLeaveModal(); closeAdminModal(); closeEditLeaveModal(); closeReportModal(); closeCancelRequestModal(); } });
+        document.querySelectorAll('.modal-overlay').forEach(o => o.addEventListener('click', e => { if (e.target === o) o.classList.remove('active'); }));
+
+        // 초기 로딩: Firebase에서 데이터 불러온 후 UI 렌더링 & 실시간 리스너 시작
+        loadState().then(() => {
+            updateUI();
+            startRealtimeSync();
+            // 로딩 오버레이 제거
+            const overlay = document.getElementById('loadingOverlay');
+            if (overlay) overlay.style.display = 'none';
+        });
+    </script>
+</body>
+</html>

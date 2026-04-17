@@ -179,7 +179,7 @@ const App = {
       html += `</div>`;
     }
 
-    // 재무 섹션
+    // 재무 섹션 (입금내역 + 매칭관리 통합)
     const showDeposits = hasPerm('deposits');
     const showMatching = isAdmin && hasPerm('matching');
     const showTransfers = hasPerm('transfers');
@@ -189,17 +189,9 @@ const App = {
 
       if (showDeposits) {
         html += `
-          <div class="nav-item" data-path="/deposits" onclick="Router.navigate('/deposits')">
+          <div class="nav-item" data-path="/finance" onclick="Router.navigate('/finance')">
             <span class="nav-icon">💰</span>
-            <span>입금내역</span>
-          </div>
-        `;
-      }
-      if (showMatching) {
-        html += `
-          <div class="nav-item" data-path="/matching" onclick="Router.navigate('/matching')">
-            <span class="nav-icon">🔗</span>
-            <span>매칭 관리</span>
+            <span>입금내역·매칭</span>
           </div>
         `;
       }
@@ -254,6 +246,10 @@ const App = {
       html += `
         <div class="nav-section">
           <div class="nav-section-title">관리</div>
+          <div class="nav-item" data-path="/checklist" onclick="Router.navigate('/checklist')">
+            <span class="nav-icon">✅</span>
+            <span>업무 체크리스트</span>
+          </div>
           <div class="nav-item" data-path="/users" onclick="Router.navigate('/users')">
             <span class="nav-icon">👥</span>
             <span>사용자 관리</span>
@@ -313,6 +309,16 @@ const App = {
       title: '송금내역 관리',
       roles: ['admin'],
       action: 'admin'
+    });
+    Router.register('/finance', {
+      module: 'FinanceMatchingModule',
+      title: '재무 (입금내역·매칭)',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/checklist', {
+      module: 'ChecklistModule',
+      title: '업무 체크리스트',
+      roles: ['admin', 'employee']
     });
     Router.register('/documents', {
       module: 'DocumentsModule',

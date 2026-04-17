@@ -3,7 +3,8 @@
    기존 시스템(GitHub Pages)을 iframe으로 연동
    ============================================ */
 
-const LEAVE_URL = 'https://netformrnd.github.io/sq_vc/';
+// 연차 시스템: 같은 레포에 포함된 index_연차관련.html (GitHub Pages에 함께 배포됨)
+const LEAVE_URL = 'index_연차관련.html';
 
 const LeaveModule = {
   container: null,

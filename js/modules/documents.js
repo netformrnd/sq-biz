@@ -19,8 +19,11 @@ const DocumentsModule = {
   async render() {
     const allDocs = await DB.getAll('documents');
 
+    // 날짜 필터
+    DateFilter.onChange('documents', () => this.render());
+    let filtered = DateFilter.filter(allDocs, 'createdAt', 'documents');
+
     // 검색 필터
-    let filtered = allDocs;
     if (this.searchText) {
       const q = this.searchText.toLowerCase();
       filtered = filtered.filter(d =>
@@ -142,6 +145,9 @@ const DocumentsModule = {
           </div>
         </div>
       </div>
+
+      <!-- 날짜 필터 -->
+      <div class="mb-4">${DateFilter.render('documents')}</div>
 
       <!-- 검색 + 필터 -->
       <div class="filter-bar mb-4">

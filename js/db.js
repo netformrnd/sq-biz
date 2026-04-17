@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 
 const DB = {
   db: null,
@@ -89,6 +89,13 @@ const DB = {
           store.createIndex('regNumber', 'regNumber', { unique: false });
           store.createIndex('category', 'category', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // checklists (업무 체크리스트)
+        if (!db.objectStoreNames.contains('checklists')) {
+          const store = db.createObjectStore('checklists', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('period', 'period', { unique: false });
+          store.createIndex('order', 'order', { unique: false });
         }
       };
 
@@ -205,7 +212,7 @@ const DB = {
   async exportAll() {
     if (this.useFirebase) return FirebaseDB.exportAll();
     await this.open();
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists'];
     const data = {};
     for (const name of storeNames) {
       data[name] = await this.getAll(name);
@@ -231,7 +238,7 @@ const DB = {
   async importAll(backup) {
     if (this.useFirebase) return FirebaseDB.importAll(backup);
     await this.open();
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists'];
     for (const name of storeNames) {
       await this.clear(name);
       if (backup.data[name]) {

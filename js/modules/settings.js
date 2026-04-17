@@ -144,6 +144,28 @@ const SettingsModule = {
         </div>
       </div>
 
+      <!-- 문서보관 파일 일괄 다운로드 -->
+      <div class="card mb-6">
+        <div class="card-header">
+          <h3>📁 문서보관 파일 일괄 다운로드</h3>
+        </div>
+        <div class="card-body">
+          <p class="text-sm text-muted mb-4">
+            문서보관에 저장된 모든 파일(사업자등록증, 계약서 등)을 <strong>ZIP 파일로 일괄 다운로드</strong>합니다.<br>
+            <span class="text-muted">거래처별로 폴더가 생성되며, 초기화 대비 백업용으로 사용하세요.</span>
+          </p>
+          <div class="d-flex gap-2" style="flex-wrap:wrap;">
+            <button class="btn btn-primary" onclick="SettingsModule._downloadAllDocuments()">📥 전체 문서 ZIP 다운로드</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._downloadDocumentsByCategory('사업자등록증')">📄 사업자등록증만</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._downloadDocumentsByCategory('계약서')">📑 계약서만</button>
+          </div>
+          <div id="docDownloadProgress" class="hidden mt-4">
+            <div class="progress-bar"><div class="progress-fill" id="docDownloadFill" style="width:0%"></div></div>
+            <div class="progress-text" id="docDownloadText"></div>
+          </div>
+        </div>
+      </div>
+
       <!-- 잔디 웹훅 설정 -->
       <div class="card mb-6">
         <div class="card-header">
@@ -311,6 +333,151 @@ const SettingsModule = {
     FirebaseDB.setConfig(null);
     Utils.showToast('Firebase 연결이 해제되었습니다. 페이지를 새로고침합니다.', 'success');
     setTimeout(() => location.reload(), 1500);
+  },
+
+  // ===== 문서 파일 일괄 다운로드 (ZIP) =====
+  async _loadJSZip() {
+    if (window.JSZip) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('JSZip 로드 실패'));
+      document.head.appendChild(s);
+    });
+  },
+
+  async _downloadAllDocuments() {
+    await this._downloadDocsZip(null);
+  },
+
+  async _downloadDocumentsByCategory(category) {
+    await this._downloadDocsZip(category);
+  },
+
+  async _downloadDocsZip(categoryFilter) {
+    const progressEl = document.getElementById('docDownloadProgress');
+    const fillEl = document.getElementById('docDownloadFill');
+    const textEl = document.getElementById('docDownloadText');
+
+    try {
+      progressEl.classList.remove('hidden');
+      fillEl.style.background = 'var(--color-primary)';
+      fillEl.style.width = '5%';
+      textEl.textContent = 'JSZip 로드중...';
+
+      await this._loadJSZip();
+
+      fillEl.style.width = '10%';
+      textEl.textContent = '문서 목록 조회중...';
+
+      let docs = await DB.getAll('documents');
+      if (categoryFilter) {
+        docs = docs.filter(d => d.category === categoryFilter);
+      }
+
+      if (docs.length === 0) {
+        Utils.showToast('다운로드할 문서가 없습니다.', 'warning');
+        progressEl.classList.add('hidden');
+        return;
+      }
+
+      const zip = new JSZip();
+      let processedCount = 0;
+      let skippedCount = 0;
+
+      for (const doc of docs) {
+        try {
+          let blob = null;
+
+          if (doc.fileData instanceof Blob) {
+            // IndexedDB 직접 저장된 Blob
+            blob = doc.fileData;
+          } else if (typeof doc.fileData === 'string' && doc.fileData.startsWith('data:')) {
+            // base64 → Blob 변환 (Firebase)
+            blob = this._base64ToBlob(doc.fileData, doc.fileType);
+          } else if (typeof doc.fileData === 'string' && doc.fileData.length > 0) {
+            // data: prefix 없는 base64
+            try {
+              blob = this._base64ToBlob('data:' + (doc.fileType || 'application/octet-stream') + ';base64,' + doc.fileData, doc.fileType);
+            } catch (e) {
+              skippedCount++;
+              continue;
+            }
+          } else {
+            skippedCount++;
+            continue;
+          }
+
+          // 폴더 경로: 카테고리/거래처명/파일명
+          const safeCompany = (doc.companyName || '미분류').replace(/[\/\\:*?"<>|]/g, '_');
+          const safeCategory = (doc.category || '기타').replace(/[\/\\:*?"<>|]/g, '_');
+          const safeFileName = (doc.fileName || 'unnamed').replace(/[\/\\:*?"<>|]/g, '_');
+
+          // 중복 파일명 방지: 날짜 prefix 추가
+          const datePrefix = doc.createdAt ? doc.createdAt.split('T')[0].replace(/-/g, '') + '_' : '';
+          const folderPath = `${safeCategory}/${safeCompany}/`;
+          const filePath = folderPath + datePrefix + safeFileName;
+
+          zip.file(filePath, blob);
+          processedCount++;
+
+          // 진행률 업데이트
+          const progress = 10 + (processedCount / docs.length) * 80;
+          fillEl.style.width = `${progress}%`;
+          textEl.textContent = `파일 추가중... ${processedCount} / ${docs.length}`;
+        } catch (e) {
+          console.warn('[문서다운로드] 파일 처리 실패:', doc.fileName, e);
+          skippedCount++;
+        }
+      }
+
+      if (processedCount === 0) {
+        Utils.showToast('다운로드 가능한 파일이 없습니다. (Blob 데이터 없음)', 'warning');
+        progressEl.classList.add('hidden');
+        return;
+      }
+
+      textEl.textContent = 'ZIP 압축중... (파일이 많으면 시간이 걸릴 수 있습니다)';
+      fillEl.style.width = '95%';
+
+      const content = await zip.generateAsync({ type: 'blob', compression: 'DEFLATE', compressionOptions: { level: 6 } });
+
+      const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
+      const suffix = categoryFilter ? `_${categoryFilter}` : '';
+      const filename = `sq-biz-documents${suffix}_${date}.zip`;
+
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      fillEl.style.width = '100%';
+      fillEl.style.background = 'var(--color-success)';
+      textEl.textContent = `완료! ${processedCount}개 파일 다운로드${skippedCount > 0 ? ` (${skippedCount}개 스킵)` : ''}`;
+
+      Utils.showToast(`${processedCount}개 파일을 ZIP으로 다운로드했습니다.`, 'success');
+
+      setTimeout(() => progressEl.classList.add('hidden'), 3000);
+    } catch (err) {
+      console.error('[문서다운로드]', err);
+      fillEl.style.background = 'var(--color-danger)';
+      textEl.textContent = '실패: ' + err.message;
+      Utils.showToast('다운로드 실패: ' + err.message, 'error');
+    }
+  },
+
+  _base64ToBlob(base64, mimeType) {
+    const parts = base64.split(',');
+    const byteString = atob(parts[1] || parts[0]);
+    const ab = new ArrayBuffer(byteString.length);
+    const ia = new Uint8Array(ab);
+    for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+    return new Blob([ab], { type: mimeType || 'application/octet-stream' });
   },
 
   _saveJandiUrl() {

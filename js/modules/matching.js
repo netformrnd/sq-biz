@@ -78,7 +78,7 @@ const MatchingModule = {
               '<div class="empty-state" style="padding:var(--sp-6);"><p>미매칭 세금계산서가 없습니다</p></div>' :
               invoices.map(inv => `
                 <div class="matching-item ${this.selectedInvoiceId === inv.id ? 'selected' : ''}"
-                     onclick="MatchingModule._selectInvoice(${inv.id})">
+                     onclick="MatchingModule._selectInvoice('${inv.id}')">
                   <input type="radio" name="invoice" class="item-checkbox"
                          ${this.selectedInvoiceId === inv.id ? 'checked' : ''}>
                   <div class="item-info">
@@ -113,7 +113,7 @@ const MatchingModule = {
               '<div class="empty-state" style="padding:var(--sp-6);"><p>미매칭 입금내역이 없습니다</p></div>' :
               deposits.map(dep => `
                 <div class="matching-item ${this.selectedDepositId === dep.id ? 'selected' : ''}"
-                     onclick="MatchingModule._selectDeposit(${dep.id})">
+                     onclick="MatchingModule._selectDeposit('${dep.id}')">
                   <input type="radio" name="deposit" class="item-checkbox"
                          ${this.selectedDepositId === dep.id ? 'checked' : ''}>
                   <div class="item-info">

@@ -51,11 +51,11 @@ const UserManagementModule = {
           </td>
           <td>
             <div class="d-flex gap-2">
-              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._edit(${u.id})" title="수정">✏️</button>
-              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._editPermissions(${u.id})" title="메뉴 권한">🔐</button>
-              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._resetPassword(${u.id})" title="비밀번호">🔑</button>
+              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._edit('${u.id}')" title="수정">✏️</button>
+              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._editPermissions('${u.id}')" title="메뉴 권한">🔐</button>
+              <button class="btn btn-ghost btn-sm" onclick="UserManagementModule._resetPassword('${u.id}')" title="비밀번호">🔑</button>
               <button class="btn btn-ghost btn-sm ${u.isActive ? 'text-danger' : 'text-success'}"
-                      onclick="UserManagementModule._toggleActive(${u.id})"
+                      onclick="UserManagementModule._toggleActive('${u.id}')"
                       title="${u.isActive ? '비활성화' : '활성화'}">
                 ${u.isActive ? '🚫' : '✅'}
               </button>
@@ -130,7 +130,7 @@ const UserManagementModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="UserManagementModule._savePermissions(${id})">저장</button>
+        <button class="btn btn-primary" onclick="UserManagementModule._savePermissions('${id}')">저장</button>
       </div>
     `);
   },
@@ -197,7 +197,7 @@ const UserManagementModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="UserManagementModule._save(${isEdit ? editData.id : 'null'})">${isEdit ? '수정' : '추가'}</button>
+        <button class="btn btn-primary" onclick="UserManagementModule._save(${isEdit ? `'${editData.id}'` : 'null'})">${isEdit ? '수정' : '추가'}</button>
       </div>
     `);
   },
@@ -263,7 +263,7 @@ const UserManagementModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="UserManagementModule._confirmResetPw(${id})">변경</button>
+        <button class="btn btn-primary" onclick="UserManagementModule._confirmResetPw('${id}')">변경</button>
       </div>
     `);
   },

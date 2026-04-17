@@ -43,7 +43,7 @@ const DepositModule = {
       </td></tr>`;
     } else {
       tableRows = filtered.map(d => `
-        <tr oncontextmenu="DepositModule._showContextMenu(event, ${d.id})">
+        <tr oncontextmenu="DepositModule._showContextMenu(event, '${d.id}')">
           <td>${Utils.formatDate(d.depositDate)}</td>
           <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
           <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
@@ -53,8 +53,8 @@ const DepositModule = {
           <td>
             ${isAdmin ? `
               <div class="d-flex gap-2">
-                <button class="btn btn-ghost btn-sm" onclick="DepositModule._edit(${d.id})" title="수정">✏️</button>
-                <button class="btn btn-ghost btn-sm text-danger" onclick="DepositModule._delete(${d.id})" title="삭제">🗑️</button>
+                <button class="btn btn-ghost btn-sm" onclick="DepositModule._edit('${d.id}')" title="수정">✏️</button>
+                <button class="btn btn-ghost btn-sm text-danger" onclick="DepositModule._delete('${d.id}')" title="삭제">🗑️</button>
               </div>
             ` : ''}
           </td>
@@ -363,7 +363,7 @@ const DepositModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="DepositModule._saveDeposit(${isEdit ? editData.id : 'null'})">${isEdit ? '수정' : '등록'}</button>
+        <button class="btn btn-primary" onclick="DepositModule._saveDeposit(${isEdit ? `'${editData.id}'` : 'null'})">${isEdit ? '수정' : '등록'}</button>
       </div>
     `);
   },

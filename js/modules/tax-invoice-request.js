@@ -672,7 +672,7 @@ const TaxInvoiceRequestModule = {
       </td></tr>`;
     } else {
       tableRows = myItems.map(item => `
-        <tr onclick="TaxInvoiceRequestModule._showDetail(${item.id})" style="cursor:pointer;">
+        <tr onclick="TaxInvoiceRequestModule._showDetail('${item.id}')" style="cursor:pointer;">
           <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
           <td>${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
           <td>${Utils.escapeHtml(item.reason ? (item.reason.length > 30 ? item.reason.slice(0, 30) + '...' : item.reason) : '-')}</td>

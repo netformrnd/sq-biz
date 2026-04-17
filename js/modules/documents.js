@@ -80,10 +80,10 @@ const DocumentsModule = {
               </div>
             </div>
             <div class="d-flex gap-2">
-              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._renameDoc(${doc.id})" title="이름변경">✏️</button>
-              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._viewDoc(${doc.id})" title="보기">👁️</button>
-              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._downloadDoc(${doc.id})" title="다운로드">💾</button>
-              ${Auth.isAdmin() ? `<button class="btn btn-ghost btn-sm text-danger" onclick="DocumentsModule._deleteDoc(${doc.id})" title="삭제">🗑️</button>` : ''}
+              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._renameDoc('${doc.id}')" title="이름변경">✏️</button>
+              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._viewDoc('${doc.id}')" title="보기">👁️</button>
+              <button class="btn btn-ghost btn-sm" onclick="DocumentsModule._downloadDoc('${doc.id}')" title="다운로드">💾</button>
+              ${Auth.isAdmin() ? `<button class="btn btn-ghost btn-sm text-danger" onclick="DocumentsModule._deleteDoc('${doc.id}')" title="삭제">🗑️</button>` : ''}
             </div>
           </div>
         `).join('');
@@ -203,7 +203,7 @@ const DocumentsModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="DocumentsModule._confirmRename(${id}, '${Utils.escapeHtml(ext)}')">저장</button>
+        <button class="btn btn-primary" onclick="DocumentsModule._confirmRename('${id}', '${Utils.escapeHtml(ext)}')">저장</button>
       </div>
     `);
 
@@ -259,7 +259,7 @@ const DocumentsModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
-        <button class="btn btn-primary" onclick="DocumentsModule._downloadDoc(${id}); Utils.closeModal();">💾 다운로드</button>
+        <button class="btn btn-primary" onclick="DocumentsModule._downloadDoc('${id}'); Utils.closeModal();">💾 다운로드</button>
       </div>
     `, { size: 'modal-lg' });
   },

@@ -38,36 +38,36 @@ const TaxInvoiceAdminModule = {
 
         if (item.status === '요청') {
           actionBtns = `
-            <button class="btn btn-primary btn-sm" onclick="TaxInvoiceAdminModule._reviewRequest(${item.id})">검토하기</button>
+            <button class="btn btn-primary btn-sm" onclick="TaxInvoiceAdminModule._reviewRequest('${item.id}')">검토하기</button>
           `;
         } else if (item.status === '검토중') {
           actionBtns = `
-            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail(${item.id})" title="상세보기">👁️</button>
-            <button class="btn btn-success btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '발행완료')">발행</button>
-            <button class="btn btn-danger btn-sm" onclick="TaxInvoiceAdminModule._reject(${item.id})">반려</button>
+            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
+            <button class="btn btn-success btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '발행완료')">발행</button>
+            <button class="btn btn-danger btn-sm" onclick="TaxInvoiceAdminModule._reject('${item.id}')">반려</button>
           `;
         } else if (item.status === '발행완료') {
           actionBtns = `
-            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail(${item.id})" title="상세보기">👁️</button>
-            <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '요청')">요청으로</button>
-            <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '검토중')">검토중으로</button>
+            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
+            <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '요청')">요청으로</button>
+            <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '검토중')">검토중으로</button>
           `;
         } else if (item.status === '반려') {
           actionBtns = `
-            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail(${item.id})" title="상세보기">👁️</button>
-            <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '요청')">요청으로</button>
-            <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus(${item.id}, '검토중')">검토중으로</button>
+            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
+            <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '요청')">요청으로</button>
+            <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '검토중')">검토중으로</button>
           `;
         }
         // 삭제 버튼 (모든 상태에서)
-        actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest(${item.id})" title="삭제">🗑️</button>`;
+        actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest('${item.id}')" title="삭제">🗑️</button>`;
 
         return `
-          <tr oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, ${item.id}, '${item.status}')">
+          <tr oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, '${item.id}', '${item.status}')">
             <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
             <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
             <td>
-              <span onclick="TaxInvoiceAdminModule._editPartnerName(${item.id})" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
+              <span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
                 ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
               </span>
             </td>
@@ -197,7 +197,7 @@ const TaxInvoiceAdminModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="TaxInvoiceAdminModule._savePartnerName(${id})">저장</button>
+        <button class="btn btn-primary" onclick="TaxInvoiceAdminModule._savePartnerName('${id}')">저장</button>
       </div>
     `);
 
@@ -273,13 +273,13 @@ const TaxInvoiceAdminModule = {
     if (item.status === '검토중') {
       footerBtns = `
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
-        <button class="btn btn-danger" onclick="Utils.closeModal(); TaxInvoiceAdminModule._reject(${item.id})">반려</button>
-        <button class="btn btn-success btn-lg" onclick="Utils.closeModal(); TaxInvoiceAdminModule._changeStatus(${item.id}, '발행완료')">발행완료 처리</button>
+        <button class="btn btn-danger" onclick="Utils.closeModal(); TaxInvoiceAdminModule._reject('${item.id}')">반려</button>
+        <button class="btn btn-success btn-lg" onclick="Utils.closeModal(); TaxInvoiceAdminModule._changeStatus('${item.id}', '발행완료')">발행완료 처리</button>
       `;
     } else if (item.status === '요청') {
       footerBtns = `
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
-        <button class="btn btn-primary" onclick="Utils.closeModal(); TaxInvoiceAdminModule._reviewRequest(${item.id})">검토 시작</button>
+        <button class="btn btn-primary" onclick="Utils.closeModal(); TaxInvoiceAdminModule._reviewRequest('${item.id}')">검토 시작</button>
       `;
     }
 
@@ -402,7 +402,7 @@ const TaxInvoiceAdminModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-danger" onclick="TaxInvoiceAdminModule._confirmReject(${id})">반려 처리</button>
+        <button class="btn btn-danger" onclick="TaxInvoiceAdminModule._confirmReject('${id}')">반려 처리</button>
       </div>
     `);
   },

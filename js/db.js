@@ -127,11 +127,13 @@ const DB = {
   },
 
   async get(storeName, id) {
-    if (this.useFirebase) return FirebaseDB.get(storeName, id);
+    if (this.useFirebase) return FirebaseDB.get(storeName, String(id));
     await this.open();
+    // IndexedDB: 숫자 문자열이면 Number로 변환
+    const localId = typeof id === 'string' && /^\d+$/.test(id) ? Number(id) : id;
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName);
-      const request = store.get(id);
+      const request = store.get(localId);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
@@ -163,20 +165,27 @@ const DB = {
   async update(storeName, data) {
     if (this.useFirebase) return FirebaseDB.update(storeName, data);
     await this.open();
+    // IndexedDB: id가 숫자 문자열이면 Number로 변환
+    const record = { ...data };
+    if (typeof record.id === 'string' && /^\d+$/.test(record.id)) {
+      record.id = Number(record.id);
+    }
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
-      const request = store.put(data);
+      const request = store.put(record);
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
     });
   },
 
   async delete(storeName, id) {
-    if (this.useFirebase) return FirebaseDB.delete(storeName, id);
+    if (this.useFirebase) return FirebaseDB.delete(storeName, String(id));
     await this.open();
+    // IndexedDB: 숫자 문자열이면 Number로 변환
+    const localId = typeof id === 'string' && /^\d+$/.test(id) ? Number(id) : id;
     return new Promise((resolve, reject) => {
       const store = this._getStore(storeName, 'readwrite');
-      const request = store.delete(id);
+      const request = store.delete(localId);
       request.onsuccess = () => resolve();
       request.onerror = () => reject(request.error);
     });

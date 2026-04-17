@@ -29,7 +29,7 @@ const TransferModule = {
       </td></tr>`;
     } else {
       tableRows = records.map(r => `
-        <tr oncontextmenu="TransferModule._showContextMenu(event, ${r.id})">
+        <tr oncontextmenu="TransferModule._showContextMenu(event, '${r.id}')">
           <td>${Utils.formatDate(r.transferDate)}</td>
           <td class="fw-medium">${Utils.escapeHtml(r.recipientName || '-')}</td>
           <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
@@ -39,8 +39,8 @@ const TransferModule = {
           <td>
             ${isAdmin ? `
               <div class="d-flex gap-2">
-                <button class="btn btn-ghost btn-sm" onclick="TransferModule._edit(${r.id})" title="수정">✏️</button>
-                <button class="btn btn-ghost btn-sm text-danger" onclick="TransferModule._delete(${r.id})" title="삭제">🗑️</button>
+                <button class="btn btn-ghost btn-sm" onclick="TransferModule._edit('${r.id}')" title="수정">✏️</button>
+                <button class="btn btn-ghost btn-sm text-danger" onclick="TransferModule._delete('${r.id}')" title="삭제">🗑️</button>
               </div>
             ` : ''}
           </td>
@@ -352,7 +352,7 @@ const TransferModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="TransferModule._save(${isEdit ? editData.id : 'null'})">${isEdit ? '수정' : '등록'}</button>
+        <button class="btn btn-primary" onclick="TransferModule._save(${isEdit ? `'${editData.id}'` : 'null'})">${isEdit ? '수정' : '등록'}</button>
       </div>
     `);
   },

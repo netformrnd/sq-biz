@@ -426,6 +426,40 @@ const FinanceMatchingModule = {
     `, { size: 'modal-xl' });
   },
 
+  // 텍스트를 라인 → 탭/공백으로 분리 (탭 없으면 여러 공백을 구분자로)
+  _splitCols(line) {
+    // 탭이 있으면 탭 기준
+    if (line.includes('\t')) return line.split('\t').map(c => c.trim());
+    // 탭이 없으면 2개 이상의 공백 기준 (위하고 복사 시 공백으로 나올 수 있음)
+    return line.split(/\s{2,}|\t/).map(c => c.trim()).filter(c => c);
+  },
+
+  // 숫자인지 판별 (콤마 제거)
+  _isNumber(s) {
+    if (!s) return false;
+    const n = Number(s.replace(/[,\s]/g, ''));
+    return !isNaN(n) && s.replace(/[,\s\d]/g, '') === '';
+  },
+
+  // 컬럼 구조 자동 감지
+  // 반환: { nameIdx, withdrawIdx, depositIdx }
+  _detectFormat(cols) {
+    if (cols.length < 4) return null;
+
+    // 위하고: [날짜, 이름(한글), 출금(숫자), 입금(숫자), 잔액(숫자)]
+    // 은행:   [날짜, 출금(숫자), 입금(숫자), 잔액(숫자), 이름(한글), ...]
+
+    const c1HasKorean = /[가-힣]/.test(cols[1] || '');
+    const c1IsNumber = this._isNumber(cols[1] || '');
+
+    if (c1HasKorean || (!c1IsNumber && (cols[1] || '').length > 0)) {
+      // 위하고 형식 (cols[1]=이름)
+      return { nameIdx: 1, withdrawIdx: 2, depositIdx: 3, format: 'wehago' };
+    }
+    // 은행 형식 (cols[1]=출금)
+    return { nameIdx: 4, withdrawIdx: 1, depositIdx: 2, format: 'bank' };
+  },
+
   _parseBankStatement() {
     const raw = document.getElementById('bankStatementArea').value.trim();
     if (!raw) {
@@ -435,35 +469,59 @@ const FinanceMatchingModule = {
 
     const lines = raw.split('\n').filter(l => l.trim());
     this._bankParsed = { deposits: [], withdrawals: [] };
+    let detectedFormat = null;
 
     for (const line of lines) {
-      const cols = line.split('\t');
-      if (cols.length < 5) continue;
+      const cols = this._splitCols(line);
+      if (cols.length < 4) continue;
 
-      const dateStr = (cols[0] || '').trim();
-      const withdrawStr = (cols[1] || '').trim();
-      const depositStr = (cols[2] || '').trim();
+      // 헤더 행 건너뛰기 (날짜 형식이 아니면 skip)
+      const dateMatch = (cols[0] || '').match(/(\d{2,4})[-.\/](\d{1,2})(?:[-.\/](\d{1,2}))?/);
+      if (!dateMatch) continue;
 
+      const fmt = this._detectFormat(cols);
+      if (!fmt) continue;
+      if (!detectedFormat) detectedFormat = fmt.format;
+
+      const withdrawStr = (cols[fmt.withdrawIdx] || '').trim();
+      const depositStr = (cols[fmt.depositIdx] || '').trim();
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
 
-      // 수취인/입금자: cols[3]부터 탐색 (계좌번호 + 이름)
+      // 이름 추출
+      let name = (cols[fmt.nameIdx] || '').trim();
       let accountNo = '';
-      let name = '';
-      for (let i = 3; i < cols.length; i++) {
-        const val = (cols[i] || '').trim();
-        if (!val) continue;
-        if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;
-        if (/[가-힣]/.test(val) && !name) name = val;
-      }
-      if (!name) name = (cols[4] || '').trim();
-      const displayName = accountNo && name ? `${name} (${accountNo})` : name || accountNo;
 
-      // 날짜 파싱
+      // 은행 형식은 cols[4]부터 계좌번호/이름 추가 탐색
+      if (fmt.format === 'bank') {
+        for (let i = 3; i < cols.length; i++) {
+          const val = (cols[i] || '').trim();
+          if (!val) continue;
+          if (/^\d{5,}$/.test(val.replace(/[-\s]/g, '')) && !accountNo) accountNo = val;
+          if (/[가-힣]/.test(val) && !name) name = val;
+        }
+        if (!name) name = (cols[4] || '').trim();
+      }
+
+      // 괄호 형식 이름에서 계좌번호 추출 시도: "홍정란(3511-374-957813)"
+      if (!accountNo && name) {
+        const m = name.match(/\(([^)]+)\)/);
+        if (m && /\d{4,}/.test(m[1])) accountNo = m[1].trim();
+      }
+
+      const displayName = accountNo && name && !name.includes(accountNo)
+        ? `${name} (${accountNo})`
+        : name || accountNo || '-';
+
+      // 날짜: 2자리 연도면 현재 연도 사용
       let date = '';
-      const dateMatch = dateStr.match(/(\d{4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
-      if (dateMatch) {
+      if (dateMatch[3]) {
+        // YYYY-MM-DD
         date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+      } else {
+        // MM-DD (연도 없음) → 올해 연도 사용
+        const year = new Date().getFullYear();
+        date = `${year}-${dateMatch[1].padStart(2, '0')}-${dateMatch[2].padStart(2, '0')}`;
       }
 
       if (depositAmount > 0) {
@@ -475,10 +533,12 @@ const FinanceMatchingModule = {
 
     const { deposits, withdrawals } = this._bankParsed;
     if (deposits.length === 0 && withdrawals.length === 0) {
-      Utils.showToast('인식 가능한 내역이 없습니다.', 'warning');
+      Utils.showToast('인식 가능한 내역이 없습니다. 복사 형식을 확인하세요.', 'warning');
       return;
     }
 
+    this._detectedFormat = detectedFormat;
+    Utils.showToast(`${detectedFormat === 'wehago' ? '위하고' : '은행'} 형식으로 인식: 입금 ${deposits.length}건, 송금 ${withdrawals.length}건`, 'success');
     this._renderBankParseResult();
   },
 

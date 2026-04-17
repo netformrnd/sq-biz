@@ -189,27 +189,60 @@ const SettingsModule = {
     }
 
     try {
-      // JSON 파싱 (JS 객체 형태도 허용)
-      let config;
-      try {
-        config = JSON.parse(raw);
-      } catch {
-        // "key: value" 형식을 JSON으로 변환 시도
-        const jsonStr = raw
-          .replace(/(\w+):/g, '"$1":')  // key: -> "key":
-          .replace(/'/g, '"');           // ' -> "
-        config = JSON.parse(jsonStr);
+      let config = null;
+      let text = raw;
+
+      // 1. 전체 JS 코드에서 중괄호 { ... } 부분만 추출
+      // 예: "const firebaseConfig = { ... };" → "{ ... }"
+      const braceMatch = text.match(/\{[\s\S]*\}/);
+      if (braceMatch) {
+        text = braceMatch[0];
       }
 
-      if (!config.apiKey || !config.projectId) {
-        throw new Error('apiKey와 projectId가 필수입니다.');
+      // 2. 주석 제거
+      text = text.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+
+      // 3. JSON 파싱 시도
+      try {
+        config = JSON.parse(text);
+      } catch {
+        // 4. JS 객체 형태를 JSON으로 변환
+        // "key: value" → "\"key\": value"
+        // 마지막 콤마 제거 (trailing comma)
+        let jsonStr = text
+          .replace(/'/g, '"')                    // ' → "
+          .replace(/([{,]\s*)(\w+)\s*:/g, '$1"$2":')  // key: → "key":
+          .replace(/,(\s*[}\]])/g, '$1');        // 마지막 콤마 제거
+
+        try {
+          config = JSON.parse(jsonStr);
+        } catch (e2) {
+          // 5. eval로 직접 파싱 (마지막 수단)
+          try {
+            config = Function('"use strict"; return (' + text + ')')();
+          } catch (e3) {
+            throw new Error('설정 형식을 파싱할 수 없습니다. Firebase 콘솔에서 복사한 내용 그대로 붙여넣어 주세요.');
+          }
+        }
+      }
+
+      if (!config || typeof config !== 'object') {
+        throw new Error('유효한 설정이 아닙니다.');
+      }
+
+      if (!config.apiKey) {
+        throw new Error('apiKey가 없습니다. Firebase 콘솔에서 올바르게 복사했는지 확인하세요.');
+      }
+      if (!config.projectId) {
+        throw new Error('projectId가 없습니다. Firebase 콘솔에서 올바르게 복사했는지 확인하세요.');
       }
 
       FirebaseDB.setConfig(config);
       Utils.showToast('Firebase 설정 저장 완료. 페이지를 새로고침합니다.', 'success');
       setTimeout(() => location.reload(), 1500);
     } catch (err) {
-      Utils.showToast('설정 실패: ' + err.message, 'error');
+      console.error('[Firebase 설정 오류]', err);
+      Utils.showToast('설정 실패: ' + err.message, 'error', 8000);
     }
   },
 

@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 
 const DB = {
   db: null,
@@ -96,6 +96,22 @@ const DB = {
           const store = db.createObjectStore('checklists', { keyPath: 'id', autoIncrement: true });
           store.createIndex('period', 'period', { unique: false });
           store.createIndex('order', 'order', { unique: false });
+        }
+
+        // leaveRequests (연차 신청)
+        if (!db.objectStoreNames.contains('leaveRequests')) {
+          const store = db.createObjectStore('leaveRequests', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('userId', 'userId', { unique: false });
+          store.createIndex('date', 'date', { unique: false });
+          store.createIndex('status', 'status', { unique: false });
+          store.createIndex('year', 'year', { unique: false });
+        }
+
+        // leaveBalances (연차 잔여)
+        if (!db.objectStoreNames.contains('leaveBalances')) {
+          const store = db.createObjectStore('leaveBalances', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('userId', 'userId', { unique: false });
+          store.createIndex('year', 'year', { unique: false });
         }
       };
 

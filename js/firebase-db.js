@@ -230,7 +230,7 @@ const FirebaseDB = {
   },
 
   async exportAll() {
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances'];
     const data = {};
     for (const name of storeNames) {
       data[name] = await this.getAll(name);
@@ -239,7 +239,7 @@ const FirebaseDB = {
   },
 
   async importAll(backup) {
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances'];
     for (const name of storeNames) {
       await this.clear(name);
       if (backup.data[name]) {

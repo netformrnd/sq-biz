@@ -45,6 +45,15 @@ const LeaveModule = {
     this.container = container;
     await this.loadData();
     this.render();
+    // 모달 백드롭 스타일 강제 (캐시된 CSS 방어)
+    const bd = document.getElementById('modalBackdrop');
+    if (bd) {
+      bd.style.position = 'fixed';
+      bd.style.inset = '0';
+      bd.style.zIndex = '9999';
+      bd.style.alignItems = 'center';
+      bd.style.justifyContent = 'center';
+    }
   },
 
   async loadData() {
@@ -501,8 +510,9 @@ const LeaveModule = {
       return;
     }
     area.style.display = 'block';
+    // 근무시간 08:30~17:30, 점심 12:00~13:00 기준
     const presets = type === 'quarter'
-      ? [['08:30','10:30','오전'], ['10:30','12:30','점심전'], ['13:30','15:30','오후'], ['15:30','17:30','저녁전']]
+      ? [['08:30','10:30','오전1'], ['10:00','12:00','오전2'], ['13:00','15:00','오후1'], ['15:30','17:30','오후2']]
       : [['08:30','13:00','오전반차'], ['13:00','17:30','오후반차']];
     document.getElementById('leaveTimePresets').innerHTML = presets.map(p =>
       `<button class="btn btn-ghost btn-sm" onclick="LeaveModule._applyPreset('${p[0]}','${p[1]}')">${p[2]} (${p[0]}~${p[1]})</button>`
@@ -547,14 +557,39 @@ const LeaveModule = {
   _updateTimeInfo() {
     const info = document.getElementById('leaveTimeInfo');
     if (!info) return;
-    const hours = this._diffHours(this.selectedStart, this.selectedEnd);
-    info.textContent = `선택 시간: ${hours.toFixed(1)}시간`;
+    const workHours = this._workHours(this.selectedStart, this.selectedEnd);
+    const stdHours = this._typeHours(this.selectedType);
+    const typeLabel = this.leaveTypes[this.selectedType]?.label || this.selectedType;
+
+    if (stdHours > 0) {
+      info.innerHTML = `
+        <div>선택: <strong>${this.selectedStart} ~ ${this.selectedEnd}</strong> (실근무 ${workHours.toFixed(1)}시간, 점심 제외)</div>
+        <div style="margin-top:4px;">차감 기준: <strong style="color:#8b5cf6;">${typeLabel} = ${stdHours}시간</strong></div>
+      `;
+    } else {
+      info.textContent = `선택 시간: ${workHours.toFixed(1)}시간`;
+    }
   },
 
+  // 단순 시간차 (참고용)
   _diffHours(s, e) {
     const [sh, sm] = s.split(':').map(Number);
     const [eh, em] = e.split(':').map(Number);
     return Math.max(0, (eh + em/60) - (sh + sm/60));
+  },
+
+  // 실근무시간 (점심시간 12:00~13:00 자동 제외)
+  _workHours(s, e) {
+    const toMin = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
+    const sMin = toMin(s), eMin = toMin(e);
+    const lunchStart = 12 * 60, lunchEnd = 13 * 60;
+    const lunchOverlap = Math.max(0, Math.min(eMin, lunchEnd) - Math.max(sMin, lunchStart));
+    return Math.max(0, (eMin - sMin) - lunchOverlap) / 60;
+  },
+
+  // 타입별 고정 차감 시간 (근무 8h 기준)
+  _typeHours(type) {
+    return { full: 8, half: 4, 'half-am': 4, 'half-pm': 4, quarter: 2 }[type] || 0;
   },
 
   async submitRequest() {
@@ -598,7 +633,7 @@ const LeaveModule = {
         type,
         startTime: type === 'full' ? null : this.selectedStart,
         endTime: type === 'full' ? null : this.selectedEnd,
-        hours: type === 'full' ? 8 : this._diffHours(this.selectedStart, this.selectedEnd),
+        hours: this._typeHours(type),
         reason,
         status: 'pending',
         createdAt: new Date().toISOString()

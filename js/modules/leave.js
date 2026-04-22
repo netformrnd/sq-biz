@@ -1048,8 +1048,9 @@ const LeaveModule = {
         </tbody>
       </table>
 
-      <div style="margin-top:20px;display:flex;justify-content:flex-end;">
-        <button class="btn btn-primary" onclick="LeaveModule.exportCsv()">📥 CSV 내보내기</button>
+      <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="LeaveModule.exportCsv()">📄 CSV</button>
+        <button class="btn btn-primary" onclick="LeaveModule.exportXlsx()">📥 엑셀 내보내기 (.xlsx)</button>
       </div>
     `;
     Utils.openModal(`
@@ -1084,6 +1085,121 @@ const LeaveModule = {
     a.download = `연차리포트_${this.currentYear}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  // XLSX SDK 동적 로드
+  async _ensureXlsxSdk() {
+    if (window.XLSX) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('XLSX SDK 로드 실패'));
+      document.head.appendChild(s);
+    });
+  },
+
+  // 날짜 포맷: "2026-01-08" → "2026년 1월 8일"
+  _formatKoreanDate(dateStr) {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (!y || !m || !d) return dateStr;
+    return `${y}년 ${m}월 ${d}일`;
+  },
+
+  _statusLabel(status) {
+    return {
+      approved: '승인완료',
+      pending: '승인대기',
+      rejected: '반려',
+      'cancel-requested': '취소요청',
+      cancelled: '취소됨'
+    }[status] || status;
+  },
+
+  _typeExcelLabel(type) {
+    return { full: '연차', half: '반차', 'half-am': '오전반차', 'half-pm': '오후반차', quarter: '반반차' }[type] || type;
+  },
+
+  // 엑셀 리포트 내보내기 (2시트: 연차현황 + 사용일자상세)
+  async exportXlsx() {
+    try {
+      await this._ensureXlsxSdk();
+      const XLSX = window.XLSX;
+      const wb = XLSX.utils.book_new();
+
+      // ===== 시트 1: 연차현황 =====
+      const summaryData = [['이름', '기본연차', '포상연차', '총연차', '사용', '잔여', '대기']];
+      this.users.forEach(u => {
+        const bal = this.balances.find(b => String(b.userId) === String(u.id));
+        const base = bal?.totalLeave || 0;
+        const bonus = (bal?.bonusLeaves || []).reduce((s, b) => s + (b.days || 0), 0);
+        const total = base + bonus;
+        const used = this._calculateUsed(u.id, 'approved');
+        const pending = this._calculateUsed(u.id, 'pending');
+        const isUnl = bal?.unlimited;
+        summaryData.push([
+          u.displayName,
+          isUnl ? '무제한' : base,
+          bonus,
+          isUnl ? '무제한' : total,
+          Number(used.toFixed(2)),
+          isUnl ? '무제한' : Number((total - used).toFixed(2)),
+          Number(pending.toFixed(2))
+        ]);
+      });
+      const wsSummary = XLSX.utils.aoa_to_sheet(summaryData);
+      wsSummary['!cols'] = [
+        { wch: 12 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }, { wch: 10 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsSummary, '연차현황');
+
+      // ===== 시트 2: 사용일자상세 =====
+      const detailData = [['이름', '날짜', '연차유형', '차감일수', '상태']];
+      // 상태 필터: 취소/반려 제외 (승인완료 + 대기 + 취소요청)
+      const relevantStatuses = ['approved', 'pending', 'cancel-requested'];
+      const details = this.requests
+        .filter(r => relevantStatuses.includes(r.status))
+        .filter(r => this.users.some(u => String(u.id) === String(r.userId))) // 대상자만
+        .sort((a, b) => {
+          const nameCmp = (a.userName || '').localeCompare(b.userName || '', 'ko');
+          if (nameCmp !== 0) return nameCmp;
+          return (a.date || '').localeCompare(b.date || '');
+        });
+
+      details.forEach(r => {
+        detailData.push([
+          r.userName,
+          this._formatKoreanDate(r.date),
+          this._typeExcelLabel(r.type),
+          this.leaveTypes[r.type]?.days || 0,
+          this._statusLabel(r.status)
+        ]);
+      });
+
+      if (detailData.length === 1) {
+        // 내역이 없을 때 안내행
+        detailData.push(['(내역 없음)', '', '', '', '']);
+      }
+
+      const wsDetail = XLSX.utils.aoa_to_sheet(detailData);
+      wsDetail['!cols'] = [
+        { wch: 12 }, { wch: 18 }, { wch: 12 }, { wch: 10 }, { wch: 12 }
+      ];
+      XLSX.utils.book_append_sheet(wb, wsDetail, '사용일자상세');
+
+      // 파일명: 스퀘어건축사사무소_YY년_연차_리포트_YYYYMMDD
+      const now = new Date();
+      const yy = String(this.currentYear).slice(-2);
+      const stamp = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+      const filename = `스퀘어건축사사무소_${yy}년_연차_리포트_${stamp}.xlsx`;
+
+      XLSX.writeFile(wb, filename);
+      Utils.showToast(`${filename} 다운로드 완료`, 'success');
+    } catch (e) {
+      console.error('[연차] 엑셀 내보내기 실패:', e);
+      Utils.showToast('엑셀 내보내기 실패: ' + e.message, 'error');
+    }
   },
 
   // ===== 기존 시스템 데이터 이관 =====

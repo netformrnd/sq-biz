@@ -192,65 +192,6 @@ const LeaveModule = {
         </div>
       </div>
 
-      <!-- 연차 신청 모달 -->
-      <div id="leaveApplyModal" class="modal-overlay hidden">
-        <div class="modal">
-          <div class="modal-header">
-            <h3 id="leaveApplyTitle">연차 신청</h3>
-            <button class="modal-close" onclick="LeaveModule._closeModal('leaveApplyModal')">✕</button>
-          </div>
-          <div class="modal-body" id="leaveApplyBody"></div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="LeaveModule._closeModal('leaveApplyModal')">닫기</button>
-            <button class="btn btn-primary" onclick="LeaveModule.submitRequest()">신청</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- 관리자: 승인대기 모달 -->
-      <div id="leavePendingModal" class="modal-overlay hidden">
-        <div class="modal" style="max-width:720px;">
-          <div class="modal-header">
-            <h3>승인 대기 / 취소 요청</h3>
-            <button class="modal-close" onclick="LeaveModule._closeModal('leavePendingModal')">✕</button>
-          </div>
-          <div class="modal-body" id="leavePendingBody"></div>
-        </div>
-      </div>
-
-      <!-- 관리자: 팀원 연차 관리 모달 -->
-      <div id="leaveManageModal" class="modal-overlay hidden">
-        <div class="modal" style="max-width:720px;">
-          <div class="modal-header">
-            <h3>팀원 연차 관리</h3>
-            <button class="modal-close" onclick="LeaveModule._closeModal('leaveManageModal')">✕</button>
-          </div>
-          <div class="modal-body" id="leaveManageBody"></div>
-        </div>
-      </div>
-
-      <!-- 이관 모달 -->
-      <div id="leaveMigrateModal" class="modal-overlay hidden">
-        <div class="modal" style="max-width:820px;">
-          <div class="modal-header">
-            <h3>기존 연차 데이터 이관</h3>
-            <button class="modal-close" onclick="LeaveModule._closeModal('leaveMigrateModal')">✕</button>
-          </div>
-          <div class="modal-body" id="leaveMigrateBody"></div>
-        </div>
-      </div>
-
-      <!-- 리포트 모달 -->
-      <div id="leaveReportModal" class="modal-overlay hidden">
-        <div class="modal" style="max-width:900px;">
-          <div class="modal-header">
-            <h3>${this.currentYear}년 연차 리포트</h3>
-            <button class="modal-close" onclick="LeaveModule._closeModal('leaveReportModal')">✕</button>
-          </div>
-          <div class="modal-body" id="leaveReportBody"></div>
-        </div>
-      </div>
-
       <style>
         .leave-cal { width:100%; border-collapse:collapse; table-layout:fixed; }
         .leave-cal th { padding:10px 0; font-size:0.75rem; color:#94A3B8; border-bottom:1px solid var(--color-border); text-align:center; font-weight:600; }
@@ -487,8 +428,12 @@ const LeaveModule = {
       </div>
     ` : '';
 
-    document.getElementById('leaveApplyTitle').textContent = `연차 신청 - ${date}`;
-    document.getElementById('leaveApplyBody').innerHTML = `
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>연차 신청 - ${date}</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
       ${existingHtml}
       <div class="form-group">
         <label class="form-label">연차 종류</label>
@@ -539,8 +484,12 @@ const LeaveModule = {
       </div>
 
       <div style="margin-top:12px;font-size:0.78rem;color:#f97316;">※ 신청 후 관리자 승인이 필요합니다.</div>
-    `;
-    this._showModal('leaveApplyModal');
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+        <button class="btn btn-primary" onclick="LeaveModule.submitRequest()">신청</button>
+      </div>
+    `);
   },
 
   _onTypeChange() {
@@ -657,7 +606,7 @@ const LeaveModule = {
       await DB.add('leaveRequests', req);
       await DB.log('연차신청', 'leaveRequests', null, { date, type });
       Utils.showToast('연차 신청 완료', 'success');
-      this._closeModal('leaveApplyModal');
+      Utils.closeModal();
       await this.refresh();
     } catch (e) {
       Utils.showToast('신청 실패: ' + e.message, 'error');
@@ -744,8 +693,16 @@ const LeaveModule = {
       }).join('');
     }
 
-    document.getElementById('leavePendingBody').innerHTML = html;
-    this._showModal('leavePendingModal');
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>승인 대기 / 취소 요청</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">${html}</div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+      </div>
+    `, { size: 'modal-lg' });
   },
 
   async approveRequest(id) {
@@ -831,19 +788,27 @@ const LeaveModule = {
           </div>
         `).join('');
 
-    document.getElementById('leaveManageBody').innerHTML = `
-      <div style="margin-bottom:20px;">
-        <div style="font-weight:700;margin-bottom:10px;color:#0F172A;">🎯 연차 사용 대상자 (${this.users.length}명)</div>
-        ${enabledHtml}
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>팀원 연차 관리</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
+      <div class="modal-body">
+        <div style="margin-bottom:20px;">
+          <div style="font-weight:700;margin-bottom:10px;color:#0F172A;">🎯 연차 사용 대상자 (${this.users.length}명)</div>
+          ${enabledHtml}
+        </div>
 
-      <div style="border-top:1px solid #E2E8F0;padding-top:16px;">
-        <div style="font-weight:700;margin-bottom:6px;color:#0F172A;">➕ 연차 사용 대상 추가</div>
-        <div class="text-xs text-muted" style="margin-bottom:10px;">필요 시 다른 직원을 연차 대상으로 추가할 수 있습니다.</div>
-        ${disabledHtml}
+        <div style="border-top:1px solid #E2E8F0;padding-top:16px;">
+          <div style="font-weight:700;margin-bottom:6px;color:#0F172A;">➕ 연차 사용 대상 추가</div>
+          <div class="text-xs text-muted" style="margin-bottom:10px;">필요 시 다른 직원을 연차 대상으로 추가할 수 있습니다.</div>
+          ${disabledHtml}
+        </div>
       </div>
-    `;
-    this._showModal('leaveManageModal');
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+      </div>
+    `, { size: 'modal-lg' });
   },
 
   async toggleLeaveEnabled(userId, enable) {
@@ -876,40 +841,45 @@ const LeaveModule = {
     const bal = this.balances.find(b => String(b.userId) === String(userId));
     if (!u || !bal) return;
 
-    const body = document.getElementById('leaveManageBody');
-    body.innerHTML = `
-      <h4 style="margin:0 0 16px 0;">${Utils.escapeHtml(u.displayName)}님의 연차</h4>
-      <div class="form-group">
-        <label class="form-label">기본 연차 개수</label>
-        <input type="number" id="editBalTotal" class="form-input" value="${bal.totalLeave || 0}" min="0" step="0.5">
-      </div>
-      <div class="form-group">
-        <label style="display:flex;align-items:center;gap:8px;">
-          <input type="checkbox" id="editBalUnlimited" ${bal.unlimited ? 'checked' : ''}>
-          <span>무제한 연차</span>
-        </label>
-      </div>
+    this._editingBalanceUserId = userId;
 
-      <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-top:16px;">
-        <div style="font-weight:700;margin-bottom:10px;">포상 연차 내역</div>
-        <div id="bonusListEdit">${(bal.bonusLeaves || []).map((b, i) => `
-          <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#fff;border-radius:6px;margin-bottom:4px;">
-            <span class="text-sm">${b.days}일 - ${Utils.escapeHtml(b.reason || '')}</span>
-            <button class="btn btn-ghost btn-sm" onclick="LeaveModule._removeBonus(${i})">✕</button>
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>${Utils.escapeHtml(u.displayName)}님의 연차</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label">기본 연차 개수</label>
+          <input type="number" id="editBalTotal" class="form-input" value="${bal.totalLeave || 0}" min="0" step="0.5">
+        </div>
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;">
+            <input type="checkbox" id="editBalUnlimited" ${bal.unlimited ? 'checked' : ''}>
+            <span>무제한 연차</span>
+          </label>
+        </div>
+
+        <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-top:16px;">
+          <div style="font-weight:700;margin-bottom:10px;">포상 연차 내역</div>
+          <div id="bonusListEdit">${(bal.bonusLeaves || []).map((b, i) => `
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 10px;background:#fff;border-radius:6px;margin-bottom:4px;">
+              <span class="text-sm">${b.days}일 - ${Utils.escapeHtml(b.reason || '')}</span>
+              <button class="btn btn-ghost btn-sm" onclick="LeaveModule._removeBonus(${i})">✕</button>
+            </div>
+          `).join('') || '<div class="text-xs text-muted">포상 내역 없음</div>'}</div>
+          <div style="display:flex;gap:6px;margin-top:10px;">
+            <input type="number" id="bonusDays" class="form-input" placeholder="일수" style="width:100px;" step="0.5">
+            <input type="text" id="bonusReason" class="form-input" placeholder="사유" style="flex:1;">
+            <button class="btn btn-success btn-sm" onclick="LeaveModule._addBonus('${userId}')">추가</button>
           </div>
-        `).join('') || '<div class="text-xs text-muted">포상 내역 없음</div>'}</div>
-        <div style="display:flex;gap:6px;margin-top:10px;">
-          <input type="number" id="bonusDays" class="form-input" placeholder="일수" style="width:100px;" step="0.5">
-          <input type="text" id="bonusReason" class="form-input" placeholder="사유" style="flex:1;">
-          <button class="btn btn-success btn-sm" onclick="LeaveModule._addBonus('${userId}')">추가</button>
         </div>
       </div>
-
-      <div style="display:flex;gap:8px;margin-top:16px;">
-        <button class="btn btn-secondary" onclick="LeaveModule.openManageUsers()" style="flex:1;">취소</button>
-        <button class="btn btn-primary" onclick="LeaveModule.saveBalance('${userId}')" style="flex:1;">저장</button>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="LeaveModule.openManageUsers()">← 목록</button>
+        <button class="btn btn-primary" onclick="LeaveModule.saveBalance('${userId}')">저장</button>
       </div>
-    `;
+    `);
   },
 
   _addBonus(userId) {
@@ -1013,8 +983,16 @@ const LeaveModule = {
         <button class="btn btn-primary" onclick="LeaveModule.exportCsv()">📥 CSV 내보내기</button>
       </div>
     `;
-    document.getElementById('leaveReportBody').innerHTML = html;
-    this._showModal('leaveReportModal');
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>${this.currentYear}년 연차 리포트</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">${html}</div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+      </div>
+    `, { size: 'modal-lg' });
   },
 
   exportCsv() {
@@ -1042,39 +1020,44 @@ const LeaveModule = {
   // ===== 기존 시스템 데이터 이관 =====
   openMigrateModal() {
     if (!Auth.isAdmin()) return;
-    document.getElementById('leaveMigrateBody').innerHTML = `
-      <div style="padding:14px;background:#FFF7ED;border-radius:8px;margin-bottom:16px;border-left:3px solid #f97316;">
-        <div style="font-weight:700;color:#9A3412;margin-bottom:6px;">⚠️ 이관 안내</div>
-        <div class="text-sm" style="color:#64748B;line-height:1.6;">
-          기존 연차 시스템(<code>index_연차관련.html</code>)의 Firebase Realtime Database에서 데이터를 가져옵니다.<br>
-          • 이름 기반으로 현재 시스템 사용자와 매칭합니다 (<code>displayName</code>)<br>
-          • 매칭된 사용자만 이관됩니다 (일치 안하면 수동 맞추기)<br>
-          • 기본연차/포상연차/무제한 설정이 덮어씌워집니다<br>
-          • 모든 연차 신청 내역이 추가됩니다 (기존 데이터는 유지)
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>기존 연차 데이터 이관</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="padding:14px;background:#FFF7ED;border-radius:8px;margin-bottom:16px;border-left:3px solid #f97316;">
+          <div style="font-weight:700;color:#9A3412;margin-bottom:6px;">⚠️ 이관 안내</div>
+          <div class="text-sm" style="color:#64748B;line-height:1.6;">
+            기존 연차 시스템(<code>index_연차관련.html</code>)의 Firebase Realtime Database에서 데이터를 가져옵니다.<br>
+            • 이름 기반으로 현재 시스템 사용자와 매칭합니다 (<code>displayName</code>)<br>
+            • 매칭된 사용자만 이관됩니다 (일치 안하면 수동 맞추기)<br>
+            • 기본연차/포상연차/무제한 설정이 덮어씌워집니다<br>
+            • 모든 연차 신청 내역이 추가됩니다 (기존 데이터는 유지)
+          </div>
         </div>
-      </div>
 
-      <div class="form-group">
-        <label class="form-label">기존 Firebase Realtime DB URL</label>
-        <input type="text" id="migrateDbUrl" class="form-input" value="https://test-168a4-default-rtdb.asia-southeast1.firebasedatabase.app">
-      </div>
-      <div class="form-group">
-        <label class="form-label">기존 API Key</label>
-        <input type="text" id="migrateApiKey" class="form-input" value="AIzaSyCzngaCcenhH1tmZ7syugpI3H1wYBVhiJQ">
-      </div>
-      <div class="form-group">
-        <label class="form-label">데이터 경로</label>
-        <input type="text" id="migratePath" class="form-input" value="/sq_vc_shared">
-      </div>
+        <div class="form-group">
+          <label class="form-label">기존 Firebase Realtime DB URL</label>
+          <input type="text" id="migrateDbUrl" class="form-input" value="https://test-168a4-default-rtdb.asia-southeast1.firebasedatabase.app">
+        </div>
+        <div class="form-group">
+          <label class="form-label">기존 API Key</label>
+          <input type="text" id="migrateApiKey" class="form-input" value="AIzaSyCzngaCcenhH1tmZ7syugpI3H1wYBVhiJQ">
+        </div>
+        <div class="form-group">
+          <label class="form-label">데이터 경로</label>
+          <input type="text" id="migratePath" class="form-input" value="/sq_vc_shared">
+        </div>
 
-      <div style="display:flex;gap:8px;margin-top:16px;">
-        <button class="btn btn-secondary" onclick="LeaveModule._closeModal('leaveMigrateModal')" style="flex:1;">취소</button>
-        <button class="btn btn-primary" onclick="LeaveModule._loadOldData()" style="flex:1;">🔍 미리보기</button>
-      </div>
+        <div style="display:flex;gap:8px;margin-top:16px;">
+          <button class="btn btn-secondary" onclick="Utils.closeModal()" style="flex:1;">취소</button>
+          <button class="btn btn-primary" onclick="LeaveModule._loadOldData()" style="flex:1;">🔍 미리보기</button>
+        </div>
 
-      <div id="migratePreview" style="margin-top:20px;"></div>
-    `;
-    this._showModal('leaveMigrateModal');
+        <div id="migratePreview" style="margin-top:20px;"></div>
+      </div>
+    `, { size: 'modal-lg' });
   },
 
   async _loadOldData() {
@@ -1197,7 +1180,7 @@ const LeaveModule = {
       </table>
 
       <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" onclick="LeaveModule._closeModal('leaveMigrateModal')" style="flex:1;">취소</button>
+        <button class="btn btn-secondary" onclick="Utils.closeModal()" style="flex:1;">취소</button>
         <button class="btn btn-primary" onclick="LeaveModule._executeMigration()" style="flex:1;" ${matched.length === 0 ? 'disabled' : ''}>
           📥 ${matched.length}명 이관 실행
         </button>
@@ -1305,20 +1288,11 @@ const LeaveModule = {
 
       await DB.log('연차데이터이관', 'leaveRequests', null, { balancesUpdated, requestsAdded, failed });
       Utils.showToast(`이관 완료: 잔여 ${balancesUpdated}명, 신청 ${requestsAdded}건 (실패 ${failed})`, 'success');
-      this._closeModal('leaveMigrateModal');
+      Utils.closeModal();
       await this.refresh();
     } catch (e) {
       preview.innerHTML = `<div style="padding:16px;background:#FEE2E2;border-radius:8px;color:#991B1B;">❌ 이관 중 오류: ${Utils.escapeHtml(e.message)}</div>`;
     }
-  },
-
-  // ===== 유틸 =====
-  _showModal(id) {
-    document.getElementById(id).classList.remove('hidden');
-  },
-
-  _closeModal(id) {
-    document.getElementById(id).classList.add('hidden');
   },
 
   destroy() {}

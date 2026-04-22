@@ -730,9 +730,9 @@ const FinanceMatchingModule = {
         <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
           <strong>✨ 헤더 행을 함께 복사해 주세요:</strong><br>
           <span class="text-muted">
-            • <strong>홈택스:</strong> <code>작성일자 | 승인번호 | 공급받는자사업자등록번호 | 상호 | ... | 합계금액 | 공급가액 | 세액 | ...</code><br>
-            • <strong>위하고:</strong> 유사한 헤더 구조도 자동 인식됩니다.<br>
-            헤더를 포함하면 컬럼 순서가 달라도 자동 매핑됩니다.
+            • <strong>홈택스:</strong> <code>작성일자 | 승인번호 | 공급받는자사업자등록번호 | 상호 | 합계금액 | 공급가액 | 세액 | 비고</code><br>
+            • <strong>위하고:</strong> <code>일자 | Code | 거래처 | 유형 | 품명 | 공급가액 | 부가세 | 합계 | ...</code><br>
+            헤더를 포함하면 컬럼 순서가 달라도 자동 매핑됩니다. 형식(홈택스/위하고) 자동 감지.
           </span>
         </div>
 
@@ -785,16 +785,44 @@ const FinanceMatchingModule = {
     `, { size: 'modal-xl' });
   },
 
-  // 세금계산서 헤더 매핑
-  // 공급자 vs 공급받는자 상호/대표자/주소/사업자번호 구분 처리
+  // 세금계산서 헤더 매핑 (홈택스 + 위하고)
+  // 홈택스: 작성일자/공급자상호/공급받는자상호/합계금액/공급가액/세액
+  // 위하고: 일자/Code/거래처/유형/품명/공급가액/부가세/합계/차변계정/대변계정/관리/전표상태
   _parseInvoiceHeader(cols) {
     const mapping = {
       issueDate: -1, approvalNo: -1,
       partnerRegNumber: -1, partnerCompany: -1, partnerCeo: -1, partnerAddress: -1,
       supplyAmount: -1, taxAmount: -1, totalAmount: -1,
-      memo: -1
+      memo: -1, format: null
     };
 
+    // 위하고 형식 감지: "거래처" 단독 컬럼 존재 + "사업자등록번호" 없음
+    const hasGeorae = cols.some(c => /^거래처\s*$/.test((c || '').trim()));
+    const hasBizReg = cols.some(c => /사업자\s*등록번호|사업자번호/.test((c || '').trim()));
+
+    if (hasGeorae && !hasBizReg) {
+      // === 위하고 형식 ===
+      mapping.format = 'wehago';
+      for (let i = 0; i < cols.length; i++) {
+        const c = (cols[i] || '').trim();
+        if (!c) continue;
+        if (/^일자$/.test(c) && mapping.issueDate < 0) { mapping.issueDate = i; continue; }
+        if (/^Code$/i.test(c) && mapping.approvalNo < 0) { mapping.approvalNo = i; continue; }
+        if (/^거래처$/.test(c) && mapping.partnerCompany < 0) { mapping.partnerCompany = i; continue; }
+        if (/^품명$/.test(c) && mapping.memo < 0) { mapping.memo = i; continue; }
+        if (/^공급\s*가액$/.test(c) && mapping.supplyAmount < 0) { mapping.supplyAmount = i; continue; }
+        if (/^부가세$|^세액$/.test(c) && mapping.taxAmount < 0) { mapping.taxAmount = i; continue; }
+        if (/^합계$|^합계\s*금액$/.test(c) && mapping.totalAmount < 0) { mapping.totalAmount = i; continue; }
+      }
+      // 최소 요건: 일자 + 거래처 + 공급가액
+      if (mapping.issueDate >= 0 && mapping.partnerCompany >= 0 && mapping.supplyAmount >= 0) {
+        return mapping;
+      }
+      return null;
+    }
+
+    // === 홈택스 형식 ===
+    mapping.format = 'hometax';
     // "공급받는자" 영역 시작 index 추정 (두 번째 사업자등록번호 위치)
     let supplierEndIdx = -1;
     let bizRegCount = 0;
@@ -802,10 +830,7 @@ const FinanceMatchingModule = {
       const c = (cols[i] || '').trim();
       if (/사업자\s*등록번호|사업자번호/.test(c)) {
         bizRegCount++;
-        if (bizRegCount === 1) {
-          // 공급자 사업자번호 - 스킵
-        } else if (bizRegCount === 2) {
-          // 공급받는자 사업자번호
+        if (bizRegCount === 2) {
           mapping.partnerRegNumber = i;
           supplierEndIdx = i;
         }
@@ -862,21 +887,33 @@ const FinanceMatchingModule = {
     }
 
     if (!mapping) {
-      Utils.showToast('헤더 행을 찾을 수 없습니다. 작성일자/공급받는자 상호/합계금액 헤더가 필요합니다.', 'error', 5000);
+      Utils.showToast('헤더 행을 찾을 수 없습니다. [홈택스: 작성일자/공급받는자 상호/합계금액] 또는 [위하고: 일자/거래처/공급가액] 헤더가 필요합니다.', 'error', 6000);
       return;
     }
+
+    const formatLabel = mapping.format === 'wehago' ? '위하고' : '홈택스';
+    const currentYear = new Date().getFullYear();
 
     // 데이터 파싱
     for (let i = startLine; i < lines.length; i++) {
       const cols = this._splitCols(lines[i]);
-      if (cols.length < 5) continue;
+      if (cols.length < 3) continue;
 
       const rawDate = (cols[mapping.issueDate] || '').trim();
-      const dateMatch = rawDate.match(/(\d{2,4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
-      if (!dateMatch) continue;
-      let y = dateMatch[1];
-      if (y.length === 2) y = '20' + y;
-      const issueDate = `${y}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+      // YYYY-MM-DD 또는 MM-DD (위하고) 모두 지원
+      let issueDate = '';
+      const m3 = rawDate.match(/(\d{2,4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+      const m2 = rawDate.match(/^(\d{1,2})[-.\/](\d{1,2})$/);
+      if (m3) {
+        let y = m3[1];
+        if (y.length === 2) y = '20' + y;
+        issueDate = `${y}-${m3[2].padStart(2, '0')}-${m3[3].padStart(2, '0')}`;
+      } else if (m2) {
+        // MM-DD: 현재 연도 사용
+        issueDate = `${currentYear}-${m2[1].padStart(2, '0')}-${m2[2].padStart(2, '0')}`;
+      } else {
+        continue;
+      }
 
       const partnerCompany = (cols[mapping.partnerCompany] || '').trim();
       if (!partnerCompany) continue;
@@ -888,9 +925,17 @@ const FinanceMatchingModule = {
         return isNaN(n) ? 0 : n;
       };
 
-      const totalAmount = parseNum(mapping.totalAmount);
-      const supplyAmount = parseNum(mapping.supplyAmount);
-      const taxAmount = parseNum(mapping.taxAmount);
+      let supplyAmount = parseNum(mapping.supplyAmount);
+      let taxAmount = parseNum(mapping.taxAmount);
+      let totalAmount = parseNum(mapping.totalAmount);
+
+      // 누락값 자동 계산
+      if (!totalAmount && supplyAmount) totalAmount = supplyAmount + (taxAmount || Math.round(supplyAmount * 0.1));
+      if (!supplyAmount && totalAmount) supplyAmount = Math.round(totalAmount / 1.1);
+      if (!taxAmount && totalAmount && supplyAmount) taxAmount = totalAmount - supplyAmount;
+
+      // 공급가액이 0이면 스킵 (빈 행)
+      if (!supplyAmount && !totalAmount) continue;
 
       this._invoiceParsed.push({
         issueDate,
@@ -900,9 +945,10 @@ const FinanceMatchingModule = {
         partnerCeoName: mapping.partnerCeo >= 0 ? (cols[mapping.partnerCeo] || '').trim() : '',
         partnerAddress: mapping.partnerAddress >= 0 ? (cols[mapping.partnerAddress] || '').trim() : '',
         totalAmount,
-        supplyAmount: supplyAmount || Math.round(totalAmount / 1.1),
-        taxAmount: taxAmount || (totalAmount - Math.round(totalAmount / 1.1)),
+        supplyAmount,
+        taxAmount,
         memo: mapping.memo >= 0 ? (cols[mapping.memo] || '').trim() : '',
+        sourceFormat: formatLabel,
         selected: true
       });
     }
@@ -912,7 +958,7 @@ const FinanceMatchingModule = {
       return;
     }
 
-    Utils.showToast(`${this._invoiceParsed.length}건의 세금계산서 인식됨`, 'success');
+    Utils.showToast(`[${formatLabel}] ${this._invoiceParsed.length}건의 세금계산서 인식됨`, 'success');
     this._renderInvoiceParseResult();
   },
 

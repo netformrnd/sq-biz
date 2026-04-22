@@ -59,6 +59,9 @@ const UserManagementModule = {
                       title="${u.isActive ? '비활성화' : '활성화'}">
                 ${u.isActive ? '🚫' : '✅'}
               </button>
+              <button class="btn btn-ghost btn-sm text-danger"
+                      onclick="UserManagementModule._delete('${u.id}')"
+                      title="삭제">🗑️</button>
             </div>
           </td>
         </tr>
@@ -276,6 +279,67 @@ const UserManagementModule = {
     await Auth.changePassword(id, pw);
     Utils.closeModal();
     Utils.showToast('비밀번호가 변경되었습니다.', 'success');
+  },
+
+  async _delete(id) {
+    const user = await DB.get('users', id);
+    if (!user) return;
+
+    // 자기 자신 삭제 방지
+    if (String(user.id) === String(Auth.currentUser().id)) {
+      Utils.showToast('자신의 계정은 삭제할 수 없습니다.', 'error');
+      return;
+    }
+
+    // 마지막 관리자 삭제 방지
+    if (user.role === 'admin') {
+      const allUsers = await DB.getAll('users');
+      const adminCount = allUsers.filter(u => u.role === 'admin').length;
+      if (adminCount <= 1) {
+        Utils.showToast('마지막 관리자는 삭제할 수 없습니다.', 'error');
+        return;
+      }
+    }
+
+    // 관련 데이터 체크 (세금계산서/송금/연차 신청)
+    const [invoices, transfers, leaves] = await Promise.all([
+      DB.getByIndex('taxInvoiceRequests', 'requesterId', user.id).catch(() => []),
+      DB.getByIndex('transferRecords', 'assignedToUserId', user.id).catch(() => []),
+      DB.getByIndex('leaveRequests', 'userId', user.id).catch(() => [])
+    ]);
+
+    const related = [];
+    if (invoices.length > 0) related.push(`세금계산서 요청 ${invoices.length}건`);
+    if (transfers.length > 0) related.push(`송금내역 ${transfers.length}건`);
+    if (leaves.length > 0) related.push(`연차 신청 ${leaves.length}건`);
+
+    let warningMsg = `${user.displayName}(${user.username}) 계정을 완전히 삭제합니다.\n\n이 작업은 되돌릴 수 없습니다.`;
+    if (related.length > 0) {
+      warningMsg += `\n\n⚠️ 관련 데이터가 존재합니다:\n- ${related.join('\n- ')}\n\n사용자만 삭제되고 데이터는 유지됩니다. (작성자 정보만 표시되지 않음)`;
+    }
+    warningMsg += '\n\n삭제하려면 아래에 사용자 아이디를 정확히 입력하세요.';
+
+    const confirmation = prompt(warningMsg, '');
+    if (confirmation === null) return;
+    if (confirmation !== user.username) {
+      Utils.showToast('아이디가 일치하지 않아 삭제가 취소되었습니다.', 'error');
+      return;
+    }
+
+    try {
+      // 연차 잔여 기록도 함께 삭제
+      try {
+        const balances = await DB.getByIndex('leaveBalances', 'userId', user.id);
+        for (const b of balances) await DB.delete('leaveBalances', b.id);
+      } catch (e) { /* 무시 */ }
+
+      await DB.delete('users', id);
+      await DB.log('DELETE', 'user', id, `사용자 삭제: ${user.username} (${user.displayName})`);
+      Utils.showToast(`${user.displayName} 계정이 삭제되었습니다.`, 'success');
+      await this.render();
+    } catch (e) {
+      Utils.showToast('삭제 실패: ' + e.message, 'error');
+    }
   },
 
   async _toggleActive(id) {

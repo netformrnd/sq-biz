@@ -50,13 +50,28 @@ const LeaveModule = {
   async loadData() {
     try {
       const allUsers = await DB.getAll('users');
-      this.users = allUsers.filter(u => u.isActive !== false);
+      const activeUsers = allUsers.filter(u => u.isActive !== false);
+
+      // 최초 1회: leaveEnabled 필드가 전무하면 김영성/신수진만 자동 활성화
+      const hasAnyEnabled = activeUsers.some(u => u.leaveEnabled === true);
+      const hasAnyField = activeUsers.some(u => typeof u.leaveEnabled !== 'undefined');
+      if (!hasAnyField && !hasAnyEnabled) {
+        const defaults = ['김영성', '신수진'];
+        for (const u of activeUsers) {
+          const enable = defaults.includes(u.displayName);
+          await DB.update('users', { ...u, leaveEnabled: enable });
+          u.leaveEnabled = enable;
+        }
+      }
+
+      this.allUsers = activeUsers;                         // 전체 활성 사용자 (관리용)
+      this.users = activeUsers.filter(u => u.leaveEnabled === true); // 연차 대상만
 
       // 올해 잔여연차 로드
       const allBalances = await DB.getAll('leaveBalances');
       this.balances = allBalances.filter(b => b.year === this.currentYear);
 
-      // 잔여 기본값 없으면 자동 생성
+      // 잔여 기본값 없으면 자동 생성 (연차 대상자만)
       for (const u of this.users) {
         const has = this.balances.find(b => String(b.userId) === String(u.id));
         if (!has) {
@@ -778,24 +793,82 @@ const LeaveModule = {
   // ===== 관리자: 팀원 연차 관리 =====
   openManageUsers() {
     if (!Auth.isAdmin()) return;
-    const html = this.users.map(u => {
-      const bal = this.balances.find(b => String(b.userId) === String(u.id));
-      const total = bal ? (bal.totalLeave || 0) + (bal.bonusLeaves || []).reduce((s, b) => s + (b.days || 0), 0) : 0;
-      const used = this._calculateUsed(u.id, 'approved');
-      return `
-        <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
-          <div>
-            <div style="font-weight:700;">${Utils.escapeHtml(u.displayName)}</div>
-            <div class="text-xs text-muted" style="margin-top:2px;">
-              ${bal?.unlimited ? '♾️ 무제한' : `기본 ${bal?.totalLeave || 0}일 + 포상 ${(bal?.bonusLeaves || []).reduce((s,b)=>s+(b.days||0),0)}일 = 총 ${total}일 (사용: ${used.toFixed(2)}일)`}
+
+    // 연차 대상자 (편집 가능)
+    const enabledHtml = this.users.length === 0
+      ? '<div class="text-center text-muted" style="padding:16px;">현재 연차 사용 대상자가 없습니다. 하단에서 추가하세요.</div>'
+      : this.users.map(u => {
+          const bal = this.balances.find(b => String(b.userId) === String(u.id));
+          const total = bal ? (bal.totalLeave || 0) + (bal.bonusLeaves || []).reduce((s, b) => s + (b.days || 0), 0) : 0;
+          const used = this._calculateUsed(u.id, 'approved');
+          return `
+            <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-weight:700;">${Utils.escapeHtml(u.displayName)}</div>
+                <div class="text-xs text-muted" style="margin-top:2px;">
+                  ${bal?.unlimited ? '♾️ 무제한' : `기본 ${bal?.totalLeave || 0}일 + 포상 ${(bal?.bonusLeaves || []).reduce((s,b)=>s+(b.days||0),0)}일 = 총 ${total}일 (사용: ${used.toFixed(2)}일)`}
+                </div>
+              </div>
+              <div class="d-flex gap-2">
+                <button class="btn btn-primary btn-sm" onclick="LeaveModule.openEditBalance('${u.id}')">편집</button>
+                <button class="btn btn-ghost btn-sm" onclick="LeaveModule.toggleLeaveEnabled('${u.id}', false)" title="연차 대상 제외">제외</button>
+              </div>
             </div>
+          `;
+        }).join('');
+
+    // 연차 비대상자 (추가 가능)
+    const disabled = (this.allUsers || []).filter(u => u.leaveEnabled !== true);
+    const disabledHtml = disabled.length === 0
+      ? '<div class="text-xs text-muted" style="padding:10px;">추가 가능한 사용자가 없습니다.</div>'
+      : disabled.map(u => `
+          <div style="padding:10px 12px;background:#fff;border:1px dashed #E2E8F0;border-radius:8px;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+            <div>
+              <div style="font-weight:600;color:#475569;">${Utils.escapeHtml(u.displayName)}</div>
+              <div class="text-xs text-muted">${u.role === 'admin' ? '관리자' : '직원'}</div>
+            </div>
+            <button class="btn btn-success btn-sm" onclick="LeaveModule.toggleLeaveEnabled('${u.id}', true)">+ 추가</button>
           </div>
-          <button class="btn btn-primary btn-sm" onclick="LeaveModule.openEditBalance('${u.id}')">편집</button>
-        </div>
-      `;
-    }).join('');
-    document.getElementById('leaveManageBody').innerHTML = html || '<div class="text-center text-muted" style="padding:20px;">팀원 없음</div>';
+        `).join('');
+
+    document.getElementById('leaveManageBody').innerHTML = `
+      <div style="margin-bottom:20px;">
+        <div style="font-weight:700;margin-bottom:10px;color:#0F172A;">🎯 연차 사용 대상자 (${this.users.length}명)</div>
+        ${enabledHtml}
+      </div>
+
+      <div style="border-top:1px solid #E2E8F0;padding-top:16px;">
+        <div style="font-weight:700;margin-bottom:6px;color:#0F172A;">➕ 연차 사용 대상 추가</div>
+        <div class="text-xs text-muted" style="margin-bottom:10px;">필요 시 다른 직원을 연차 대상으로 추가할 수 있습니다.</div>
+        ${disabledHtml}
+      </div>
+    `;
     this._showModal('leaveManageModal');
+  },
+
+  async toggleLeaveEnabled(userId, enable) {
+    try {
+      const u = (this.allUsers || []).find(x => String(x.id) === String(userId));
+      if (!u) return;
+
+      if (!enable) {
+        // 제외 시 승인된 연차 내역이 있으면 경고
+        const hasRequests = this.requests.some(r => String(r.userId) === String(userId));
+        const msg = hasRequests
+          ? `${u.displayName}님을 연차 대상에서 제외합니다.\n(연차 신청 내역은 유지되지만 달력/팀원 현황에서 숨겨집니다)`
+          : `${u.displayName}님을 연차 대상에서 제외합니다.`;
+        if (!confirm(msg)) return;
+      }
+
+      await DB.update('users', { ...u, leaveEnabled: !!enable });
+      await DB.log(enable ? '연차대상추가' : '연차대상제외', 'users', userId, { displayName: u.displayName });
+      Utils.showToast(enable ? `${u.displayName}님이 연차 대상에 추가됨` : `${u.displayName}님이 연차 대상에서 제외됨`, 'success');
+
+      await this.refresh();
+      this.openManageUsers();
+    } catch (e) {
+      Utils.showToast('처리 실패: ' + e.message, 'error');
+    }
   },
 
   openEditBalance(userId) {

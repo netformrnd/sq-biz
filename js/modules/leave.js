@@ -793,16 +793,18 @@ const LeaveModule = {
           const bal = this.balances.find(b => String(b.userId) === String(u.id));
           const total = bal ? (bal.totalLeave || 0) + (bal.bonusLeaves || []).reduce((s, b) => s + (b.days || 0), 0) : 0;
           const used = this._calculateUsed(u.id, 'approved');
+          const reqCount = this.requests.filter(r => String(r.userId) === String(u.id)).length;
           return `
             <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
               <div>
-                <div style="font-weight:700;">${Utils.escapeHtml(u.displayName)}</div>
+                <div style="font-weight:700;">${Utils.escapeHtml(u.displayName)} <span class="text-xs text-muted">(신청 ${reqCount}건)</span></div>
                 <div class="text-xs text-muted" style="margin-top:2px;">
                   ${bal?.unlimited ? '♾️ 무제한' : `기본 ${bal?.totalLeave || 0}일 + 포상 ${(bal?.bonusLeaves || []).reduce((s,b)=>s+(b.days||0),0)}일 = 총 ${total}일 (사용: ${used.toFixed(2)}일)`}
                 </div>
               </div>
               <div class="d-flex gap-2">
                 <button class="btn btn-primary btn-sm" onclick="LeaveModule.openEditBalance('${u.id}')">편집</button>
+                ${reqCount > 0 ? `<button class="btn btn-ghost btn-sm text-danger" onclick="LeaveModule.clearUserRequests('${u.id}')" title="이 사람의 연차 신청내역 모두 삭제">🗑️ 초기화</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="LeaveModule.toggleLeaveEnabled('${u.id}', false)" title="연차 대상 제외">제외</button>
               </div>
             </div>
@@ -844,6 +846,38 @@ const LeaveModule = {
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  async clearUserRequests(userId) {
+    const u = (this.allUsers || []).find(x => String(x.id) === String(userId));
+    if (!u) return;
+    const mine = this.requests.filter(r => String(r.userId) === String(userId));
+    if (mine.length === 0) {
+      Utils.showToast('삭제할 내역 없음', 'error');
+      return;
+    }
+    const confirmMsg = `${u.displayName}님의 연차 신청내역 ${mine.length}건을 모두 삭제하시겠습니까?\n(되돌릴 수 없음. 잔여연차 설정은 유지)\n\n삭제하려면 "삭제"를 입력하세요:`;
+    const answer = prompt(confirmMsg, '');
+    if (answer !== '삭제') {
+      if (answer !== null) Utils.showToast('입력값이 다릅니다. 취소되었습니다.', 'error');
+      return;
+    }
+
+    try {
+      let deleted = 0;
+      for (const r of mine) {
+        try {
+          await DB.delete('leaveRequests', r.id);
+          deleted++;
+        } catch (e) { console.error(e); }
+      }
+      await DB.log('연차내역초기화', 'leaveRequests', null, { userId, deleted });
+      Utils.showToast(`${u.displayName}님 연차 내역 ${deleted}건 삭제됨`, 'success');
+      await this.refresh();
+      this.openManageUsers();
+    } catch (e) {
+      Utils.showToast('실패: ' + e.message, 'error');
+    }
   },
 
   async toggleLeaveEnabled(userId, enable) {
@@ -1210,9 +1244,32 @@ const LeaveModule = {
       `;
     });
 
+    // 매칭된 사용자들의 기존 신청 건수 (테스트 데이터 안내용)
+    const existingCounts = matched.map(m => {
+      const cnt = this.requests.filter(r => String(r.userId) === String(m.newUser.id)).length;
+      return { name: m.newUser.displayName, count: cnt };
+    });
+    const totalExisting = existingCounts.reduce((s, e) => s + e.count, 0);
+
     html += `
         </tbody>
       </table>
+
+      ${totalExisting > 0 ? `
+        <div style="padding:14px;background:#FEF3C7;border-radius:8px;margin-bottom:16px;border-left:3px solid #f59e0b;">
+          <div style="font-weight:700;margin-bottom:8px;color:#92400E;">⚠️ 매칭 대상자의 기존 신청 내역 ${totalExisting}건</div>
+          <div class="text-xs" style="color:#78350F;line-height:1.6;margin-bottom:10px;">
+            ${existingCounts.filter(e => e.count > 0).map(e => `• ${e.name}: ${e.count}건`).join('<br>')}
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;padding:10px 12px;background:#fff;border-radius:6px;cursor:pointer;">
+            <input type="checkbox" id="migrateClearFirst">
+            <div>
+              <div style="font-weight:700;color:#92400E;">🗑️ 이관 전 대상자 기존 신청내역 모두 삭제</div>
+              <div class="text-xs" style="color:#78350F;margin-top:2px;">테스트 데이터를 지우고 깨끗하게 이관하려면 체크하세요.</div>
+            </div>
+          </label>
+        </div>
+      ` : ''}
 
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="Utils.closeModal()" style="flex:1;">취소</button>
@@ -1237,16 +1294,44 @@ const LeaveModule = {
     if (!this._migrationMapped) return;
     const toMigrate = this._migrationMapped.filter(m => m.newUser);
     if (toMigrate.length === 0) { Utils.showToast('매칭된 사용자 없음', 'error'); return; }
-    if (!confirm(`${toMigrate.length}명의 연차 데이터를 이관합니다. 계속하시겠습니까?\n(기본연차/포상/무제한 설정이 덮어씌워집니다)`)) return;
+
+    const clearFirst = document.getElementById('migrateClearFirst')?.checked;
+
+    let confirmMsg = `${toMigrate.length}명의 연차 데이터를 이관합니다. 계속하시겠습니까?\n(기본연차/포상/무제한 설정이 덮어씌워집니다)`;
+    if (clearFirst) {
+      confirmMsg += '\n\n⚠️ 체크된 옵션: 대상자 기존 신청내역이 모두 삭제된 후 이관됩니다. (되돌릴 수 없음)';
+    }
+    if (!confirm(confirmMsg)) return;
 
     const preview = document.getElementById('migratePreview');
     preview.innerHTML = '<div class="text-center" style="padding:20px;">이관중...</div>';
 
     let balancesUpdated = 0;
     let requestsAdded = 0;
+    let requestsDeleted = 0;
     let failed = 0;
 
     try {
+      // 0) 기존 신청내역 삭제 (옵션)
+      if (clearFirst) {
+        for (const m of toMigrate) {
+          const userId = m.newUser.id;
+          const existing = this.requests.filter(r => String(r.userId) === String(userId));
+          for (const r of existing) {
+            try {
+              await DB.delete('leaveRequests', r.id);
+              requestsDeleted++;
+            } catch (e) {
+              console.error('기존 내역 삭제 실패:', e);
+              failed++;
+            }
+          }
+        }
+        // 메모리에서도 삭제 반영 (중복 체크 로직 정상 동작 위해)
+        const migratedIds = new Set(toMigrate.map(m => String(m.newUser.id)));
+        this.requests = this.requests.filter(r => !migratedIds.has(String(r.userId)));
+      }
+
       for (const m of toMigrate) {
         const ou = m.oldUser;
         const nu = m.newUser;
@@ -1321,8 +1406,11 @@ const LeaveModule = {
         }
       }
 
-      await DB.log('연차데이터이관', 'leaveRequests', null, { balancesUpdated, requestsAdded, failed });
-      Utils.showToast(`이관 완료: 잔여 ${balancesUpdated}명, 신청 ${requestsAdded}건 (실패 ${failed})`, 'success');
+      await DB.log('연차데이터이관', 'leaveRequests', null, { balancesUpdated, requestsAdded, requestsDeleted, failed });
+      const msgParts = [`잔여 ${balancesUpdated}명`, `신청 ${requestsAdded}건`];
+      if (requestsDeleted > 0) msgParts.unshift(`삭제 ${requestsDeleted}건`);
+      if (failed > 0) msgParts.push(`실패 ${failed}`);
+      Utils.showToast(`이관 완료: ${msgParts.join(' / ')}`, 'success');
       Utils.closeModal();
       await this.refresh();
     } catch (e) {

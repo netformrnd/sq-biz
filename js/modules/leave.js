@@ -1048,8 +1048,7 @@ const LeaveModule = {
         </tbody>
       </table>
 
-      <div style="margin-top:20px;display:flex;justify-content:flex-end;gap:8px;">
-        <button class="btn btn-secondary btn-sm" onclick="LeaveModule.exportCsv()">📄 CSV</button>
+      <div style="margin-top:20px;display:flex;justify-content:flex-end;">
         <button class="btn btn-primary" onclick="LeaveModule.exportXlsx()">📥 엑셀 내보내기 (.xlsx)</button>
       </div>
     `;
@@ -1063,28 +1062,6 @@ const LeaveModule = {
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
       </div>
     `, { size: 'modal-lg' });
-  },
-
-  exportCsv() {
-    const rows = [['이름', '기본', '포상', '총', '사용', '잔여', '대기']];
-    this.users.forEach(u => {
-      const bal = this.balances.find(b => String(b.userId) === String(u.id));
-      const base = bal?.totalLeave || 0;
-      const bonus = (bal?.bonusLeaves || []).reduce((s,b)=>s+(b.days||0), 0);
-      const total = base + bonus;
-      const used = this._calculateUsed(u.id, 'approved');
-      const pending = this._calculateUsed(u.id, 'pending');
-      const remaining = bal?.unlimited ? '무제한' : (total - used).toFixed(2);
-      rows.push([u.displayName, bal?.unlimited ? '무제한' : base, bonus, bal?.unlimited ? '무제한' : total, used.toFixed(2), remaining, pending.toFixed(2)]);
-    });
-    const csv = '\ufeff' + rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n');
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `연차리포트_${this.currentYear}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
   },
 
   // XLSX SDK 동적 로드

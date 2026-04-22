@@ -287,7 +287,7 @@ const DocumentsModule = {
     await this.render();
   },
 
-  // 수동 문서 업로드
+  // 수동 문서 업로드 (카테고리별 분리 업로드 지원)
   _openUploadModal() {
     Utils.openModal(`
       <div class="modal-header">
@@ -305,17 +305,29 @@ const DocumentsModule = {
             <input type="text" id="docRegNum" class="form-control" placeholder="000-00-00000">
           </div>
         </div>
-        <div class="form-group">
-          <label for="docCategory">문서 구분 <span class="required">*</span></label>
-          <select id="docCategory" class="form-control" required>
-            <option value="사업자등록증">사업자등록증</option>
-            <option value="계약서">계약서</option>
-            <option value="기타">기타</option>
-          </select>
+
+        <div style="padding:10px 12px;background:#F0F9FF;border-radius:8px;margin-bottom:12px;border-left:3px solid #3B82F6;">
+          <div class="text-sm" style="color:#1E40AF;">
+            💡 카테고리별로 파일을 각각 선택하면 <strong>한 번에 여러 종류</strong>의 문서를 업로드할 수 있습니다.
+          </div>
         </div>
+
         <div class="form-group">
-          <label>파일 첨부 <span class="required">*</span></label>
-          <input type="file" id="docFile" class="form-control" accept="image/*,.pdf" multiple required>
+          <label>📄 사업자등록증</label>
+          <input type="file" id="docFileBizReg" class="form-control" accept="image/*,.pdf" multiple>
+          <div class="text-xs text-muted" style="margin-top:4px;">사업자등록증 파일 (여러 개 선택 가능)</div>
+        </div>
+
+        <div class="form-group">
+          <label>📑 계약서</label>
+          <input type="file" id="docFileContract" class="form-control" accept="image/*,.pdf" multiple>
+          <div class="text-xs text-muted" style="margin-top:4px;">계약서 파일 (여러 개 선택 가능)</div>
+        </div>
+
+        <div class="form-group">
+          <label>📎 기타 문서</label>
+          <input type="file" id="docFileOther" class="form-control" accept="image/*,.pdf" multiple>
+          <div class="text-xs text-muted" style="margin-top:4px;">기타 문서 파일 (여러 개 선택 가능)</div>
         </div>
       </div>
       <div class="modal-footer">
@@ -328,34 +340,52 @@ const DocumentsModule = {
   async _saveUpload() {
     const company = document.getElementById('docCompany').value.trim();
     const regNum = document.getElementById('docRegNum').value.trim();
-    const category = document.getElementById('docCategory').value;
-    const files = document.getElementById('docFile').files;
+    const bizRegFiles = document.getElementById('docFileBizReg').files;
+    const contractFiles = document.getElementById('docFileContract').files;
+    const otherFiles = document.getElementById('docFileOther').files;
 
-    if (!company || files.length === 0) {
-      Utils.showToast('사업자명과 파일을 입력해 주세요.', 'error');
+    const totalCount = bizRegFiles.length + contractFiles.length + otherFiles.length;
+
+    if (!company) {
+      Utils.showToast('사업자명을 입력해 주세요.', 'error');
+      return;
+    }
+    if (totalCount === 0) {
+      Utils.showToast('파일을 하나 이상 선택해 주세요.', 'error');
       return;
     }
 
     const user = Auth.currentUser();
-    for (const file of files) {
-      await DB.add('documents', {
-        companyName: company,
-        regNumber: regNum,
-        fileName: file.name,
-        fileType: file.type,
-        fileData: file,
-        category,
-        relatedInvoiceId: null,
-        relatedRequestNumber: null,
-        registeredBy: user.id,
-        registeredByName: user.displayName,
-        createdAt: new Date().toISOString()
-      });
+    const uploadGroups = [
+      { files: bizRegFiles, category: '사업자등록증' },
+      { files: contractFiles, category: '계약서' },
+      { files: otherFiles, category: '기타' }
+    ];
+
+    const categorySummary = [];
+    for (const group of uploadGroups) {
+      if (group.files.length === 0) continue;
+      for (const file of group.files) {
+        await DB.add('documents', {
+          companyName: company,
+          regNumber: regNum,
+          fileName: file.name,
+          fileType: file.type,
+          fileData: file,
+          category: group.category,
+          relatedInvoiceId: null,
+          relatedRequestNumber: null,
+          registeredBy: user.id,
+          registeredByName: user.displayName,
+          createdAt: new Date().toISOString()
+        });
+      }
+      categorySummary.push(`${group.category} ${group.files.length}건`);
     }
 
-    await DB.log('CREATE', 'document', null, `문서 업로드: ${company} (${files.length}건)`);
+    await DB.log('CREATE', 'document', null, `문서 업로드: ${company} (${categorySummary.join(', ')})`);
     Utils.closeModal();
-    Utils.showToast(`${files.length}건의 문서가 업로드되었습니다.`, 'success');
+    Utils.showToast(`${totalCount}건 업로드됨 (${categorySummary.join(', ')})`, 'success');
     await this.render();
   },
 

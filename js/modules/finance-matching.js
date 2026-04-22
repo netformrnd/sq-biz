@@ -76,11 +76,6 @@ const FinanceMatchingModule = {
     this.container.innerHTML = `
       <div class="page-header">
         <h2>💰 재무 (입금내역 · 매칭관리)</h2>
-        ${isAdmin ? `
-          <div class="page-actions">
-            <button class="btn btn-primary" onclick="FinanceMatchingModule._openBankStatementModal()">📊 통장내역 일괄 업로드</button>
-          </div>
-        ` : ''}
       </div>
 
       <!-- 요약 -->
@@ -207,11 +202,18 @@ const FinanceMatchingModule = {
         </div>
       </div>
 
-      <!-- 입금내역 등록 버튼 -->
+      <!-- 하단 등록 버튼 (좌: 입금 / 우: 세금계산서) -->
       ${isAdmin ? `
-        <div class="d-flex gap-2 mt-4 justify-end">
-          <button class="btn btn-secondary" onclick="DepositModule._openPasteModal ? DepositModule._openPasteModal() : Utils.showToast('입금내역 메뉴에서 사용하세요', 'warning')">📋 입금내역 엑셀 붙여넣기</button>
-          <button class="btn btn-primary" onclick="DepositModule._openAddModal ? DepositModule._openAddModal() : Utils.showToast('입금내역 메뉴에서 사용하세요', 'warning')">+ 입금내역 개별 등록</button>
+        <div style="display:grid;grid-template-columns:1fr 60px 1fr;gap:0;margin-top:var(--sp-4);">
+          <div class="d-flex gap-2 justify-end" style="flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
+            <button class="btn btn-primary btn-sm" onclick="DepositModule._openAddModal ? DepositModule._openAddModal() : Utils.showToast('입금내역 메뉴에서 사용하세요', 'warning')">+ 입금내역 개별 등록</button>
+          </div>
+          <div></div>
+          <div class="d-flex gap-2" style="flex-wrap:wrap;">
+            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openInvoicePasteModal()">📋 세금계산서 붙여넣기</button>
+            <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openInvoiceAddModal()">+ 세금계산서 개별 등록</button>
+          </div>
         </div>
       ` : ''}
     `;
@@ -712,6 +714,449 @@ const FinanceMatchingModule = {
     Utils.closeModal();
     Utils.showToast(`입금 ${depCount}건, 송금 ${wdCount}건 등록 완료`, 'success');
     await this.render();
+  },
+
+  // ===== 세금계산서 엑셀 붙여넣기 (홈택스/위하고 매출 전자세금계산서 목록) =====
+  _invoiceParsed: [],
+
+  _openInvoicePasteModal() {
+    this._invoiceParsed = [];
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📋 세금계산서 엑셀 붙여넣기</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
+          <strong>✨ 헤더 행을 함께 복사해 주세요:</strong><br>
+          <span class="text-muted">
+            • <strong>홈택스:</strong> <code>작성일자 | 승인번호 | 공급받는자사업자등록번호 | 상호 | ... | 합계금액 | 공급가액 | 세액 | ...</code><br>
+            • <strong>위하고:</strong> 유사한 헤더 구조도 자동 인식됩니다.<br>
+            헤더를 포함하면 컬럼 순서가 달라도 자동 매핑됩니다.
+          </span>
+        </div>
+
+        <div class="form-group">
+          <label>세금계산서 목록 붙여넣기 <span class="required">*</span></label>
+          <textarea id="invoicePasteArea" class="form-control" rows="8"
+                    placeholder="세금계산서 엑셀에서 복사한 데이터(헤더 포함)를 여기에 붙여넣기 (Ctrl+V)"
+                    style="font-family:monospace;font-size:12px;"></textarea>
+        </div>
+
+        <div class="d-flex gap-2 mb-4">
+          <button class="btn btn-secondary" onclick="FinanceMatchingModule._parseInvoicePaste()">🔍 데이터 분석</button>
+        </div>
+
+        <div id="invoiceParseResult" class="hidden">
+          <div class="card mb-4">
+            <div class="card-header" style="background:var(--color-primary-light);">
+              <h3>📝 세금계산서 <span id="invoiceParsedCount" class="text-sm text-muted"></span></h3>
+              <div class="d-flex gap-2">
+                <label class="text-sm d-flex items-center gap-1" style="margin:0;">
+                  <input type="checkbox" id="invoiceParsedAll" checked onchange="FinanceMatchingModule._toggleAllInvoices(this.checked)"> 전체 선택
+                </label>
+              </div>
+            </div>
+            <div class="card-body" style="padding:0;max-height:350px;overflow-y:auto;">
+              <table class="data-table" id="invoiceParseTable">
+                <thead>
+                  <tr>
+                    <th style="width:40px;"></th>
+                    <th>작성일자</th>
+                    <th>공급받는자</th>
+                    <th>사업자번호</th>
+                    <th class="text-right">공급가액</th>
+                    <th class="text-right">세액</th>
+                    <th class="text-right">합계</th>
+                    <th>비고</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+          <div id="invoiceParseSummary" class="text-sm text-muted"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" id="invoiceSaveBtn" onclick="FinanceMatchingModule._saveInvoicePaste()" disabled>선택 항목 등록</button>
+      </div>
+    `, { size: 'modal-xl' });
+  },
+
+  // 세금계산서 헤더 매핑
+  // 공급자 vs 공급받는자 상호/대표자/주소/사업자번호 구분 처리
+  _parseInvoiceHeader(cols) {
+    const mapping = {
+      issueDate: -1, approvalNo: -1,
+      partnerRegNumber: -1, partnerCompany: -1, partnerCeo: -1, partnerAddress: -1,
+      supplyAmount: -1, taxAmount: -1, totalAmount: -1,
+      memo: -1
+    };
+
+    // "공급받는자" 영역 시작 index 추정 (두 번째 사업자등록번호 위치)
+    let supplierEndIdx = -1;
+    let bizRegCount = 0;
+    for (let i = 0; i < cols.length; i++) {
+      const c = (cols[i] || '').trim();
+      if (/사업자\s*등록번호|사업자번호/.test(c)) {
+        bizRegCount++;
+        if (bizRegCount === 1) {
+          // 공급자 사업자번호 - 스킵
+        } else if (bizRegCount === 2) {
+          // 공급받는자 사업자번호
+          mapping.partnerRegNumber = i;
+          supplierEndIdx = i;
+        }
+      }
+    }
+
+    for (let i = 0; i < cols.length; i++) {
+      const c = (cols[i] || '').trim();
+      if (!c) continue;
+
+      if (/^작성일자/.test(c) && mapping.issueDate < 0) { mapping.issueDate = i; continue; }
+      if (/^승인번호/.test(c) && mapping.approvalNo < 0) { mapping.approvalNo = i; continue; }
+
+      // 공급받는자 영역 이후의 상호/대표자/주소
+      if (i > supplierEndIdx && supplierEndIdx > 0) {
+        if (/^상호/.test(c) && mapping.partnerCompany < 0) { mapping.partnerCompany = i; continue; }
+        if (/^대표자\s*명/.test(c) && mapping.partnerCeo < 0) { mapping.partnerCeo = i; continue; }
+        if (/^주소/.test(c) && mapping.partnerAddress < 0) { mapping.partnerAddress = i; continue; }
+      }
+
+      if (/^합계\s*금액/.test(c) && mapping.totalAmount < 0) { mapping.totalAmount = i; continue; }
+      if (/^공급\s*가액/.test(c) && mapping.supplyAmount < 0) { mapping.supplyAmount = i; continue; }
+      if (/^세액/.test(c) && mapping.taxAmount < 0) { mapping.taxAmount = i; continue; }
+      if (/^비고/.test(c) && mapping.memo < 0) { mapping.memo = i; continue; }
+    }
+
+    // 최소 요건: 작성일자 + 합계금액 + 공급받는자 상호
+    if (mapping.issueDate >= 0 && mapping.totalAmount >= 0 && mapping.partnerCompany >= 0) {
+      return mapping;
+    }
+    return null;
+  },
+
+  _parseInvoicePaste() {
+    const raw = document.getElementById('invoicePasteArea').value.trim();
+    if (!raw) {
+      Utils.showToast('데이터를 붙여넣기 하세요.', 'error');
+      return;
+    }
+
+    const lines = raw.split('\n').filter(l => l.trim());
+    this._invoiceParsed = [];
+
+    // 헤더 자동 탐색 (첫 10줄 이내)
+    let mapping = null, startLine = 0;
+    for (let i = 0; i < Math.min(10, lines.length); i++) {
+      const cols = this._splitCols(lines[i]);
+      const m = this._parseInvoiceHeader(cols);
+      if (m) {
+        mapping = m;
+        startLine = i + 1;
+        break;
+      }
+    }
+
+    if (!mapping) {
+      Utils.showToast('헤더 행을 찾을 수 없습니다. 작성일자/공급받는자 상호/합계금액 헤더가 필요합니다.', 'error', 5000);
+      return;
+    }
+
+    // 데이터 파싱
+    for (let i = startLine; i < lines.length; i++) {
+      const cols = this._splitCols(lines[i]);
+      if (cols.length < 5) continue;
+
+      const rawDate = (cols[mapping.issueDate] || '').trim();
+      const dateMatch = rawDate.match(/(\d{2,4})[-.\/](\d{1,2})[-.\/](\d{1,2})/);
+      if (!dateMatch) continue;
+      let y = dateMatch[1];
+      if (y.length === 2) y = '20' + y;
+      const issueDate = `${y}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
+
+      const partnerCompany = (cols[mapping.partnerCompany] || '').trim();
+      if (!partnerCompany) continue;
+
+      const parseNum = (idx) => {
+        if (idx < 0) return 0;
+        const v = (cols[idx] || '').trim().replace(/[,\s]/g, '');
+        const n = Number(v);
+        return isNaN(n) ? 0 : n;
+      };
+
+      const totalAmount = parseNum(mapping.totalAmount);
+      const supplyAmount = parseNum(mapping.supplyAmount);
+      const taxAmount = parseNum(mapping.taxAmount);
+
+      this._invoiceParsed.push({
+        issueDate,
+        approvalNo: mapping.approvalNo >= 0 ? (cols[mapping.approvalNo] || '').trim() : '',
+        partnerRegNumber: mapping.partnerRegNumber >= 0 ? (cols[mapping.partnerRegNumber] || '').trim() : '',
+        partnerCompanyName: partnerCompany,
+        partnerCeoName: mapping.partnerCeo >= 0 ? (cols[mapping.partnerCeo] || '').trim() : '',
+        partnerAddress: mapping.partnerAddress >= 0 ? (cols[mapping.partnerAddress] || '').trim() : '',
+        totalAmount,
+        supplyAmount: supplyAmount || Math.round(totalAmount / 1.1),
+        taxAmount: taxAmount || (totalAmount - Math.round(totalAmount / 1.1)),
+        memo: mapping.memo >= 0 ? (cols[mapping.memo] || '').trim() : '',
+        selected: true
+      });
+    }
+
+    if (this._invoiceParsed.length === 0) {
+      Utils.showToast('인식 가능한 세금계산서 내역이 없습니다.', 'warning', 5000);
+      return;
+    }
+
+    Utils.showToast(`${this._invoiceParsed.length}건의 세금계산서 인식됨`, 'success');
+    this._renderInvoiceParseResult();
+  },
+
+  _renderInvoiceParseResult() {
+    document.getElementById('invoiceParseResult').classList.remove('hidden');
+    document.getElementById('invoiceParsedCount').textContent = `(${this._invoiceParsed.length}건)`;
+
+    const tbody = document.querySelector('#invoiceParseTable tbody');
+    tbody.innerHTML = this._invoiceParsed.map((r, i) => `
+      <tr>
+        <td><input type="checkbox" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleInvoiceRow(${i}, this.checked)"></td>
+        <td>${Utils.escapeHtml(r.issueDate)}</td>
+        <td class="fw-medium">${Utils.escapeHtml(r.partnerCompanyName)}</td>
+        <td class="text-xs">${Utils.escapeHtml(r.partnerRegNumber)}</td>
+        <td class="text-right">${Utils.formatCurrency(r.supplyAmount)}</td>
+        <td class="text-right">${Utils.formatCurrency(r.taxAmount)}</td>
+        <td class="text-right fw-medium">${Utils.formatCurrency(r.totalAmount)}</td>
+        <td class="text-xs text-muted">${Utils.escapeHtml((r.memo || '').slice(0, 30))}</td>
+      </tr>
+    `).join('');
+
+    this._updateInvoiceParseSummary();
+    document.getElementById('invoiceSaveBtn').disabled = false;
+  },
+
+  _toggleInvoiceRow(idx, checked) {
+    this._invoiceParsed[idx].selected = checked;
+    this._updateInvoiceParseSummary();
+  },
+
+  _toggleAllInvoices(checked) {
+    this._invoiceParsed.forEach((r, i) => {
+      r.selected = checked;
+      const cb = document.querySelector(`#invoiceParseTable input[data-idx="${i}"]`);
+      if (cb) cb.checked = checked;
+    });
+    this._updateInvoiceParseSummary();
+  },
+
+  _updateInvoiceParseSummary() {
+    const sel = this._invoiceParsed.filter(r => r.selected);
+    const total = sel.reduce((s, r) => s + (r.totalAmount || 0), 0);
+    document.getElementById('invoiceParseSummary').innerHTML = `
+      ✅ 등록 예정: <strong>${sel.length}건</strong> · 합계 <strong>${Utils.formatCurrency(total)}</strong>
+    `;
+    document.getElementById('invoiceSaveBtn').disabled = sel.length === 0;
+  },
+
+  async _saveInvoicePaste() {
+    const sel = this._invoiceParsed.filter(r => r.selected);
+    if (sel.length === 0) return;
+
+    const user = Auth.currentUser();
+    // 같은 승인번호/거래처+금액+일자 조합 중복 체크용 기존 데이터 로드
+    const existing = await DB.getAll('taxInvoiceRequests');
+
+    let added = 0, skipped = 0, failed = 0;
+    for (const row of sel) {
+      try {
+        // 중복 체크 (승인번호 있으면 승인번호, 없으면 상호+금액+일자)
+        const dup = existing.find(e =>
+          (row.approvalNo && e.hometaxApprovalNo === row.approvalNo) ||
+          (e.partnerCompanyName === row.partnerCompanyName &&
+           e.totalAmount === row.totalAmount &&
+           e.issueDate === row.issueDate)
+        );
+        if (dup) { skipped++; continue; }
+
+        // 요청번호 생성 (INV-YYMMDD-순번)
+        const today = new Date();
+        const yy = String(today.getFullYear()).slice(-2);
+        const mm = String(today.getMonth() + 1).padStart(2, '0');
+        const dd = String(today.getDate()).padStart(2, '0');
+        const prefix = `INV-${yy}${mm}${dd}-`;
+        const sameDay = existing.filter(e => (e.requestNumber || '').startsWith(prefix)).length + added;
+        const requestNumber = `${prefix}${String(sameDay + 1).padStart(3, '0')}`;
+
+        await DB.add('taxInvoiceRequests', {
+          requestNumber,
+          hometaxApprovalNo: row.approvalNo || '',
+          partnerRegNumber: row.partnerRegNumber,
+          partnerCompanyName: row.partnerCompanyName,
+          partnerCeoName: row.partnerCeoName,
+          partnerAddress: row.partnerAddress,
+          partnerContact: '',
+          partnerEmail: '',
+          supplyAmount: row.supplyAmount,
+          taxAmount: row.taxAmount,
+          totalAmount: row.totalAmount,
+          issueDate: row.issueDate,
+          projectName: row.memo || '',
+          memo: row.memo || '',
+          status: '발행완료',
+          matchedDepositId: null,
+          requesterId: user.id,
+          requesterName: user.displayName,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          importedFrom: 'paste'
+        });
+        added++;
+      } catch (e) {
+        console.error('세금계산서 등록 실패:', e);
+        failed++;
+      }
+    }
+
+    await DB.log('CREATE', 'taxInvoiceRequests', null, `세금계산서 일괄 등록: ${added}건 (스킵 ${skipped}, 실패 ${failed})`);
+    this._invoiceParsed = [];
+
+    Utils.closeModal();
+    const parts = [`등록 ${added}건`];
+    if (skipped > 0) parts.push(`중복 스킵 ${skipped}건`);
+    if (failed > 0) parts.push(`실패 ${failed}건`);
+    Utils.showToast(parts.join(' / '), 'success');
+    await this.render();
+  },
+
+  // ===== 세금계산서 개별 등록 (발행완료 상태) =====
+  _openInvoiceAddModal() {
+    const today = new Date().toISOString().slice(0, 10);
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>+ 세금계산서 개별 등록</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-row">
+          <div class="form-group">
+            <label>작성일자 <span class="required">*</span></label>
+            <input type="date" id="invIssueDate" class="form-control" value="${today}">
+          </div>
+          <div class="form-group">
+            <label>승인번호 (선택)</label>
+            <input type="text" id="invApprovalNo" class="form-control" placeholder="홈택스 승인번호">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>공급받는자 상호 <span class="required">*</span></label>
+            <input type="text" id="invPartnerCompany" class="form-control" placeholder="거래처명">
+          </div>
+          <div class="form-group">
+            <label>사업자등록번호</label>
+            <input type="text" id="invPartnerReg" class="form-control" placeholder="000-00-00000">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>대표자명</label>
+            <input type="text" id="invPartnerCeo" class="form-control">
+          </div>
+          <div class="form-group">
+            <label>공급가액 <span class="required">*</span></label>
+            <input type="number" id="invSupplyAmount" class="form-control" placeholder="0" oninput="FinanceMatchingModule._onInvSupplyChange()">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>세액</label>
+            <input type="number" id="invTaxAmount" class="form-control" placeholder="0">
+          </div>
+          <div class="form-group">
+            <label>합계금액</label>
+            <input type="number" id="invTotalAmount" class="form-control" placeholder="0" readonly style="background:#F8FAFC;">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>프로젝트명 / 비고</label>
+          <input type="text" id="invProjectName" class="form-control" placeholder="현장명 또는 비고">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="FinanceMatchingModule._saveInvoiceAdd()">등록</button>
+      </div>
+    `);
+  },
+
+  _onInvSupplyChange() {
+    const supply = Number(document.getElementById('invSupplyAmount').value) || 0;
+    const tax = Math.round(supply * 0.1);
+    document.getElementById('invTaxAmount').value = tax;
+    document.getElementById('invTotalAmount').value = supply + tax;
+  },
+
+  async _saveInvoiceAdd() {
+    const issueDate = document.getElementById('invIssueDate').value;
+    const approvalNo = document.getElementById('invApprovalNo').value.trim();
+    const partnerCompany = document.getElementById('invPartnerCompany').value.trim();
+    const partnerReg = document.getElementById('invPartnerReg').value.trim();
+    const partnerCeo = document.getElementById('invPartnerCeo').value.trim();
+    const supply = Number(document.getElementById('invSupplyAmount').value) || 0;
+    const tax = Number(document.getElementById('invTaxAmount').value) || 0;
+    let total = Number(document.getElementById('invTotalAmount').value) || 0;
+    if (!total) total = supply + tax;
+    const projectName = document.getElementById('invProjectName').value.trim();
+
+    if (!issueDate || !partnerCompany || !supply) {
+      Utils.showToast('작성일자, 공급받는자 상호, 공급가액을 입력하세요.', 'error');
+      return;
+    }
+
+    try {
+      const user = Auth.currentUser();
+      const existing = await DB.getAll('taxInvoiceRequests');
+      const today = new Date();
+      const yy = String(today.getFullYear()).slice(-2);
+      const mm = String(today.getMonth() + 1).padStart(2, '0');
+      const dd = String(today.getDate()).padStart(2, '0');
+      const prefix = `INV-${yy}${mm}${dd}-`;
+      const sameDay = existing.filter(e => (e.requestNumber || '').startsWith(prefix)).length;
+      const requestNumber = `${prefix}${String(sameDay + 1).padStart(3, '0')}`;
+
+      await DB.add('taxInvoiceRequests', {
+        requestNumber,
+        hometaxApprovalNo: approvalNo,
+        partnerRegNumber: partnerReg,
+        partnerCompanyName: partnerCompany,
+        partnerCeoName: partnerCeo,
+        partnerAddress: '',
+        partnerContact: '',
+        partnerEmail: '',
+        supplyAmount: supply,
+        taxAmount: tax,
+        totalAmount: total,
+        issueDate,
+        projectName,
+        memo: projectName,
+        status: '발행완료',
+        matchedDepositId: null,
+        requesterId: user.id,
+        requesterName: user.displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+      await DB.log('CREATE', 'taxInvoiceRequests', null, `세금계산서 개별 등록: ${partnerCompany} ${Utils.formatCurrency(total)}`);
+
+      Utils.closeModal();
+      Utils.showToast('세금계산서가 등록되었습니다.', 'success');
+      await this.render();
+    } catch (e) {
+      Utils.showToast('등록 실패: ' + e.message, 'error');
+    }
   },
 
   destroy() {}

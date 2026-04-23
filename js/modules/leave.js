@@ -33,6 +33,16 @@ const LeaveModule = {
 
   userColors: ['#3b82f6','#10b981','#ec4899','#f59e0b','#8b5cf6','#06b6d4','#f97316','#22c55e','#a855f7','#f43f5e','#14b8a6','#6366f1','#eab308','#d946ef','#fb923c'],
 
+  // 사용자별 고정 색상 (displayName 기준)
+  userColorMap: {
+    '신수진': '#ec4899'  // 핑크
+  },
+
+  _colorForUser(user, idx) {
+    if (user && this.userColorMap[user.displayName]) return this.userColorMap[user.displayName];
+    return this.userColors[(idx >= 0 ? idx : 0) % this.userColors.length];
+  },
+
   leaveTypes: {
     full:       { label: '연차',      hours: 8,   days: 1.0 },
     'half-am':  { label: '오전반차',  hours: 4,   days: 0.5 },
@@ -307,7 +317,8 @@ const LeaveModule = {
       const dayReqs = this.requests.filter(r => r.date === dateStr && r.status !== 'rejected' && r.status !== 'cancelled');
       const dayEntries = dayReqs.slice(0, 3).map(r => {
         const uIdx = this.users.findIndex(u => String(u.id) === String(r.userId));
-        const color = this.userColors[(uIdx >= 0 ? uIdx : 0) % this.userColors.length];
+        const uObj = uIdx >= 0 ? this.users[uIdx] : { displayName: r.userName };
+        const color = this._colorForUser(uObj, uIdx);
         const typeLabel = this.leaveTypes[r.type]?.label || r.type;
         const statusCls = r.status === 'pending' ? ' pending' : (r.status === 'cancel-requested' ? ' cancel-requested' : '');
         return `<div class="leave-entry${statusCls}" style="border-left-color:${color};background:${color}15;" title="${Utils.escapeHtml(r.userName)} - ${typeLabel}">${Utils.escapeHtml(r.userName)} ${typeLabel}</div>`;
@@ -343,7 +354,7 @@ const LeaveModule = {
       const bal = this.balances.find(b => String(b.userId) === String(u.id));
       const total = bal ? (bal.totalLeave || 0) + (bal.bonusLeaves || []).reduce((s, b) => s + (b.days || 0), 0) : 15;
       const used = this._calculateUsed(u.id, 'approved');
-      const color = this.userColors[idx % this.userColors.length];
+      const color = this._colorForUser(u, idx);
       const unlimited = bal?.unlimited;
       const stat = unlimited ? '∞' : `${used.toFixed(1)}/${total}`;
       return `

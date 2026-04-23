@@ -9,13 +9,17 @@ const FinanceMatchingModule = {
   container: null,
   selectedDepositId: null,
   selectedInvoiceId: null,
-  depositFilter: 'all', // all | matched | unmatched
-  invoiceFilter: 'all',
+  depositFilter: 'all',      // all | matched | unmatched
+  depositCategory: 'all',     // all | 위탁 | 포어 | 자사몰 | 미지정
+  depositMonth: 'all',        // all | YYYY-MM
   depositSearch: '',
-  invoiceSearch: '',
-  depositCategory: 'all', // all/위탁/포어/자사몰/미지정
+  hideCompleted: false,
+  sortField: 'depositDate',
+  sortDir: 'desc',
 
   CATEGORIES: ['위탁', '포어', '자사몰', '미지정'],
+  PAYMENT_METHODS: ['계좌이체', '카드', '현금', '가상계좌', '기타'],
+  ACTION_TYPES: ['세금계산서 발행필요', '현금영수증 발급필요', '처리완료(자사몰)', '처리완료(카드사)', '처리완료(선발행매칭)'],
 
   _categoryBadge(cat) {
     const style = {
@@ -49,235 +53,469 @@ const FinanceMatchingModule = {
   async render() {
     const isAdmin = Auth.isAdmin();
     const allDeposits = await DB.getAll('deposits');
-    const allInvoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
-
-    // 입금일자 오름차순
-    const depositsAsc = [...allDeposits].sort((a, b) => {
-      return (a.depositDate || '').localeCompare(b.depositDate || '');
-    });
-    // 발행일자 오름차순
-    const invoicesAsc = [...allInvoices].sort((a, b) => {
-      const aD = a.issueDate || a.createdAt || '';
-      const bD = b.issueDate || b.createdAt || '';
-      return aD.localeCompare(bD);
-    });
 
     // 필터
-    const filterDeposits = depositsAsc.filter(d => {
-      const matched = d.matchStatus === '매칭완료';
-      if (this.depositFilter === 'matched' && !matched) return false;
-      if (this.depositFilter === 'unmatched' && matched) return false;
-      if (this.depositCategory !== 'all' && (d.category || '미지정') !== this.depositCategory) return false;
-      if (this.depositSearch) {
-        const q = this.depositSearch.toLowerCase();
-        if (!(d.depositorName || '').toLowerCase().includes(q) &&
-            !String(d.amount).includes(q) &&
-            !(d.projectName || '').toLowerCase().includes(q) &&
-            !(d.partnerCompanyName || '').toLowerCase().includes(q) &&
-            !(d.orderNumber || '').toLowerCase().includes(q)) return false;
-      }
-      return true;
+    let filtered = [...allDeposits];
+    if (this.depositFilter === 'matched') filtered = filtered.filter(d => d.matchStatus === '매칭완료');
+    if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
+    if (this.depositCategory !== 'all') filtered = filtered.filter(d => (d.category || '미지정') === this.depositCategory);
+    if (this.depositMonth !== 'all') filtered = filtered.filter(d => (d.depositDate || '').slice(0, 7) === this.depositMonth);
+    if (this.hideCompleted) filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
+    if (this.depositSearch) {
+      const q = this.depositSearch.toLowerCase();
+      filtered = filtered.filter(d =>
+        (d.depositorName || '').toLowerCase().includes(q) ||
+        (d.partnerCompanyName || '').toLowerCase().includes(q) ||
+        (d.orderNumber || '').toLowerCase().includes(q) ||
+        (d.memo || '').toLowerCase().includes(q) ||
+        String(d.amount).includes(q)
+      );
+    }
+
+    // 정렬
+    const dir = this.sortDir === 'asc' ? 1 : -1;
+    filtered.sort((a, b) => {
+      const va = a[this.sortField] || '';
+      const vb = b[this.sortField] || '';
+      if (this.sortField === 'amount') return (Number(va) - Number(vb)) * dir;
+      return String(va).localeCompare(String(vb)) * dir;
     });
 
-    const filterInvoices = invoicesAsc.filter(i => {
-      const matched = !!i.matchedDepositId;
-      if (this.invoiceFilter === 'matched' && !matched) return false;
-      if (this.invoiceFilter === 'unmatched' && matched) return false;
-      if (this.invoiceSearch) {
-        const q = this.invoiceSearch.toLowerCase();
-        if (!(i.partnerCompanyName || '').toLowerCase().includes(q) &&
-            !(i.requestNumber || '').toLowerCase().includes(q) &&
-            !String(i.totalAmount).includes(q)) return false;
-      }
-      return true;
+    // 월 옵션
+    const monthsSet = new Set();
+    allDeposits.forEach(d => { if (d.depositDate) monthsSet.add(d.depositDate.slice(0, 7)); });
+    const months = Array.from(monthsSet).sort().reverse();
+
+    // 월별 요약 (현재 필터링된 결과 기준)
+    const monthlySummary = {};
+    filtered.forEach(d => {
+      const m = (d.depositDate || '').slice(0, 7);
+      if (!m) return;
+      if (!monthlySummary[m]) monthlySummary[m] = { count: 0, amount: 0 };
+      monthlySummary[m].count++;
+      monthlySummary[m].amount += (d.amount || 0);
     });
+    const monthlyEntries = Object.entries(monthlySummary).sort((a, b) => b[0].localeCompare(a[0]));
 
     // 요약 통계
-    const matchedDeposits = allDeposits.filter(d => d.matchStatus === '매칭완료').length;
-    const unmatchedDeposits = allDeposits.length - matchedDeposits;
-    const matchedInvoices = allInvoices.filter(i => !!i.matchedDepositId).length;
-    const unmatchedInvoices = allInvoices.length - matchedInvoices;
+    const matchedCount = filtered.filter(d => d.matchStatus === '매칭완료').length;
+    const unmatchedCount = filtered.length - matchedCount;
+    const totalAmount = filtered.reduce((s, d) => s + (d.amount || 0), 0);
+    const matchedAmount = filtered.filter(d => d.matchStatus === '매칭완료').reduce((s, d) => s + (d.amount || 0), 0);
 
-    const unmatchedDepositAmount = allDeposits.filter(d => d.matchStatus !== '매칭완료').reduce((s, d) => s + (d.amount || 0), 0);
-    const unmatchedInvoiceAmount = allInvoices.filter(i => !i.matchedDepositId).reduce((s, i) => s + (i.totalAmount || 0), 0);
+    const sortInd = (f) => this.sortField === f ? (this.sortDir === 'asc' ? '↑' : '↓') : '⇅';
+
+    // 입금 테이블 행
+    let tableRows = '';
+    if (filtered.length === 0) {
+      tableRows = `<tr><td colspan="11" style="padding:var(--sp-8);text-align:center;"><div class="empty-state"><div class="empty-icon">💰</div><h3>해당 입금내역이 없습니다</h3></div></td></tr>`;
+    } else {
+      tableRows = filtered.map(d => {
+        const matched = d.matchStatus === '매칭완료';
+        const category = d.category || '미지정';
+        const catStyle = {
+          '위탁': 'background:rgba(139,92,246,.12);color:#7c3aed;',
+          '포어': 'background:rgba(59,130,246,.12);color:#2563eb;',
+          '자사몰': 'background:rgba(16,185,129,.12);color:#059669;',
+          '미지정': 'background:rgba(148,163,184,.15);color:#64748b;'
+        }[category];
+        // 처리사항 자동 판별
+        let actionText = d.actionRequired || '';
+        if (!actionText) actionText = matched ? '처리완료(선발행매칭)' : '세금계산서 발행필요';
+        const actionDone = actionText.startsWith('처리완료');
+        const actionStyle = actionDone
+          ? 'background:rgba(16,185,129,.12);color:#059669;'
+          : 'background:rgba(245,158,11,.15);color:#b45309;';
+
+        // 상태 배지
+        const statusLabel = matched ? '매칭완료' : (d.matchStatus || '미매칭');
+        const statusStyle = matched
+          ? 'background:rgba(16,185,129,.15);color:#065F46;'
+          : 'background:rgba(148,163,184,.2);color:#475569;';
+
+        return `
+          <tr ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
+            <td>${Utils.formatDate(d.depositDate)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
+            <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${catStyle}">${Utils.escapeHtml(category)}</span></td>
+            <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
+            <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
+            <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
+            <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${statusStyle}">${statusLabel}</span></td>
+            <td class="text-xs">${Utils.escapeHtml(d.partnerCompanyName || '-')}</td>
+            <td><span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;${actionStyle}">${Utils.escapeHtml(actionText)}</span></td>
+            <td class="text-xs text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Utils.escapeHtml(d.memo || '-')}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <button class="btn btn-ghost btn-sm" onclick="FinanceMatchingModule._openDepositDetail('${d.id}')" title="상세/매칭">👁️</button>
+                ${isAdmin ? `
+                  <button class="btn btn-ghost btn-sm" onclick="FinanceMatchingModule._editDeposit('${d.id}')" title="수정">✏️</button>
+                  <button class="btn btn-ghost btn-sm text-danger" onclick="FinanceMatchingModule._deleteDeposit('${d.id}')" title="삭제">🗑️</button>
+                ` : ''}
+              </div>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
 
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>💰 재무 (입금내역 · 매칭관리)</h2>
+        <h2>💰 입금내역</h2>
+        ${isAdmin ? `
+          <div class="page-actions d-flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
+            <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openDepositAdd()">+ 입금내역 개별 등록</button>
+          </div>
+        ` : ''}
       </div>
 
-      <!-- 요약 -->
+      <!-- 요약 카드 -->
       <div class="summary-cards">
         <div class="summary-card">
           <div class="card-icon cyan">💰</div>
           <div class="card-info">
-            <div class="card-label">총 입금</div>
-            <div class="card-value">${allDeposits.length}건</div>
-            <div class="card-sub">매칭 ${matchedDeposits} · 미매칭 ${unmatchedDeposits}</div>
+            <div class="card-label">전체 입금건수</div>
+            <div class="card-value">${filtered.length}건</div>
           </div>
         </div>
         <div class="summary-card">
-          <div class="card-icon blue">📝</div>
+          <div class="card-icon blue">📊</div>
           <div class="card-info">
-            <div class="card-label">총 발행</div>
-            <div class="card-value">${allInvoices.length}건</div>
-            <div class="card-sub">매칭 ${matchedInvoices} · 미매칭 ${unmatchedInvoices}</div>
+            <div class="card-label">총 입금액</div>
+            <div class="card-value">${Utils.formatCurrency(totalAmount)}</div>
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid var(--color-success);">
+          <div class="card-icon green">✅</div>
+          <div class="card-info">
+            <div class="card-label">매칭완료</div>
+            <div class="card-value">${matchedCount}건</div>
+            <div class="card-sub">${Utils.formatCurrency(matchedAmount)}</div>
           </div>
         </div>
         <div class="summary-card" style="border-left:4px solid var(--color-warning);">
           <div class="card-icon orange">⚠️</div>
           <div class="card-info">
-            <div class="card-label">미매칭 입금 <span class="text-xs text-muted">(세금계산서 미발행 가능성)</span></div>
-            <div class="card-value">${unmatchedDeposits}건</div>
-            <div class="card-sub">${Utils.formatCurrency(unmatchedDepositAmount)}</div>
-          </div>
-        </div>
-        <div class="summary-card" style="border-left:4px solid var(--color-danger);">
-          <div class="card-icon red">⚠️</div>
-          <div class="card-info">
-            <div class="card-label">미매칭 발행 <span class="text-xs text-muted">(입금 대기)</span></div>
-            <div class="card-value">${unmatchedInvoices}건</div>
-            <div class="card-sub">${Utils.formatCurrency(unmatchedInvoiceAmount)}</div>
+            <div class="card-label">미매칭 (발행 대기)</div>
+            <div class="card-value">${unmatchedCount}건</div>
+            <div class="card-sub">${Utils.formatCurrency(totalAmount - matchedAmount)}</div>
           </div>
         </div>
       </div>
 
-      <!-- 좌우 패널 -->
-      <div class="matching-container" style="grid-template-columns: 1fr 60px 1fr;">
-        <!-- 좌: 입금내역 -->
-        <div class="matching-panel">
-          <div class="panel-header" style="background:var(--color-info-light);">
-            💰 입금내역 (${filterDeposits.length}건 / 입금일 ↑)
-          </div>
-          <div style="padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--color-border);">
-            <div class="d-flex gap-1 mb-2" style="flex-wrap:wrap;">
-              <button class="btn btn-sm ${this.depositFilter === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="FinanceMatchingModule._setDepositFilter('all')">전체</button>
-              <button class="btn btn-sm ${this.depositFilter === 'matched' ? 'btn-success' : 'btn-secondary'}" onclick="FinanceMatchingModule._setDepositFilter('matched')">✅ 매칭</button>
-              <button class="btn btn-sm ${this.depositFilter === 'unmatched' ? 'btn-warning' : 'btn-secondary'}" onclick="FinanceMatchingModule._setDepositFilter('unmatched')">⚠️ 미매칭</button>
+      <!-- 월별 요약 바 -->
+      ${monthlyEntries.length > 0 ? `
+        <div style="display:flex;gap:var(--sp-2);overflow-x:auto;padding:var(--sp-3);background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-md);margin-bottom:var(--sp-4);">
+          ${monthlyEntries.map(([m, s]) => `
+            <div onclick="FinanceMatchingModule._setMonth('${m}')" style="cursor:pointer;padding:var(--sp-2) var(--sp-3);border-radius:var(--radius-sm);background:${this.depositMonth === m ? 'var(--color-primary-light)' : 'var(--color-surface-hover)'};border:1px solid ${this.depositMonth === m ? 'var(--color-primary)' : 'var(--color-border)'};min-width:110px;">
+              <div style="font-size:0.72rem;color:var(--color-text-muted);font-weight:600;">${m}</div>
+              <div style="font-size:0.9rem;font-weight:700;color:var(--color-text);">${s.count}건</div>
+              <div style="font-size:0.7rem;color:var(--color-primary);font-family:monospace;">${Utils.formatCurrency(s.amount)}</div>
             </div>
-            <div class="d-flex gap-1 mb-2" style="flex-wrap:wrap;">
-              <select class="form-control" style="font-size:var(--font-size-xs);flex:1;" onchange="FinanceMatchingModule._setDepositCategory(this.value)">
-                <option value="all" ${this.depositCategory === 'all' ? 'selected' : ''}>전체 구분</option>
-                ${this.CATEGORIES.map(c => `<option value="${c}" ${this.depositCategory === c ? 'selected' : ''}>${c}</option>`).join('')}
-              </select>
-            </div>
-            <input type="text" id="depositSearchInput" class="form-control" placeholder="입금자/거래처/주문번호 검색..." value="${Utils.escapeHtml(this.depositSearch)}" style="font-size:var(--font-size-xs);">
-          </div>
-          <div class="panel-body" style="max-height:600px;">
-            ${filterDeposits.length === 0 ?
-              '<div class="empty-state" style="padding:var(--sp-6);"><p>해당 내역이 없습니다</p></div>' :
-              filterDeposits.map(d => {
-                const matched = d.matchStatus === '매칭완료';
-                return `
-                  <div class="matching-item ${this.selectedDepositId === d.id ? 'selected' : ''}"
-                       style="${matched ? 'background:var(--color-success-light);border-left:3px solid var(--color-success);' : ''}"
-                       onclick="FinanceMatchingModule._selectDeposit('${d.id}')">
-                    <div class="item-info" style="width:100%;">
-                      <div class="d-flex justify-between items-center mb-1" style="gap:6px;">
-                        <span class="fw-medium" style="flex:1;">${Utils.escapeHtml(d.depositorName || '-')}</span>
-                        ${this._categoryBadge(d.category)}
-                        ${matched ? '<span class="badge badge-matched" style="font-size:10px;">매칭</span>' : '<span class="badge badge-unmatched" style="font-size:10px;">미매칭</span>'}
-                      </div>
-                      <div class="text-xs text-muted" style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <span>📅 ${Utils.formatDate(d.depositDate)}</span>
-                        ${d.paymentMethod ? `<span>💳 ${Utils.escapeHtml(d.paymentMethod)}</span>` : ''}
-                        ${d.orderNumber ? `<span>🔖 ${Utils.escapeHtml(d.orderNumber)}</span>` : ''}
-                      </div>
-                      ${d.partnerCompanyName ? `<div class="text-xs" style="color:#64748B;margin-top:2px;">거래처: <strong>${Utils.escapeHtml(d.partnerCompanyName)}</strong></div>` : ''}
-                      <div class="item-amount mt-1" style="color:var(--color-info);">${Utils.formatCurrency(d.amount)}</div>
-                      <div class="mt-1">${this._actionBadge(d)}</div>
-                      ${matched ? `<button class="btn btn-ghost btn-sm text-danger mt-2" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation(); FinanceMatchingModule._unmatch('${d.id}')">🔗 매칭 해제</button>` : ''}
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-          </div>
-        </div>
-
-        <!-- 중앙 매칭 버튼 -->
-        <div class="matching-actions">
-          <button class="btn btn-primary btn-lg" id="matchBtn"
-                  onclick="FinanceMatchingModule._performMatch()"
-                  ${(!this.selectedDepositId || !this.selectedInvoiceId) ? 'disabled' : ''}
-                  style="padding:var(--sp-3) var(--sp-2);writing-mode:vertical-lr;">
-            🔗 매칭
-          </button>
-          <button class="btn btn-ghost btn-sm mt-4" onclick="FinanceMatchingModule._autoSuggest()" style="writing-mode:vertical-lr;padding:var(--sp-2);">자동</button>
-        </div>
-
-        <!-- 우: 세금계산서 -->
-        <div class="matching-panel">
-          <div class="panel-header" style="background:var(--color-primary-light);">
-            📝 발행 세금계산서 (${filterInvoices.length}건 / 발행일 ↑)
-          </div>
-          <div style="padding:var(--sp-2) var(--sp-3);border-bottom:1px solid var(--color-border);">
-            <div class="d-flex gap-1 mb-2" style="flex-wrap:wrap;">
-              <button class="btn btn-sm ${this.invoiceFilter === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="FinanceMatchingModule._setInvoiceFilter('all')">전체</button>
-              <button class="btn btn-sm ${this.invoiceFilter === 'matched' ? 'btn-success' : 'btn-secondary'}" onclick="FinanceMatchingModule._setInvoiceFilter('matched')">✅ 매칭</button>
-              <button class="btn btn-sm ${this.invoiceFilter === 'unmatched' ? 'btn-danger' : 'btn-secondary'}" onclick="FinanceMatchingModule._setInvoiceFilter('unmatched')">⚠️ 미매칭</button>
-            </div>
-            <input type="text" id="invoiceSearchInput" class="form-control" placeholder="거래처 검색..." value="${Utils.escapeHtml(this.invoiceSearch)}" style="font-size:var(--font-size-xs);">
-          </div>
-          <div class="panel-body" style="max-height:600px;">
-            ${filterInvoices.length === 0 ?
-              '<div class="empty-state" style="padding:var(--sp-6);"><p>해당 내역이 없습니다</p></div>' :
-              filterInvoices.map(i => {
-                const matched = !!i.matchedDepositId;
-                const matchedDep = matched ? allDeposits.find(d => String(d.id) === String(i.matchedDepositId)) : null;
-                return `
-                  <div class="matching-item ${this.selectedInvoiceId === i.id ? 'selected' : ''}"
-                       style="${matched ? 'background:var(--color-success-light);border-left:3px solid var(--color-success);' : ''}"
-                       onclick="FinanceMatchingModule._selectInvoice('${i.id}')">
-                    <div class="item-info" style="width:100%;">
-                      <div class="d-flex justify-between items-center mb-1">
-                        <span class="fw-medium">${Utils.escapeHtml(i.partnerCompanyName || '-')}</span>
-                        ${matched ? '<span class="badge badge-matched" style="font-size:10px;">매칭완료</span>' : '<span class="badge badge-reject" style="font-size:10px;">미매칭</span>'}
-                      </div>
-                      <div class="text-xs text-muted">${Utils.escapeHtml(i.requestNumber)} · 발행 ${Utils.formatDate(i.issueDate || i.createdAt)}</div>
-                      ${matchedDep ? `
-                        <div class="text-xs mt-1" style="color:var(--color-success);">
-                          💰 입금: ${Utils.formatDate(matchedDep.depositDate)} · ${Utils.escapeHtml(matchedDep.depositorName || '')}
-                        </div>
-                      ` : '<div class="text-xs text-muted mt-1">⏳ 미입금</div>'}
-                      <div class="item-amount mt-1" style="color:var(--color-primary);">${Utils.formatCurrency(i.totalAmount)}</div>
-                      ${matched ? `<button class="btn btn-ghost btn-sm text-danger mt-2" style="font-size:10px;padding:2px 8px;" onclick="event.stopPropagation(); FinanceMatchingModule._unmatchByInvoice('${i.id}')">🔗 매칭 해제</button>` : ''}
-                    </div>
-                  </div>
-                `;
-              }).join('')}
-          </div>
-        </div>
-      </div>
-
-      <!-- 하단 등록 버튼 (좌: 입금 / 우: 세금계산서) -->
-      ${isAdmin ? `
-        <div style="display:grid;grid-template-columns:1fr 60px 1fr;gap:0;margin-top:var(--sp-4);">
-          <div class="d-flex gap-2 justify-end" style="flex-wrap:wrap;">
-            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
-            <button class="btn btn-primary btn-sm" onclick="DepositModule._openAddModal ? DepositModule._openAddModal() : Utils.showToast('입금내역 메뉴에서 사용하세요', 'warning')">+ 입금내역 개별 등록</button>
-          </div>
-          <div></div>
-          <div class="d-flex gap-2" style="flex-wrap:wrap;">
-            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openInvoicePasteModal()">📋 세금계산서 붙여넣기</button>
-            <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openInvoiceAddModal()">+ 세금계산서 개별 등록</button>
-          </div>
+          `).join('')}
+          ${this.depositMonth !== 'all' ? `<button class="btn btn-ghost btn-sm" onclick="FinanceMatchingModule._setMonth('all')" style="align-self:center;">✕ 월 필터 해제</button>` : ''}
         </div>
       ` : ''}
+
+      <!-- 필터바 -->
+      <div style="display:flex;gap:var(--sp-2);flex-wrap:wrap;align-items:center;margin-bottom:var(--sp-3);">
+        <div class="search-input" style="flex:1;min-width:200px;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="depositSearchInput" class="form-control" placeholder="입금자/거래처/주문번호 검색..." value="${Utils.escapeHtml(this.depositSearch)}">
+        </div>
+        <select class="form-control" style="width:auto;" onchange="FinanceMatchingModule._setDepositCategory(this.value)">
+          <option value="all" ${this.depositCategory === 'all' ? 'selected' : ''}>전체 구분</option>
+          ${this.CATEGORIES.map(c => `<option value="${c}" ${this.depositCategory === c ? 'selected' : ''}>${c}</option>`).join('')}
+        </select>
+        <select class="form-control" style="width:auto;" onchange="FinanceMatchingModule._setDepositFilter(this.value)">
+          <option value="all" ${this.depositFilter === 'all' ? 'selected' : ''}>전체 상태</option>
+          <option value="unmatched" ${this.depositFilter === 'unmatched' ? 'selected' : ''}>미매칭</option>
+          <option value="matched" ${this.depositFilter === 'matched' ? 'selected' : ''}>매칭완료</option>
+        </select>
+        <select class="form-control" style="width:auto;" onchange="FinanceMatchingModule._setMonth(this.value)">
+          <option value="all" ${this.depositMonth === 'all' ? 'selected' : ''}>전체 월</option>
+          ${months.map(m => `<option value="${m}" ${this.depositMonth === m ? 'selected' : ''}>${m}</option>`).join('')}
+        </select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;">
+          <input type="checkbox" ${this.hideCompleted ? 'checked' : ''} onchange="FinanceMatchingModule._toggleHideCompleted(this.checked)">
+          완료 숨기기
+        </label>
+      </div>
+
+      <!-- 테이블 -->
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositDate')">입금일 ${sortInd('depositDate')}</th>
+              <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositorName')">입금처 ${sortInd('depositorName')}</th>
+              <th>구분</th>
+              <th class="text-right" style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('amount')">금액 ${sortInd('amount')}</th>
+              <th>주문번호</th>
+              <th>결제방법</th>
+              <th class="text-center">상태</th>
+              <th>거래처</th>
+              <th>처리사항</th>
+              <th>비고</th>
+              <th>관리</th>
+            </tr>
+          </thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+
     `;
 
     // 검색 이벤트
     const ds = document.getElementById('depositSearchInput');
     if (ds) ds.addEventListener('input', Utils.debounce((e) => { this.depositSearch = e.target.value; this.render(); }, 300));
-    const is_ = document.getElementById('invoiceSearchInput');
-    if (is_) is_.addEventListener('input', Utils.debounce((e) => { this.invoiceSearch = e.target.value; this.render(); }, 300));
   },
 
   _setDepositFilter(f) { this.depositFilter = f; this.render(); },
   _setDepositCategory(c) { this.depositCategory = c; this.render(); },
-  _setInvoiceFilter(f) { this.invoiceFilter = f; this.render(); },
+  _setMonth(m) { this.depositMonth = m; this.render(); },
+  _toggleHideCompleted(v) { this.hideCompleted = v; this.render(); },
+  _sort(field) {
+    if (this.sortField === field) {
+      this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    } else {
+      this.sortField = field;
+      this.sortDir = 'desc';
+    }
+    this.render();
+  },
 
   _selectDeposit(id) { this.selectedDepositId = id; this.render(); },
   _selectInvoice(id) { this.selectedInvoiceId = id; this.render(); },
+
+  // ===== 입금 상세 모달 (선발행 건 매칭 포함) =====
+  async _openDepositDetail(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) return;
+    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
+    const matchedInvoice = d.matchedInvoiceId ? await DB.get('taxInvoiceRequests', d.matchedInvoiceId) : null;
+    const unmatchedInvoices = invoices.filter(i => !i.matchedDepositId);
+
+    // 매칭 추천 (금액 동일 + 이름 유사)
+    const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜]/g, '').toLowerCase();
+    const suggestions = unmatchedInvoices.map(inv => {
+      let score = 0;
+      if (inv.totalAmount === d.amount) score += 50;
+      else if (Math.abs(inv.totalAmount - d.amount) < d.amount * 0.01) score += 30;
+      const a = normalizeName(d.depositorName), b = normalizeName(inv.partnerCompanyName);
+      if (a && b) {
+        if (a === b) score += 40;
+        else if (a.includes(b) || b.includes(a)) score += 20;
+      }
+      return { inv, score };
+    }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
+
+    const matched = d.matchStatus === '매칭완료';
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>💰 입금건 상세</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <!-- 상단 요약 -->
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);padding:var(--sp-4);background:var(--color-surface-hover);border-radius:var(--radius-md);margin-bottom:var(--sp-4);">
+          <div><div class="text-xs text-muted">입금일</div><div class="fw-semibold">${Utils.formatDate(d.depositDate)}</div></div>
+          <div><div class="text-xs text-muted">입금처</div><div class="fw-semibold">${Utils.escapeHtml(d.depositorName || '-')}</div></div>
+          <div><div class="text-xs text-muted">금액</div><div class="fw-bold" style="color:var(--color-primary);font-size:1.1rem;">${Utils.formatCurrency(d.amount)}</div></div>
+          <div><div class="text-xs text-muted">상태</div><div>${matched ? '<span style="color:var(--color-success);font-weight:600;">✅ 매칭완료</span>' : '<span style="color:var(--color-warning);font-weight:600;">⚠️ 미매칭</span>'}</div></div>
+        </div>
+
+        <!-- 세부 정보 -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-4);">
+          <div><label class="text-xs text-muted">구분</label><div>${Utils.escapeHtml(d.category || '미지정')}</div></div>
+          <div><label class="text-xs text-muted">결제방법</label><div>${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</div></div>
+          <div><label class="text-xs text-muted">주문번호</label><div>${Utils.escapeHtml(d.orderNumber || '-')}</div></div>
+          <div><label class="text-xs text-muted">거래처</label><div>${Utils.escapeHtml(d.partnerCompanyName || '-')}</div></div>
+        </div>
+        <div class="mb-4"><label class="text-xs text-muted">비고</label><div style="padding:var(--sp-2);background:var(--color-surface-hover);border-radius:var(--radius-sm);">${Utils.escapeHtml(d.memo || '-')}</div></div>
+
+        <!-- 선발행 건 매칭 영역 -->
+        <fieldset style="margin-top:var(--sp-4);padding:var(--sp-4);border:1px solid var(--color-border);border-radius:var(--radius-md);">
+          <legend style="padding:0 var(--sp-2);font-weight:600;">🔗 선발행 건 매칭</legend>
+
+          ${matched && matchedInvoice ? `
+            <div style="padding:var(--sp-3);background:var(--color-success-light);border-left:3px solid var(--color-success);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);">
+              <div class="d-flex justify-between items-center">
+                <div>
+                  <div class="fw-semibold">✅ 매칭된 세금계산서</div>
+                  <div class="text-sm mt-1">
+                    ${Utils.escapeHtml(matchedInvoice.requestNumber)} · <strong>${Utils.escapeHtml(matchedInvoice.partnerCompanyName || '')}</strong> · ${Utils.formatCurrency(matchedInvoice.totalAmount)}
+                    <br>발행일: ${Utils.formatDate(matchedInvoice.issueDate || matchedInvoice.createdAt)}
+                  </div>
+                </div>
+                <button class="btn btn-danger btn-sm" onclick="FinanceMatchingModule._unmatchFromDetail('${d.id}')">🔗 매칭 해제</button>
+              </div>
+            </div>
+          ` : `
+            ${suggestions.length > 0 ? `
+              <div class="mb-3">
+                <div class="text-xs text-muted mb-2">💡 추천 매칭 (유사도 높은 순):</div>
+                ${suggestions.slice(0, 5).map(s => `
+                  <div style="padding:var(--sp-2) var(--sp-3);background:var(--color-surface-hover);border-radius:var(--radius-sm);margin-bottom:var(--sp-1);display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                      <span class="fw-medium">${Utils.escapeHtml(s.inv.partnerCompanyName || '-')}</span>
+                      <span class="text-xs text-muted"> · ${Utils.escapeHtml(s.inv.requestNumber)}</span>
+                      <span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(59,130,246,.15);color:#2563eb;border-radius:3px;font-size:10px;font-weight:600;">유사도 ${s.score}</span>
+                    </div>
+                    <div class="d-flex gap-2 items-center">
+                      <span class="fw-semibold">${Utils.formatCurrency(s.inv.totalAmount)}</span>
+                      <button class="btn btn-success btn-sm" onclick="FinanceMatchingModule._matchFromDetail('${d.id}', '${s.inv.id}')">매칭</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
+
+            <div class="form-group mt-3">
+              <label>전체 미매칭 세금계산서에서 선택:</label>
+              <select id="matchInvoiceSelect" class="form-control">
+                <option value="">-- 선택 --</option>
+                ${unmatchedInvoices.map(i => `
+                  <option value="${i.id}">
+                    ${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.escapeHtml(i.requestNumber)} · ${Utils.formatCurrency(i.totalAmount)} (${Utils.formatDate(i.issueDate || i.createdAt)})
+                  </option>
+                `).join('')}
+              </select>
+            </div>
+            <button class="btn btn-primary" onclick="FinanceMatchingModule._matchFromDetailSelect('${d.id}')">🔗 선택한 세금계산서와 매칭</button>
+            ${unmatchedInvoices.length === 0 ? '<div class="text-xs text-muted mt-2">매칭 가능한 발행완료 세금계산서가 없습니다.</div>' : ''}
+          `}
+        </fieldset>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _matchFromDetail(depositId, invoiceId) {
+    const deposit = await DB.get('deposits', depositId);
+    const invoice = await DB.get('taxInvoiceRequests', invoiceId);
+    if (!deposit || !invoice) return;
+
+    const confirmed = await Utils.confirm(
+      `입금 [${deposit.depositorName}] ${Utils.formatCurrency(deposit.amount)}\n세금계산서 [${invoice.partnerCompanyName}] ${Utils.formatCurrency(invoice.totalAmount)}\n\n매칭하시겠습니까?`,
+      '매칭 확인'
+    );
+    if (!confirmed) return;
+
+    const user = Auth.currentUser();
+    invoice.matchedDepositId = deposit.id;
+    invoice.updatedAt = new Date().toISOString();
+    await DB.update('taxInvoiceRequests', invoice);
+    deposit.matchedInvoiceId = invoice.id;
+    deposit.matchStatus = '매칭완료';
+    deposit.updatedAt = new Date().toISOString();
+    await DB.update('deposits', deposit);
+
+    await DB.add('matchingLog', {
+      invoiceId: invoice.id,
+      depositId: deposit.id,
+      matchedAmount: deposit.amount,
+      matchedBy: user.id,
+      matchedByName: user.displayName,
+      matchedAt: new Date().toISOString(),
+      memo: ''
+    });
+    await DB.log('MATCH', 'matching', null, `매칭: ${invoice.requestNumber} ↔ ${deposit.depositorName}`);
+
+    Utils.showToast('매칭 완료', 'success');
+    Utils.closeModal();
+    await this.render();
+  },
+
+  async _matchFromDetailSelect(depositId) {
+    const invoiceId = document.getElementById('matchInvoiceSelect').value;
+    if (!invoiceId) { Utils.showToast('세금계산서를 선택하세요.', 'error'); return; }
+    await this._matchFromDetail(depositId, invoiceId);
+  },
+
+  async _unmatchFromDetail(depositId) {
+    const confirmed = await Utils.confirm('매칭을 해제하시겠습니까?', '매칭 해제');
+    if (!confirmed) return;
+    await this._unmatch(depositId);
+    Utils.closeModal();
+  },
+
+  async _editDeposit(id) {
+    const d = await DB.get('deposits', id);
+    if (d && window.DepositModule?._openAddModal) {
+      DepositModule._openAddModal(d);
+    } else {
+      this._openDepositAdd(d);
+    }
+  },
+
+  _openDepositAdd(editData = null) {
+    if (window.DepositModule?._openAddModal) {
+      DepositModule._openAddModal(editData);
+      return;
+    }
+    // 폴백: 간단 모달
+    Utils.openModal(`
+      <div class="modal-header"><h3>입금내역 개별 등록</h3><button class="modal-close" onclick="Utils.closeModal()">&times;</button></div>
+      <div class="modal-body"><div class="form-row">
+        <div class="form-group"><label>입금일</label><input type="date" id="fmDepDate" class="form-control" value="${Utils.today()}"></div>
+        <div class="form-group"><label>입금처</label><input type="text" id="fmDepName" class="form-control"></div>
+      </div><div class="form-row">
+        <div class="form-group"><label>금액</label><input type="number" id="fmDepAmount" class="form-control" min="0"></div>
+        <div class="form-group"><label>구분</label><select id="fmDepCategory" class="form-control">${this.CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+      </div><div class="form-group"><label>비고</label><textarea id="fmDepMemo" class="form-control" rows="2"></textarea></div></div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button><button class="btn btn-primary" onclick="FinanceMatchingModule._saveFallbackDeposit()">등록</button></div>
+    `);
+  },
+
+  async _saveFallbackDeposit() {
+    const date = document.getElementById('fmDepDate').value;
+    const name = document.getElementById('fmDepName').value.trim();
+    const amount = Number(document.getElementById('fmDepAmount').value) || 0;
+    if (!date || !name || amount <= 0) { Utils.showToast('입금일/입금처/금액을 입력하세요', 'error'); return; }
+    const user = Auth.currentUser();
+    await DB.add('deposits', {
+      depositDate: date, depositorName: name, amount,
+      category: document.getElementById('fmDepCategory').value,
+      memo: document.getElementById('fmDepMemo').value.trim(),
+      paymentMethod: '계좌이체', orderNumber: '', partnerCompanyName: '', actionRequired: '',
+      matchStatus: '미매칭', matchedInvoiceId: null,
+      registeredBy: user.id, registeredByName: user.displayName,
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+    });
+    Utils.closeModal();
+    await this.render();
+  },
+
+  async _deleteDeposit(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) return;
+    const confirmed = await Utils.confirm(`${d.depositorName} ${Utils.formatCurrency(d.amount)} 입금건을 삭제하시겠습니까?`, '입금내역 삭제');
+    if (!confirmed) return;
+    // 매칭된 경우 해제
+    if (d.matchedInvoiceId) {
+      const inv = await DB.get('taxInvoiceRequests', d.matchedInvoiceId);
+      if (inv) { inv.matchedDepositId = null; inv.updatedAt = new Date().toISOString(); await DB.update('taxInvoiceRequests', inv); }
+    }
+    await DB.delete('deposits', id);
+    await DB.log('DELETE', 'deposit', id, `입금 삭제: ${d.depositorName}`);
+    Utils.showToast('삭제되었습니다.', 'success');
+    await this.render();
+  },
+
+  _showDepositContextMenu(event, id) {
+    const items = [
+      { icon: '👁️', label: '상세/매칭', onClick: () => this._openDepositDetail(id) },
+      { icon: '✏️', label: '수정', onClick: () => this._editDeposit(id) },
+      { divider: true },
+      { icon: '🗑️', label: '삭제', danger: true, onClick: () => this._deleteDeposit(id) }
+    ];
+    if (window.ContextMenu) ContextMenu.show(event, items);
+  },
 
   async _performMatch() {
     if (!this.selectedDepositId || !this.selectedInvoiceId) return;

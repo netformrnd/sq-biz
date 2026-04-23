@@ -99,7 +99,18 @@ const TaxInvoiceAdminModule = {
       }).join('');
     }
 
+    const isAdmin = Auth.isAdmin();
     this.container.innerHTML = `
+      <div class="page-header">
+        <h2>🧾 세금계산서 발행</h2>
+        ${isAdmin ? `
+          <div class="page-actions d-flex gap-2">
+            <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openInvoicePasteModal()">📋 세금계산서 붙여넣기</button>
+            <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openInvoiceAddModal()">+ 세금계산서 개별 등록</button>
+          </div>
+        ` : ''}
+      </div>
+
       <div class="tabs">
         <div class="tab-item ${this.filterStatus === 'all' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('all')">
           전체 <span class="text-muted">(${counts.all})</span>

@@ -170,8 +170,8 @@ const App = {
       if (isAdmin) {
         html += `
           <div class="nav-item" data-path="/tax-invoice/admin" onclick="Router.navigate('/tax-invoice/admin')">
-            <span class="nav-icon">✅</span>
-            <span>요청 관리</span>
+            <span class="nav-icon">🧾</span>
+            <span>세금계산서 발행</span>
             <span class="nav-badge hidden" id="badgePending">0</span>
           </div>
         `;
@@ -191,7 +191,7 @@ const App = {
         html += `
           <div class="nav-item" data-path="/finance" onclick="Router.navigate('/finance')">
             <span class="nav-icon">💰</span>
-            <span>입금내역·매칭</span>
+            <span>입금내역</span>
           </div>
         `;
       }
@@ -285,7 +285,7 @@ const App = {
     });
     Router.register('/tax-invoice/admin', {
       module: 'TaxInvoiceAdminModule',
-      title: '세금계산서 요청 관리',
+      title: '세금계산서 발행',
       roles: ['admin']
     });
     Router.register('/deposits', {
@@ -312,7 +312,7 @@ const App = {
     });
     Router.register('/finance', {
       module: 'FinanceMatchingModule',
-      title: '재무 (입금내역·매칭)',
+      title: '입금내역',
       roles: ['admin', 'employee']
     });
     Router.register('/checklist', {

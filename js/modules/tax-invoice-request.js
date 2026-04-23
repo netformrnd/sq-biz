@@ -57,11 +57,10 @@ const TaxInvoiceRequestModule = {
             <!-- 사업자등록증 업로드 -->
             <div class="form-group">
               <label>사업자등록증 첨부 <span class="required">*</span></label>
-              <div class="upload-area" id="ocrUploadArea">
+              <div class="upload-area" id="ocrUploadArea" style="cursor:default;">
                 <div class="upload-icon">📄</div>
-                <div class="upload-text"><strong>Ctrl+V</strong>로 사업자등록증 화면캡쳐 붙여넣기 <span class="text-xs text-muted">(자동 인식)</span></div>
-                <div class="upload-hint">또는 클릭하여 파일 업로드 (파일은 보관용, 수동 입력 필요)</div>
-                <input type="file" id="ocrFileInput" accept="image/*,.pdf" style="display:none;">
+                <div class="upload-text"><strong>Ctrl+V</strong>로 사업자등록증 화면캡쳐 붙여넣기</div>
+                <div class="upload-hint">캡쳐 이미지를 복사(⊞ Win+Shift+S 등) 후 이 페이지에 붙여넣기 하면 자동 인식됩니다.</div>
               </div>
               <div id="ocrProgress" class="hidden">
                 <div class="progress-bar"><div class="progress-fill" id="ocrProgressFill" style="width:0%"></div></div>
@@ -158,8 +157,6 @@ const TaxInvoiceRequestModule = {
   _bindFormEvents() {
     const form = document.getElementById('taxInvoiceForm');
     const amountInput = document.getElementById('amount');
-    const uploadArea = document.getElementById('ocrUploadArea');
-    const fileInput = document.getElementById('ocrFileInput');
 
     // 금액 자동계산
     amountInput.addEventListener('input', () => {
@@ -169,25 +166,7 @@ const TaxInvoiceRequestModule = {
       document.getElementById('totalAmount').value = Utils.formatCurrency(amount + tax);
     });
 
-    // 파일 업로드
-    uploadArea.addEventListener('click', () => fileInput.click());
-    fileInput.addEventListener('change', (e) => {
-      if (e.target.files[0]) this._handleFile(e.target.files[0]);
-    });
-
-    // 드래그 앤 드롭
-    uploadArea.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      uploadArea.classList.add('dragover');
-    });
-    uploadArea.addEventListener('dragleave', () => {
-      uploadArea.classList.remove('dragover');
-    });
-    uploadArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      uploadArea.classList.remove('dragover');
-      if (e.dataTransfer.files[0]) this._handleFile(e.dataTransfer.files[0]);
-    });
+    // ※ 사업자등록증 파일 업로드/드래그 기능 제거 (화면캡쳐 Ctrl+V 만 사용)
 
     // 계약서 업로드
     const contractArea = document.getElementById('contractUploadArea');

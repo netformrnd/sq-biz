@@ -780,22 +780,33 @@ const FinanceMatchingModule = {
       </div>
       <div class="modal-body">
         <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);">
-          <strong>✨ 정확한 인식을 위해 헤더 행을 함께 복사해 주세요:</strong><br>
+          <strong>✨ 지원 방식:</strong><br>
           <span class="text-muted">
-            • <strong>위하고:</strong> <code>월/일 | 적요 | 입금액 | 출금액 | 잔액</code> 헤더 + 데이터 행<br>
-            • <strong>은행:</strong> <code>거래일시 | 출금 | 입금 | 잔액 | 거래처명</code> 헤더 + 데이터 행<br>
-            헤더를 포함하면 컬럼 순서가 달라도 자동 인식됩니다.
+            • <strong>파일 업로드:</strong> .xlsx / .xls 파일을 아래 영역에 드래그 또는 클릭하여 선택<br>
+            • <strong>복사 붙여넣기:</strong> 엑셀에서 복사한 데이터를 붙여넣기 (헤더 포함 권장)<br>
+            • 지원 형식: <code>위하고</code> / <code>은행 거래내역</code> / <code>기업은행 입출식예금</code> 등 자동 감지
           </span>
         </div>
 
+        <!-- 파일 드래그 & 드롭 영역 -->
+        <div id="bankFileDropZone"
+             style="border:2px dashed var(--color-primary);background:#F0F9FF;border-radius:var(--radius-md);padding:var(--sp-5);text-align:center;cursor:pointer;margin-bottom:var(--sp-3);transition:all 0.2s;"
+             onclick="document.getElementById('bankFileInput').click()">
+          <div style="font-size:2rem;margin-bottom:8px;">📂</div>
+          <div style="font-weight:600;color:var(--color-primary);margin-bottom:4px;">엑셀 파일 업로드 (.xlsx / .xls)</div>
+          <div class="text-xs text-muted">파일을 여기에 드래그 하거나 클릭하여 선택</div>
+          <div id="bankFileName" class="text-sm" style="margin-top:8px;color:var(--color-success);font-weight:600;"></div>
+          <input type="file" id="bankFileInput" accept=".xlsx,.xls" style="display:none;" onchange="FinanceMatchingModule._onBankFileSelected(this.files[0])">
+        </div>
+
         <div class="form-group">
-          <label>통장내역 붙여넣기 <span class="required">*</span></label>
-          <textarea id="bankStatementArea" class="form-control" rows="8"
-                    placeholder="통장내역 엑셀에서 복사한 데이터를 여기에 붙여넣기 (Ctrl+V)"
+          <label>또는 엑셀에서 복사 → 여기 붙여넣기</label>
+          <textarea id="bankStatementArea" class="form-control" rows="6"
+                    placeholder="헤더 포함 데이터를 Ctrl+V 로 붙여넣기 (기업은행 형식은 헤더 없어도 자동 인식)"
                     style="font-family:monospace;font-size:12px;"></textarea>
         </div>
 
-        <div class="d-flex gap-2 mb-4">
+        <div class="d-flex gap-2 mb-4" style="flex-wrap:wrap;align-items:center;">
           <button class="btn btn-secondary" onclick="FinanceMatchingModule._parseBankStatement()">🔍 데이터 분석</button>
           <div class="form-group d-flex items-center gap-2" style="margin:0;">
             <label class="text-sm" style="margin:0;white-space:nowrap;">송금 용도 기본값:</label>
@@ -806,6 +817,10 @@ const FinanceMatchingModule = {
               <option value="기타">기타</option>
             </select>
           </div>
+          <label style="display:flex;align-items:center;gap:6px;padding:8px 12px;background:#FEF3C7;border-radius:6px;cursor:pointer;border:1px solid #F59E0B;">
+            <input type="checkbox" id="bankClearFirst">
+            <span class="text-sm" style="color:#92400E;font-weight:600;">⚠️ 기존 입금/송금내역 모두 삭제 후 업로드</span>
+          </label>
         </div>
 
         <div id="bankParseResult" class="hidden">
@@ -867,6 +882,85 @@ const FinanceMatchingModule = {
         <button class="btn btn-primary" id="bankSaveBtn" onclick="FinanceMatchingModule._saveBankStatement()" disabled>선택 항목 등록</button>
       </div>
     `, { size: 'modal-xl' });
+
+    // 드래그앤드롭 이벤트 바인딩
+    setTimeout(() => {
+      const dz = document.getElementById('bankFileDropZone');
+      if (!dz) return;
+      const highlight = () => { dz.style.background = '#DBEAFE'; };
+      const unhighlight = () => { dz.style.background = '#F0F9FF'; };
+      ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); highlight(); }));
+      ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); e.stopPropagation(); unhighlight(); }));
+      dz.addEventListener('drop', (e) => {
+        const files = e.dataTransfer?.files;
+        if (files && files.length > 0) this._onBankFileSelected(files[0]);
+      });
+    }, 100);
+  },
+
+  // XLSX SDK 동적 로드 (leave.js와 공유되지 않으므로 별도 정의, 중복 호출 안전)
+  async _ensureBankXlsxSdk() {
+    if (window.XLSX) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+      s.onload = resolve;
+      s.onerror = () => reject(new Error('XLSX SDK 로드 실패'));
+      document.head.appendChild(s);
+    });
+  },
+
+  // 파일 선택 시 엑셀 파싱 → 텍스트 영역에 탭 구분 데이터로 채움
+  async _onBankFileSelected(file) {
+    if (!file) return;
+    const nameEl = document.getElementById('bankFileName');
+    if (nameEl) nameEl.textContent = `⏳ "${file.name}" 로드중...`;
+
+    try {
+      await this._ensureBankXlsxSdk();
+      const arrayBuffer = await file.arrayBuffer();
+      const wb = XLSX.read(arrayBuffer, { type: 'array', cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+
+      if (rows.length === 0) {
+        Utils.showToast('빈 파일입니다.', 'error');
+        return;
+      }
+
+      // 각 행을 탭 구분 문자열로 변환 후 textarea에 삽입
+      const lines = rows.map(r => r.map(c => String(c ?? '').trim()).join('\t'));
+      const textArea = document.getElementById('bankStatementArea');
+      if (textArea) textArea.value = lines.join('\n');
+
+      if (nameEl) nameEl.textContent = `✅ "${file.name}" 로드 완료 (${rows.length}행)`;
+      Utils.showToast(`"${file.name}" ${rows.length}행 로드됨. 분석중...`, 'success');
+
+      // 자동 분석
+      this._parseBankStatement();
+    } catch (e) {
+      console.error(e);
+      if (nameEl) nameEl.textContent = `❌ 파일 로드 실패: ${e.message}`;
+      Utils.showToast('파일 로드 실패: ' + e.message, 'error');
+    }
+  },
+
+  // 기업은행 입출식예금 형식 (헤더 없음) 감지
+  // 포맷: [일시, 출금액, 입금액, 잔액, 거래처약식, 계좌번호, 은행명, '', 거래구분, 0, 메모, 거래처전체]
+  _detectIbkFormat(cols) {
+    if (cols.length < 10) return null;
+    const c0 = (cols[0] || '').trim();
+    const hasDateTime = /^\d{4}-\d{2}-\d{2}(\s+\d{2}:\d{2})?/.test(c0);
+    if (!hasDateTime) return null;
+    const c1Num = this._isNumber(cols[1]);
+    const c2Num = this._isNumber(cols[2]);
+    const c3Num = this._isNumber(cols[3]);
+    if (!(c1Num || c2Num) || !c3Num) return null;
+    return {
+      dateIdx: 0, withdrawIdx: 1, depositIdx: 2, balanceIdx: 3,
+      shortNameIdx: 4, bankIdx: 6, typeIdx: 8, fullNameIdx: 11,
+      format: 'ibk'
+    };
   },
 
   // 텍스트를 라인 → 탭/공백으로 분리
@@ -939,25 +1033,58 @@ const FinanceMatchingModule = {
     const lines = raw.split('\n').filter(l => l.trim());
     this._bankParsed = { deposits: [], withdrawals: [] };
 
-    // 1) 헤더 행 자동 감지 (첫 5줄 중 찾기)
-    let mapping = null;
-    let startLine = 0;
+    // 0) 기업은행 입출식예금 형식 (헤더 없음) 감지 - 최우선
+    let ibkMapping = null;
     for (let i = 0; i < Math.min(5, lines.length); i++) {
       const cols = this._splitCols(lines[i]);
-      const m = this._parseHeader(cols);
-      if (m) {
-        mapping = m;
-        startLine = i + 1;
-        break;
+      const m = this._detectIbkFormat(cols);
+      if (m) { ibkMapping = m; break; }
+    }
+
+    // 1) 헤더 행 자동 감지 (위하고/은행)
+    let mapping = null;
+    let startLine = 0;
+    if (!ibkMapping) {
+      for (let i = 0; i < Math.min(5, lines.length); i++) {
+        const cols = this._splitCols(lines[i]);
+        const m = this._parseHeader(cols);
+        if (m) {
+          mapping = m;
+          startLine = i + 1;
+          break;
+        }
       }
     }
 
-    let detectedFormat = mapping ? '헤더 기반' : '자동 감지';
+    let detectedFormat = ibkMapping ? '기업은행' : (mapping ? '헤더 기반' : '자동 감지');
 
     // 2) 데이터 행 파싱
     for (let i = startLine; i < lines.length; i++) {
       const cols = this._splitCols(lines[i]);
       if (cols.length < 4) continue;
+
+      // === 기업은행 형식 전용 파싱 ===
+      if (ibkMapping) {
+        const c0 = (cols[ibkMapping.dateIdx] || '').trim();
+        const dateM = c0.match(/^(\d{4})-(\d{2})-(\d{2})/);
+        if (!dateM) continue;
+        const date = `${dateM[1]}-${dateM[2]}-${dateM[3]}`;
+        const withdrawAmount = Number((cols[ibkMapping.withdrawIdx] || '').replace(/[,\s]/g, '')) || 0;
+        const depositAmount = Number((cols[ibkMapping.depositIdx] || '').replace(/[,\s]/g, '')) || 0;
+        const fullName = (cols[ibkMapping.fullNameIdx] || '').trim();
+        const shortName = (cols[ibkMapping.shortNameIdx] || '').trim();
+        const bank = (cols[ibkMapping.bankIdx] || '').trim();
+        const type = (cols[ibkMapping.typeIdx] || '').trim();
+        const displayName = fullName || shortName || '-';
+        const memo = bank ? `${bank} ${type}`.trim() : type;
+
+        if (depositAmount > 0) {
+          this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, memo, paymentMethod: type || '계좌이체', selected: true });
+        } else if (withdrawAmount > 0) {
+          this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, memo, selected: true });
+        }
+        continue;
+      }
 
       // 매핑이 없으면 자동 감지
       let map = mapping;
@@ -1107,9 +1234,43 @@ const FinanceMatchingModule = {
     const wdSel = this._bankParsed.withdrawals.filter(r => r.selected);
     if (depSel.length === 0 && wdSel.length === 0) return;
 
+    const clearFirst = document.getElementById('bankClearFirst')?.checked;
+
+    // 기존 데이터 삭제 옵션
+    if (clearFirst) {
+      const ok = await Utils.confirm(
+        `⚠️ 기존 입금내역 + 송금내역 전체를 삭제하고 새로 업로드합니다.\n\n되돌릴 수 없습니다. 계속하시겠습니까?`,
+        '기존 데이터 초기화'
+      );
+      if (!ok) return;
+    }
+
     const user = Auth.currentUser();
     const purpose = document.getElementById('bankDefaultPurpose').value;
-    let depCount = 0, wdCount = 0;
+    let depCount = 0, wdCount = 0, delDep = 0, delWd = 0;
+
+    // 0) 기존 데이터 삭제
+    if (clearFirst) {
+      try {
+        const allD = await DB.getAll('deposits');
+        for (const d of allD) { await DB.delete('deposits', d.id); delDep++; }
+      } catch (e) { console.error('입금 삭제 실패:', e); }
+      try {
+        const allT = await DB.getAll('transferRecords');
+        for (const t of allT) { await DB.delete('transferRecords', t.id); delWd++; }
+      } catch (e) { console.error('송금 삭제 실패:', e); }
+      // 매칭된 세금계산서의 matchedDepositId도 해제
+      try {
+        const invoices = await DB.getAll('taxInvoiceRequests');
+        for (const inv of invoices) {
+          if (inv.matchedDepositId) {
+            inv.matchedDepositId = null;
+            inv.updatedAt = new Date().toISOString();
+            await DB.update('taxInvoiceRequests', inv);
+          }
+        }
+      } catch (e) { console.error('세금계산서 매칭 해제 실패:', e); }
+    }
 
     for (const row of depSel) {
       await DB.add('deposits', {
@@ -1117,7 +1278,11 @@ const FinanceMatchingModule = {
         depositorName: row.name,
         amount: row.amount,
         projectName: '',
-        memo: '',
+        memo: row.memo || '',
+        paymentMethod: row.paymentMethod || '계좌이체',
+        orderNumber: '',
+        partnerCompanyName: '',
+        actionRequired: '',
         bankAccount: '',
         matchStatus: '미매칭',
         matchedInvoiceId: null,
@@ -1136,7 +1301,7 @@ const FinanceMatchingModule = {
         amount: row.amount,
         purpose,
         projectName: '',
-        memo: '',
+        memo: row.memo || '',
         registeredBy: user.id,
         registeredByName: user.displayName,
         createdAt: new Date().toISOString(),
@@ -1145,11 +1310,13 @@ const FinanceMatchingModule = {
       wdCount++;
     }
 
-    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건`);
+    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건 (초기화: 입금${delDep}/송금${delWd})`);
     this._bankParsed = { deposits: [], withdrawals: [] };
 
     Utils.closeModal();
-    Utils.showToast(`입금 ${depCount}건, 송금 ${wdCount}건 등록 완료`, 'success');
+    const parts = [`입금 ${depCount}건`, `송금 ${wdCount}건 등록`];
+    if (clearFirst) parts.unshift(`기존 입금${delDep}/송금${delWd} 삭제`);
+    Utils.showToast(parts.join(' · '), 'success');
     await this.render();
   },
 

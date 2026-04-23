@@ -7,6 +7,7 @@ const TaxInvoiceAdminModule = {
   container: null,
   filterStatus: 'all',
   hideCompleted: false,
+  searchText: '',
 
   async init(container) {
     this.container = container;
@@ -53,6 +54,30 @@ const TaxInvoiceAdminModule = {
         const diff = Math.abs(mTotal - (item.totalAmount || 0));
         const isFullMatch = mDeps.length > 0 && diff < 10;
         return !isFullMatch;
+      });
+    }
+
+    // 검색 필터: 요청번호/거래처/발행사유/입금처/요청자/금액
+    if (this.searchText) {
+      const q = this.searchText.toLowerCase();
+      filtered = filtered.filter(item => {
+        // 매칭된 입금자 이름도 검색 대상
+        let mIds = [];
+        if (Array.isArray(item.matchedDepositIds) && item.matchedDepositIds.length > 0) mIds = item.matchedDepositIds.map(String);
+        else if (item.matchedDepositId) mIds = [String(item.matchedDepositId)];
+        const depositorNames = mIds.map(id => depositMap[id]).filter(Boolean).map(d => d.depositorName || '').join(' ');
+
+        return (
+          (item.requestNumber || '').toLowerCase().includes(q) ||
+          (item.partnerCompanyName || '').toLowerCase().includes(q) ||
+          (item.partnerRegNumber || '').toLowerCase().includes(q) ||
+          (item.reason || '').toLowerCase().includes(q) ||
+          (item.requesterName || '').toLowerCase().includes(q) ||
+          (item.projectName || '').toLowerCase().includes(q) ||
+          (item.memo || '').toLowerCase().includes(q) ||
+          depositorNames.toLowerCase().includes(q) ||
+          String(item.totalAmount || '').includes(q)
+        );
       });
     }
 
@@ -190,6 +215,14 @@ const TaxInvoiceAdminModule = {
 
       <div class="mb-4">${DateFilter.render('taxInvoices')}</div>
 
+      <div style="display:flex;gap:var(--sp-2);align-items:center;margin-bottom:var(--sp-3);flex-wrap:wrap;">
+        <div class="search-input" style="flex:1;min-width:250px;">
+          <span class="search-icon">🔍</span>
+          <input type="text" id="taxAdminSearch" class="form-control" placeholder="요청번호/거래처/사업자번호/발행사유/입금처/요청자/금액 검색..." value="${Utils.escapeHtml(this.searchText || '')}">
+        </div>
+        <div class="text-sm text-muted">총 ${filtered.length}건</div>
+      </div>
+
       <div class="table-wrapper" style="overflow-x:auto;">
         <table class="data-table tax-admin-table">
           <thead>
@@ -230,6 +263,15 @@ const TaxInvoiceAdminModule = {
         }
       </style>
     `;
+
+    // 검색 이벤트 바인딩 (debounce 300ms)
+    const searchEl = document.getElementById('taxAdminSearch');
+    if (searchEl) {
+      searchEl.addEventListener('input', Utils.debounce((e) => {
+        this.searchText = e.target.value;
+        this.render();
+      }, 300));
+    }
   },
 
   // 우클릭 컨텍스트 메뉴

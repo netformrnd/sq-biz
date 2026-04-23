@@ -39,15 +39,42 @@ const TaxInvoiceAdminModule = {
       </td></tr>`;
     } else {
       tableRows = filtered.map(item => {
-        // 매칭된 입금 정보
-        const matchedDeposit = item.matchedDepositId ? depositMap[String(item.matchedDepositId)] : null;
-        const depositDateCell = matchedDeposit
-          ? `<span style="color:var(--color-primary);font-weight:600;">${Utils.formatDate(matchedDeposit.depositDate)}</span>`
-          : `<span class="text-muted text-xs">미입금</span>`;
-        const depositorCell = matchedDeposit
-          ? `<span style="color:var(--color-primary);">${Utils.escapeHtml(matchedDeposit.depositorName || '-')}</span>`
-          : `<span class="text-muted text-xs">-</span>`;
-        const rowClass = matchedDeposit ? 'style="background:rgba(59,130,246,.04);"' : '';
+        // 매칭된 입금 정보 (다건 지원: matchedDepositIds 배열 + 하위호환 matchedDepositId)
+        let matchedIds = [];
+        if (Array.isArray(item.matchedDepositIds) && item.matchedDepositIds.length > 0) {
+          matchedIds = item.matchedDepositIds.map(String);
+        } else if (item.matchedDepositId) {
+          matchedIds = [String(item.matchedDepositId)];
+        }
+        const matchedDeposits = matchedIds.map(id => depositMap[id]).filter(Boolean);
+        const matchedTotal = matchedDeposits.reduce((s, d) => s + (d.amount || 0), 0);
+        const diff = Math.abs(matchedTotal - (item.totalAmount || 0));
+        const isFullMatch = matchedDeposits.length > 0 && diff < 10;
+        const isPartial = matchedDeposits.length > 0 && matchedTotal < (item.totalAmount || 0) - 10;
+
+        let depositDateCell, depositorCell, rowClass;
+        if (matchedDeposits.length === 0) {
+          depositDateCell = '<span class="text-muted text-xs">미입금</span>';
+          depositorCell = '<span class="text-muted text-xs">-</span>';
+          rowClass = '';
+        } else if (matchedDeposits.length === 1) {
+          const md = matchedDeposits[0];
+          depositDateCell = `<span style="color:var(--color-primary);font-weight:600;">${Utils.formatDate(md.depositDate)}</span>`;
+          const partialLabel = isPartial ? ` <span style="color:#b45309;font-size:10px;font-weight:600;">(부분 ${Math.round(matchedTotal / item.totalAmount * 100)}%)</span>` : '';
+          depositorCell = `<span style="color:var(--color-primary);">${Utils.escapeHtml(md.depositorName || '-')}</span>${partialLabel}`;
+          rowClass = isFullMatch ? 'style="background:rgba(16,185,129,.05);"' : (isPartial ? 'style="background:rgba(245,158,11,.05);"' : 'style="background:rgba(59,130,246,.04);"');
+        } else {
+          // 다건 매칭
+          const latest = [...matchedDeposits].sort((a, b) => (b.depositDate || '').localeCompare(a.depositDate || ''))[0];
+          const names = matchedDeposits.map(d => d.depositorName).filter((v, i, a) => a.indexOf(v) === i);
+          depositDateCell = `<span style="color:var(--color-primary);font-weight:600;">${Utils.formatDate(latest.depositDate)}</span> <span class="text-xs text-muted">외 ${matchedDeposits.length - 1}건</span>`;
+          const partialLabel = isPartial
+            ? ` <span style="color:#b45309;font-size:10px;font-weight:600;">(부분 ${Math.round(matchedTotal / item.totalAmount * 100)}%)</span>`
+            : ` <span style="color:#059669;font-size:10px;font-weight:600;">✅ 완료</span>`;
+          const nameDisplay = names.length === 1 ? names[0] : `${names[0]} 외`;
+          depositorCell = `<span style="color:var(--color-primary);">${Utils.escapeHtml(nameDisplay)}</span>${partialLabel}`;
+          rowClass = isFullMatch ? 'style="background:rgba(16,185,129,.05);"' : 'style="background:rgba(245,158,11,.05);"';
+        }
         let actionBtns = '';
 
         if (item.status === '요청') {

@@ -337,31 +337,72 @@ const FinanceMatchingModule = {
       .slice(0, 5);
   },
 
+  // 세금계산서의 매칭된 입금 id 목록 (하위호환: matchedDepositId 단일값도 지원)
+  _getInvoiceMatchedIds(invoice) {
+    if (Array.isArray(invoice.matchedDepositIds) && invoice.matchedDepositIds.length > 0) {
+      return invoice.matchedDepositIds.map(String);
+    }
+    if (invoice.matchedDepositId) return [String(invoice.matchedDepositId)];
+    return [];
+  },
+
+  // 세금계산서의 매칭 상태 판별 (미매칭/부분입금/완전매칭)
+  _getInvoiceMatchStatus(invoice, depositMap) {
+    const ids = this._getInvoiceMatchedIds(invoice);
+    if (ids.length === 0) return { status: 'unmatched', matchedAmount: 0, count: 0 };
+    const deposits = ids.map(id => depositMap ? depositMap[id] : null).filter(Boolean);
+    const matchedAmount = deposits.reduce((s, d) => s + (d.amount || 0), 0);
+    const diff = Math.abs(matchedAmount - (invoice.totalAmount || 0));
+    const status = diff < 10 ? 'full' : (matchedAmount > 0 ? 'partial' : 'unmatched');
+    return { status, matchedAmount, count: ids.length, deposits };
+  },
+
   // ===== 입금 상세 모달 (선발행 건 매칭 + 거래처 추천) =====
   async _openDepositDetail(id) {
     const d = await DB.get('deposits', id);
     if (!d) return;
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
     const matchedInvoice = d.matchedInvoiceId ? await DB.get('taxInvoiceRequests', d.matchedInvoiceId) : null;
-    const unmatchedInvoices = invoices.filter(i => !i.matchedDepositId);
+
+    // 모든 입금내역 맵 (매칭 상태 계산용)
+    const allDeposits = await DB.getAll('deposits');
+    const depositMap = {};
+    allDeposits.forEach(x => { depositMap[String(x.id)] = x; });
+
+    // 매칭 가능 세금계산서: 완전매칭 안된 것 (미매칭 + 부분매칭)
+    const unmatchedInvoices = invoices.filter(i => {
+      const s = this._getInvoiceMatchStatus(i, depositMap).status;
+      return s !== 'full';
+    });
 
     // 거래처 카탈로그 + 추천
     const partnerCatalog = await this._buildPartnerCatalog();
     const rejectedPartners = d.rejectedPartners || [];
     const partnerSuggestions = d.partnerCompanyName ? [] : this._suggestPartners(d.depositorName, partnerCatalog, rejectedPartners);
 
-    // 매칭 추천 (금액 동일 + 이름 유사)
+    // 매칭 추천 (금액 동일/남은금액 동일 + 이름 유사)
     const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜]/g, '').toLowerCase();
     const suggestions = unmatchedInvoices.map(inv => {
       let score = 0;
+      const matchInfo = this._getInvoiceMatchStatus(inv, depositMap);
+      const remaining = (inv.totalAmount || 0) - matchInfo.matchedAmount;
+
+      // 전체 금액 매칭
       if (inv.totalAmount === d.amount) score += 50;
       else if (Math.abs(inv.totalAmount - d.amount) < d.amount * 0.01) score += 30;
+
+      // 부분매칭 상태에서 "남은 금액"과 일치하면 가산 (공급가액·부가세 분리 입금 케이스)
+      if (matchInfo.status === 'partial' && remaining > 0) {
+        if (Math.abs(remaining - d.amount) < 10) score += 60;  // 남은금액 정확히 일치 시 최고 점수
+        else if (Math.abs(remaining - d.amount) < d.amount * 0.01) score += 40;
+      }
+
       const a = normalizeName(d.depositorName), b = normalizeName(inv.partnerCompanyName);
       if (a && b) {
         if (a === b) score += 40;
         else if (a.includes(b) || b.includes(a)) score += 20;
       }
-      return { inv, score };
+      return { inv, score, matchInfo, remaining };
     }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
 
     const matched = d.matchStatus === '매칭완료';
@@ -448,32 +489,45 @@ const FinanceMatchingModule = {
           ` : `
             ${suggestions.length > 0 ? `
               <div class="mb-3">
-                <div class="text-xs text-muted mb-2">💡 추천 매칭 (유사도 높은 순):</div>
-                ${suggestions.slice(0, 5).map(s => `
-                  <div style="padding:var(--sp-2) var(--sp-3);background:var(--color-surface-hover);border-radius:var(--radius-sm);margin-bottom:var(--sp-1);display:flex;justify-content:space-between;align-items:center;">
-                    <div>
-                      <span class="fw-medium">${Utils.escapeHtml(s.inv.partnerCompanyName || '-')}</span>
-                      <span class="text-xs text-muted"> · ${Utils.escapeHtml(s.inv.requestNumber)}</span>
-                      <span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(59,130,246,.15);color:#2563eb;border-radius:3px;font-size:10px;font-weight:600;">유사도 ${s.score}</span>
+                <div class="text-xs text-muted mb-2">💡 추천 매칭 (유사도 높은 순) · <strong>부분입금 건 포함</strong>:</div>
+                ${suggestions.slice(0, 5).map(s => {
+                  const isPartial = s.matchInfo.status === 'partial';
+                  const badgeHtml = isPartial
+                    ? `<span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(245,158,11,.2);color:#b45309;border-radius:3px;font-size:10px;font-weight:600;">부분입금 ${s.matchInfo.count}건</span>`
+                    : '';
+                  return `
+                    <div style="padding:var(--sp-2) var(--sp-3);background:${isPartial ? 'rgba(245,158,11,.06)' : 'var(--color-surface-hover)'};border-radius:var(--radius-sm);margin-bottom:var(--sp-1);display:flex;justify-content:space-between;align-items:center;">
+                      <div>
+                        <span class="fw-medium">${Utils.escapeHtml(s.inv.partnerCompanyName || '-')}</span>
+                        <span class="text-xs text-muted"> · ${Utils.escapeHtml(s.inv.requestNumber)}</span>
+                        <span style="display:inline-block;margin-left:6px;padding:1px 6px;background:rgba(59,130,246,.15);color:#2563eb;border-radius:3px;font-size:10px;font-weight:600;">유사도 ${s.score}</span>
+                        ${badgeHtml}
+                        ${isPartial ? `<div class="text-xs text-muted mt-1">기입금 ${Utils.formatCurrency(s.matchInfo.matchedAmount)} / 남은 <strong style="color:#b45309;">${Utils.formatCurrency(s.remaining)}</strong></div>` : ''}
+                      </div>
+                      <div class="d-flex gap-2 items-center">
+                        <span class="fw-semibold">${Utils.formatCurrency(s.inv.totalAmount)}</span>
+                        <button class="btn btn-success btn-sm" onclick="FinanceMatchingModule._matchFromDetail('${d.id}', '${s.inv.id}')">${isPartial ? '추가매칭' : '매칭'}</button>
+                      </div>
                     </div>
-                    <div class="d-flex gap-2 items-center">
-                      <span class="fw-semibold">${Utils.formatCurrency(s.inv.totalAmount)}</span>
-                      <button class="btn btn-success btn-sm" onclick="FinanceMatchingModule._matchFromDetail('${d.id}', '${s.inv.id}')">매칭</button>
-                    </div>
-                  </div>
-                `).join('')}
+                  `;
+                }).join('')}
               </div>
             ` : ''}
 
             <div class="form-group mt-3">
-              <label>전체 미매칭 세금계산서에서 선택:</label>
+              <label>세금계산서 선택 (미매칭 + 부분입금):</label>
               <select id="matchInvoiceSelect" class="form-control">
                 <option value="">-- 선택 --</option>
-                ${unmatchedInvoices.map(i => `
+                ${unmatchedInvoices.map(i => {
+                  const info = this._getInvoiceMatchStatus(i, depositMap);
+                  const suffix = info.status === 'partial'
+                    ? ` [부분입금 남은금액 ${Utils.formatCurrency((i.totalAmount||0) - info.matchedAmount)}]`
+                    : '';
+                  return `
                   <option value="${i.id}">
-                    ${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.escapeHtml(i.requestNumber)} · ${Utils.formatCurrency(i.totalAmount)} (${Utils.formatDate(i.issueDate || i.createdAt)})
+                    ${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.escapeHtml(i.requestNumber)} · ${Utils.formatCurrency(i.totalAmount)} (${Utils.formatDate(i.issueDate || i.createdAt)})${suffix}
                   </option>
-                `).join('')}
+                `;}).join('')}
               </select>
             </div>
             <button class="btn btn-primary" onclick="FinanceMatchingModule._matchFromDetailSelect('${d.id}')">🔗 선택한 세금계산서와 매칭</button>
@@ -492,16 +546,46 @@ const FinanceMatchingModule = {
     const invoice = await DB.get('taxInvoiceRequests', invoiceId);
     if (!deposit || !invoice) return;
 
-    const confirmed = await Utils.confirm(
-      `입금 [${deposit.depositorName}] ${Utils.formatCurrency(deposit.amount)}\n세금계산서 [${invoice.partnerCompanyName}] ${Utils.formatCurrency(invoice.totalAmount)}\n\n매칭하시겠습니까?`,
-      '매칭 확인'
-    );
-    if (!confirmed) return;
+    // 기존 매칭 입금 정보 조회
+    const existingIds = this._getInvoiceMatchedIds(invoice).filter(id => String(id) !== String(deposit.id));
+    let existingTotal = 0;
+    const existingDeposits = [];
+    for (const eid of existingIds) {
+      try {
+        const ed = await DB.get('deposits', eid);
+        if (ed) { existingDeposits.push(ed); existingTotal += (ed.amount || 0); }
+      } catch (e) { /* 무시 */ }
+    }
+    const newTotal = existingTotal + (deposit.amount || 0);
+    const invoiceTotal = invoice.totalAmount || 0;
+
+    let msg = `💰 입금: ${deposit.depositorName} ${Utils.formatCurrency(deposit.amount)}\n📝 세금계산서: ${invoice.partnerCompanyName} ${Utils.formatCurrency(invoiceTotal)}\n`;
+    if (existingIds.length > 0) {
+      msg += `\n⚠️ 이 세금계산서에 이미 ${existingIds.length}건 매칭 (합계 ${Utils.formatCurrency(existingTotal)})\n추가 후 합계: ${Utils.formatCurrency(newTotal)} / ${Utils.formatCurrency(invoiceTotal)}`;
+      if (Math.abs(newTotal - invoiceTotal) < 10) msg += '\n✅ 완전 매칭됩니다';
+      else if (newTotal < invoiceTotal) msg += `\n⚠️ 부분 매칭 (남은금액 ${Utils.formatCurrency(invoiceTotal - newTotal)})`;
+      else msg += `\n❗ 초과입금 ${Utils.formatCurrency(newTotal - invoiceTotal)}`;
+    } else {
+      if (Math.abs(newTotal - invoiceTotal) < 10) msg += '\n✅ 완전 매칭됩니다';
+      else if (newTotal < invoiceTotal) msg += `\n⚠️ 부분 매칭됩니다 (남은금액 ${Utils.formatCurrency(invoiceTotal - newTotal)})`;
+      else msg += `\n❗ 초과입금 ${Utils.formatCurrency(newTotal - invoiceTotal)}`;
+    }
+    msg += '\n\n매칭하시겠습니까?';
+
+    // 네이티브 confirm (모달 DOM 간섭 방지)
+    const ok = window.confirm(msg);
+    if (!ok) return;
 
     const user = Auth.currentUser();
-    invoice.matchedDepositId = deposit.id;
+
+    // 세금계산서: matchedDepositIds 배열에 추가
+    const newIds = [...existingIds, deposit.id];
+    invoice.matchedDepositIds = newIds.map(String);
+    invoice.matchedDepositId = String(newIds[0]); // 하위호환 (첫 번째 id)
     invoice.updatedAt = new Date().toISOString();
     await DB.update('taxInvoiceRequests', invoice);
+
+    // 입금: 단일 invoice 지정
     deposit.matchedInvoiceId = invoice.id;
     deposit.matchStatus = '매칭완료';
     deposit.updatedAt = new Date().toISOString();
@@ -514,11 +598,11 @@ const FinanceMatchingModule = {
       matchedBy: user.id,
       matchedByName: user.displayName,
       matchedAt: new Date().toISOString(),
-      memo: ''
+      memo: existingIds.length > 0 ? `추가매칭 (총 ${newIds.length}건)` : ''
     });
-    await DB.log('MATCH', 'matching', null, `매칭: ${invoice.requestNumber} ↔ ${deposit.depositorName}`);
+    await DB.log('MATCH', 'matching', null, `매칭: ${invoice.requestNumber} ↔ ${deposit.depositorName} (${newIds.length}/${invoiceTotal === newTotal ? '완전' : '부분'})`);
 
-    Utils.showToast('매칭 완료', 'success');
+    Utils.showToast(existingIds.length > 0 ? `추가매칭 완료 (총 ${newIds.length}건)` : '매칭 완료', 'success');
     Utils.closeModal();
     await this.render();
   },
@@ -704,10 +788,16 @@ const FinanceMatchingModule = {
     if (!d) return;
     const confirmed = await Utils.confirm(`${d.depositorName} ${Utils.formatCurrency(d.amount)} 입금건을 삭제하시겠습니까?`, '입금내역 삭제');
     if (!confirmed) return;
-    // 매칭된 경우 해제
+    // 매칭된 경우 세금계산서의 배열에서도 제거
     if (d.matchedInvoiceId) {
       const inv = await DB.get('taxInvoiceRequests', d.matchedInvoiceId);
-      if (inv) { inv.matchedDepositId = null; inv.updatedAt = new Date().toISOString(); await DB.update('taxInvoiceRequests', inv); }
+      if (inv) {
+        const ids = this._getInvoiceMatchedIds(inv).filter(x => String(x) !== String(id));
+        inv.matchedDepositIds = ids;
+        inv.matchedDepositId = ids[0] || null;
+        inv.updatedAt = new Date().toISOString();
+        await DB.update('taxInvoiceRequests', inv);
+      }
     }
     await DB.delete('deposits', id);
     await DB.log('DELETE', 'deposit', id, `입금 삭제: ${d.depositorName}`);
@@ -774,7 +864,10 @@ const FinanceMatchingModule = {
     if (invoiceId) {
       const invoice = await DB.get('taxInvoiceRequests', invoiceId);
       if (invoice) {
-        invoice.matchedDepositId = null;
+        // 배열에서 해당 deposit id 제거
+        const ids = this._getInvoiceMatchedIds(invoice).filter(x => String(x) !== String(depositId));
+        invoice.matchedDepositIds = ids;
+        invoice.matchedDepositId = ids[0] || null;
         invoice.updatedAt = new Date().toISOString();
         await DB.update('taxInvoiceRequests', invoice);
       }

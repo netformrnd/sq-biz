@@ -20,6 +20,11 @@ const TaxInvoiceAdminModule = {
     DateFilter.onChange('taxInvoices', () => this.render());
     items = DateFilter.filter(items, 'createdAt', 'taxInvoices');
 
+    // 입금내역 전체 로드 (매칭된 입금 정보 표시용)
+    const allDeposits = await DB.getAll('deposits');
+    const depositMap = {};
+    for (const d of allDeposits) depositMap[String(d.id)] = d;
+
     const counts = { all: items.length };
     ['요청', '검토중', '발행완료', '반려'].forEach(s => {
       counts[s] = items.filter(i => i.status === s).length;
@@ -29,11 +34,20 @@ const TaxInvoiceAdminModule = {
 
     let tableRows = '';
     if (filtered.length === 0) {
-      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">
+      tableRows = `<tr><td colspan="10" class="text-center" style="padding:var(--sp-10);">
         <div class="empty-state"><div class="empty-icon">📋</div><h3>해당 요청이 없습니다</h3></div>
       </td></tr>`;
     } else {
       tableRows = filtered.map(item => {
+        // 매칭된 입금 정보
+        const matchedDeposit = item.matchedDepositId ? depositMap[String(item.matchedDepositId)] : null;
+        const depositDateCell = matchedDeposit
+          ? `<span style="color:var(--color-primary);font-weight:600;">${Utils.formatDate(matchedDeposit.depositDate)}</span>`
+          : `<span class="text-muted text-xs">미입금</span>`;
+        const depositorCell = matchedDeposit
+          ? `<span style="color:var(--color-primary);">${Utils.escapeHtml(matchedDeposit.depositorName || '-')}</span>`
+          : `<span class="text-muted text-xs">-</span>`;
+        const rowClass = matchedDeposit ? 'style="background:rgba(59,130,246,.04);"' : '';
         let actionBtns = '';
 
         if (item.status === '요청') {
@@ -63,18 +77,20 @@ const TaxInvoiceAdminModule = {
         actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest('${item.id}')" title="삭제">🗑️</button>`;
 
         return `
-          <tr oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, '${item.id}', '${item.status}')">
+          <tr ${rowClass} oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, '${item.id}', '${item.status}')">
             <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
-            <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
+            <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
+            <td>${depositDateCell}</td>
+            <td>${depositorCell}</td>
             <td>
               <span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
                 ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
               </span>
             </td>
-            <td>${Utils.escapeHtml(item.reason ? (item.reason.length > 25 ? item.reason.slice(0, 25) + '...' : item.reason) : '-')}</td>
+            <td>${Utils.escapeHtml(item.reason ? (item.reason.length > 20 ? item.reason.slice(0, 20) + '...' : item.reason) : '-')}</td>
             <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
             <td class="text-center">${Utils.statusBadge(item.status)}</td>
-            <td>${Utils.formatDate(item.createdAt)}</td>
+            <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
             <td>
               <div class="d-flex gap-2">${actionBtns}</div>
             </td>
@@ -109,12 +125,14 @@ const TaxInvoiceAdminModule = {
           <thead>
             <tr>
               <th>요청번호</th>
-              <th>요청자</th>
+              <th>발행일</th>
+              <th>입금일</th>
+              <th>입금처</th>
               <th>거래처</th>
               <th>발행사유</th>
               <th class="text-right">합계금액</th>
               <th class="text-center">상태</th>
-              <th>요청일</th>
+              <th>요청자</th>
               <th>관리</th>
             </tr>
           </thead>

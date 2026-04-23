@@ -237,7 +237,7 @@ const FinanceMatchingModule = {
             <tr>
               <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositDate')">입금일 ${sortInd('depositDate')}</th>
               <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositorName')">입금처 ${sortInd('depositorName')}</th>
-              <th class="text-right" style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('amount')">금액 ${sortInd('amount')}</th>
+              <th class="text-right" style="cursor:pointer;user-select:none;text-align:right !important;padding-right:var(--sp-3);" onclick="FinanceMatchingModule._sort('amount')">금액 ${sortInd('amount')}</th>
               <th>주문번호</th>
               <th>결제방법</th>
               <th class="text-center">상태</th>

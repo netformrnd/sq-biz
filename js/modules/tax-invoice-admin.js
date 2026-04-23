@@ -6,6 +6,7 @@
 const TaxInvoiceAdminModule = {
   container: null,
   filterStatus: 'all',
+  hideCompleted: false,
 
   async init(container) {
     this.container = container;
@@ -25,12 +26,35 @@ const TaxInvoiceAdminModule = {
     const depositMap = {};
     for (const d of allDeposits) depositMap[String(d.id)] = d;
 
+    // 오늘 날짜 (YYYY-MM-DD)
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const isToday = (v) => (v || '').slice(0, 10) === todayStr;
+
     const counts = { all: items.length };
     ['요청', '검토중', '발행완료', '반려'].forEach(s => {
       counts[s] = items.filter(i => i.status === s).length;
     });
+    counts['당일'] = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt)).length;
 
-    const filtered = this.filterStatus === 'all' ? items : items.filter(i => i.status === this.filterStatus);
+    // 상태 필터
+    let filtered;
+    if (this.filterStatus === 'all') filtered = items;
+    else if (this.filterStatus === '당일') filtered = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt));
+    else filtered = items.filter(i => i.status === this.filterStatus);
+
+    // 완료 숨기기: 매칭 합계가 세금계산서 합계와 일치하는 건 숨김
+    if (this.hideCompleted) {
+      filtered = filtered.filter(item => {
+        let mIds = [];
+        if (Array.isArray(item.matchedDepositIds) && item.matchedDepositIds.length > 0) mIds = item.matchedDepositIds.map(String);
+        else if (item.matchedDepositId) mIds = [String(item.matchedDepositId)];
+        const mDeps = mIds.map(id => depositMap[id]).filter(Boolean);
+        const mTotal = mDeps.reduce((s, d) => s + (d.amount || 0), 0);
+        const diff = Math.abs(mTotal - (item.totalAmount || 0));
+        const isFullMatch = mDeps.length > 0 && diff < 10;
+        return !isFullMatch;
+      });
+    }
 
     let tableRows = '';
     if (filtered.length === 0) {
@@ -139,9 +163,12 @@ const TaxInvoiceAdminModule = {
         ` : ''}
       </div>
 
-      <div class="tabs">
+      <div class="tabs" style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
         <div class="tab-item ${this.filterStatus === 'all' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('all')">
           전체 <span class="text-muted">(${counts.all})</span>
+        </div>
+        <div class="tab-item ${this.filterStatus === '당일' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('당일')" style="${this.filterStatus === '당일' ? 'background:#3B82F6;color:#fff;' : 'color:#3B82F6;'}">
+          🗓️ 당일 <span class="${this.filterStatus === '당일' ? '' : 'text-muted'}">(${counts['당일']})</span>
         </div>
         <div class="tab-item ${this.filterStatus === '요청' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('요청')">
           요청 <span class="text-muted">(${counts['요청']})</span>
@@ -155,6 +182,10 @@ const TaxInvoiceAdminModule = {
         <div class="tab-item ${this.filterStatus === '반려' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('반려')">
           반려 <span class="text-muted">(${counts['반려']})</span>
         </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;margin-left:auto;background:#F1F5F9;border-radius:6px;">
+          <input type="checkbox" ${this.hideCompleted ? 'checked' : ''} onchange="TaxInvoiceAdminModule._toggleHideCompleted(this.checked)">
+          ✅ 완료 숨기기
+        </label>
       </div>
 
       <div class="mb-4">${DateFilter.render('taxInvoices')}</div>
@@ -222,6 +253,11 @@ const TaxInvoiceAdminModule = {
 
   _setFilter(status) {
     this.filterStatus = status;
+    this.render();
+  },
+
+  _toggleHideCompleted(checked) {
+    this.hideCompleted = checked;
     this.render();
   },
 

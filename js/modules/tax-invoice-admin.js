@@ -76,18 +76,19 @@ const TaxInvoiceAdminModule = {
         // 삭제 버튼 (모든 상태에서)
         actionBtns += `<button class="btn btn-ghost btn-sm text-danger" onclick="TaxInvoiceAdminModule._deleteRequest('${item.id}')" title="삭제">🗑️</button>`;
 
+        const fullReason = item.reason || '-';
         return `
           <tr ${rowClass} oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, '${item.id}', '${item.status}')">
             <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
             <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
             <td>${depositDateCell}</td>
             <td>${depositorCell}</td>
-            <td>
+            <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">
               <span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
                 ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
               </span>
             </td>
-            <td>${Utils.escapeHtml(item.reason ? (item.reason.length > 20 ? item.reason.slice(0, 20) + '...' : item.reason) : '-')}</td>
+            <td title="${Utils.escapeHtml(fullReason)}">${Utils.escapeHtml(fullReason)}</td>
             <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
             <td class="text-center">${Utils.statusBadge(item.status)}</td>
             <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
@@ -131,8 +132,8 @@ const TaxInvoiceAdminModule = {
 
       <div class="mb-4">${DateFilter.render('taxInvoices')}</div>
 
-      <div class="table-wrapper">
-        <table class="data-table">
+      <div class="table-wrapper" style="overflow-x:auto;">
+        <table class="data-table tax-admin-table">
           <thead>
             <tr>
               <th>요청번호</th>
@@ -150,6 +151,26 @@ const TaxInvoiceAdminModule = {
           <tbody>${tableRows}</tbody>
         </table>
       </div>
+      <style>
+        .tax-admin-table { min-width: 1280px; }
+        .tax-admin-table th,
+        .tax-admin-table td {
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          max-width: 280px;
+        }
+        .tax-admin-table td:nth-child(6) { /* 발행사유 컬럼 */
+          max-width: 240px;
+        }
+        .tax-admin-table td:nth-child(5) { /* 거래처 컬럼 */
+          max-width: 200px;
+        }
+        .tax-admin-table td[title],
+        .tax-admin-table td:hover {
+          position: relative;
+        }
+      </style>
     `;
   },
 

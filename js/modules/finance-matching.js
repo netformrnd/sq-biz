@@ -58,7 +58,6 @@ const FinanceMatchingModule = {
     let filtered = [...allDeposits];
     if (this.depositFilter === 'matched') filtered = filtered.filter(d => d.matchStatus === '매칭완료');
     if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
-    if (this.depositCategory !== 'all') filtered = filtered.filter(d => (d.category || '미지정') === this.depositCategory);
     if (this.depositMonth !== 'all') filtered = filtered.filter(d => (d.depositDate || '').slice(0, 7) === this.depositMonth);
     if (this.hideCompleted) filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
     if (this.depositSearch) {
@@ -108,17 +107,10 @@ const FinanceMatchingModule = {
     // 입금 테이블 행
     let tableRows = '';
     if (filtered.length === 0) {
-      tableRows = `<tr><td colspan="11" style="padding:var(--sp-8);text-align:center;"><div class="empty-state"><div class="empty-icon">💰</div><h3>해당 입금내역이 없습니다</h3></div></td></tr>`;
+      tableRows = `<tr><td colspan="10" style="padding:var(--sp-8);text-align:center;"><div class="empty-state"><div class="empty-icon">💰</div><h3>해당 입금내역이 없습니다</h3></div></td></tr>`;
     } else {
       tableRows = filtered.map(d => {
         const matched = d.matchStatus === '매칭완료';
-        const category = d.category || '미지정';
-        const catStyle = {
-          '위탁': 'background:rgba(139,92,246,.12);color:#7c3aed;',
-          '포어': 'background:rgba(59,130,246,.12);color:#2563eb;',
-          '자사몰': 'background:rgba(16,185,129,.12);color:#059669;',
-          '미지정': 'background:rgba(148,163,184,.15);color:#64748b;'
-        }[category];
         // 처리사항 자동 판별
         let actionText = d.actionRequired || '';
         if (!actionText) actionText = matched ? '처리완료(선발행매칭)' : '세금계산서 발행필요';
@@ -137,7 +129,6 @@ const FinanceMatchingModule = {
           <tr ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
             <td>${Utils.formatDate(d.depositDate)}</td>
             <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
-            <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${catStyle}">${Utils.escapeHtml(category)}</span></td>
             <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
             <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
             <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
@@ -224,10 +215,6 @@ const FinanceMatchingModule = {
           <span class="search-icon">🔍</span>
           <input type="text" id="depositSearchInput" class="form-control" placeholder="입금자/거래처/주문번호 검색..." value="${Utils.escapeHtml(this.depositSearch)}">
         </div>
-        <select class="form-control" style="width:auto;" onchange="FinanceMatchingModule._setDepositCategory(this.value)">
-          <option value="all" ${this.depositCategory === 'all' ? 'selected' : ''}>전체 구분</option>
-          ${this.CATEGORIES.map(c => `<option value="${c}" ${this.depositCategory === c ? 'selected' : ''}>${c}</option>`).join('')}
-        </select>
         <select class="form-control" style="width:auto;" onchange="FinanceMatchingModule._setDepositFilter(this.value)">
           <option value="all" ${this.depositFilter === 'all' ? 'selected' : ''}>전체 상태</option>
           <option value="unmatched" ${this.depositFilter === 'unmatched' ? 'selected' : ''}>미매칭</option>
@@ -250,7 +237,6 @@ const FinanceMatchingModule = {
             <tr>
               <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositDate')">입금일 ${sortInd('depositDate')}</th>
               <th style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('depositorName')">입금처 ${sortInd('depositorName')}</th>
-              <th>구분</th>
               <th class="text-right" style="cursor:pointer;user-select:none;" onclick="FinanceMatchingModule._sort('amount')">금액 ${sortInd('amount')}</th>
               <th>주문번호</th>
               <th>결제방법</th>
@@ -398,8 +384,7 @@ const FinanceMatchingModule = {
         </div>
 
         <!-- 세부 정보 -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-4);">
-          <div><label class="text-xs text-muted">구분</label><div>${Utils.escapeHtml(d.category || '미지정')}</div></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--sp-3);margin-bottom:var(--sp-4);">
           <div><label class="text-xs text-muted">결제방법</label><div>${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</div></div>
           <div><label class="text-xs text-muted">주문번호</label><div>${Utils.escapeHtml(d.orderNumber || '-')}</div></div>
           <div><label class="text-xs text-muted">거래처</label><div>${Utils.escapeHtml(d.partnerCompanyName || '-')}</div></div>
@@ -632,7 +617,7 @@ const FinanceMatchingModule = {
         <div class="form-group"><label>입금처</label><input type="text" id="fmDepName" class="form-control"></div>
       </div><div class="form-row">
         <div class="form-group"><label>금액</label><input type="number" id="fmDepAmount" class="form-control" min="0"></div>
-        <div class="form-group"><label>구분</label><select id="fmDepCategory" class="form-control">${this.CATEGORIES.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
+        <div class="form-group"><label>결제방법</label><select id="fmDepPayment" class="form-control">${this.PAYMENT_METHODS.map(p => `<option value="${p}">${p}</option>`).join('')}</select></div>
       </div><div class="form-group"><label>비고</label><textarea id="fmDepMemo" class="form-control" rows="2"></textarea></div></div>
       <div class="modal-footer"><button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button><button class="btn btn-primary" onclick="FinanceMatchingModule._saveFallbackDeposit()">등록</button></div>
     `);
@@ -646,9 +631,9 @@ const FinanceMatchingModule = {
     const user = Auth.currentUser();
     await DB.add('deposits', {
       depositDate: date, depositorName: name, amount,
-      category: document.getElementById('fmDepCategory').value,
       memo: document.getElementById('fmDepMemo').value.trim(),
-      paymentMethod: '계좌이체', orderNumber: '', partnerCompanyName: '', actionRequired: '',
+      paymentMethod: document.getElementById('fmDepPayment').value || '계좌이체',
+      orderNumber: '', partnerCompanyName: '', actionRequired: '',
       matchStatus: '미매칭', matchedInvoiceId: null,
       registeredBy: user.id, registeredByName: user.displayName,
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()

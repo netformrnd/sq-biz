@@ -155,6 +155,7 @@ const FinanceMatchingModule = {
         <h2>💰 입금내역</h2>
         ${isAdmin ? `
           <div class="page-actions d-flex gap-2">
+            <button class="btn btn-ghost btn-sm text-danger" onclick="FinanceMatchingModule._clearAllDepositsAndTransfers()" title="모든 입금/송금 내역 삭제">🗑️ 전체 초기화</button>
             <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
             <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openDepositAdd()">+ 입금내역 개별 등록</button>
           </div>
@@ -639,6 +640,62 @@ const FinanceMatchingModule = {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     });
     Utils.closeModal();
+    await this.render();
+  },
+
+  // 전체 입금/송금 내역 삭제 (독립 버튼용 - 모달 외부에서 호출)
+  async _clearAllDepositsAndTransfers() {
+    const deposits = await DB.getAll('deposits');
+    const transfers = await DB.getAll('transferRecords');
+
+    if (deposits.length === 0 && transfers.length === 0) {
+      Utils.showToast('삭제할 내역이 없습니다.', 'warning');
+      return;
+    }
+
+    // 네이티브 confirm + 입력 확인 (오삭제 방지)
+    const firstOk = window.confirm(
+      `⚠️ 입금 ${deposits.length}건, 송금 ${transfers.length}건을 모두 삭제합니다.\n\n되돌릴 수 없습니다. 계속하시겠습니까?`
+    );
+    if (!firstOk) return;
+
+    const typed = window.prompt('정말 삭제하려면 "삭제" 를 입력하세요:', '');
+    if (typed !== '삭제') {
+      Utils.showToast('입력값이 다릅니다. 취소되었습니다.', 'error');
+      return;
+    }
+
+    console.log(`[전체초기화] 시작: 입금 ${deposits.length} / 송금 ${transfers.length}`);
+    let delDep = 0, delWd = 0;
+    const errors = [];
+
+    for (const d of deposits) {
+      try { await DB.delete('deposits', d.id); delDep++; }
+      catch (e) { console.error(`입금 삭제 실패 id=${d.id}:`, e); errors.push(String(d.id)); }
+    }
+    for (const t of transfers) {
+      try { await DB.delete('transferRecords', t.id); delWd++; }
+      catch (e) { console.error(`송금 삭제 실패 id=${t.id}:`, e); errors.push(String(t.id)); }
+    }
+
+    // 세금계산서 매칭 해제
+    try {
+      const invoices = await DB.getAll('taxInvoiceRequests');
+      for (const inv of invoices) {
+        if (inv.matchedDepositId) {
+          inv.matchedDepositId = null;
+          inv.updatedAt = new Date().toISOString();
+          await DB.update('taxInvoiceRequests', inv);
+        }
+      }
+    } catch (e) { console.error('세금계산서 매칭 해제 실패:', e); }
+
+    await DB.log('DELETE', 'bank', null, `전체 초기화: 입금 ${delDep}, 송금 ${delWd} 삭제`);
+    const msg = errors.length > 0
+      ? `초기화 완료: 입금 ${delDep}, 송금 ${delWd} (실패 ${errors.length}건)`
+      : `초기화 완료: 입금 ${delDep}건, 송금 ${delWd}건 삭제됨`;
+    Utils.showToast(msg, 'success');
+    console.log(`[전체초기화] 완료: 입금 ${delDep} / 송금 ${delWd} / 오류 ${errors.length}`);
     await this.render();
   },
 
@@ -1234,31 +1291,44 @@ const FinanceMatchingModule = {
     const wdSel = this._bankParsed.withdrawals.filter(r => r.selected);
     if (depSel.length === 0 && wdSel.length === 0) return;
 
-    const clearFirst = document.getElementById('bankClearFirst')?.checked;
+    const clearFirstEl = document.getElementById('bankClearFirst');
+    const clearFirst = clearFirstEl ? clearFirstEl.checked : false;
+    console.log('[통장업로드] 초기화 체크박스 상태:', clearFirst);
 
-    // 기존 데이터 삭제 옵션
+    // 기존 데이터 삭제 옵션 (네이티브 confirm 사용 - Utils.confirm이 모달 DOM을 덮어쓰는 문제 회피)
     if (clearFirst) {
-      const ok = await Utils.confirm(
-        `⚠️ 기존 입금내역 + 송금내역 전체를 삭제하고 새로 업로드합니다.\n\n되돌릴 수 없습니다. 계속하시겠습니까?`,
-        '기존 데이터 초기화'
+      const ok = window.confirm(
+        '⚠️ 기존 입금내역 + 송금내역 전체를 삭제하고 새로 업로드합니다.\n\n되돌릴 수 없습니다. 계속하시겠습니까?'
       );
-      if (!ok) return;
+      if (!ok) { console.log('[통장업로드] 사용자가 초기화 취소'); return; }
     }
 
     const user = Auth.currentUser();
     const purpose = document.getElementById('bankDefaultPurpose').value;
     let depCount = 0, wdCount = 0, delDep = 0, delWd = 0;
+    const errors = [];
 
     // 0) 기존 데이터 삭제
     if (clearFirst) {
+      console.log('[통장업로드] 기존 데이터 삭제 시작');
       try {
         const allD = await DB.getAll('deposits');
-        for (const d of allD) { await DB.delete('deposits', d.id); delDep++; }
-      } catch (e) { console.error('입금 삭제 실패:', e); }
+        console.log(`[통장업로드] 삭제 대상 입금: ${allD.length}건`);
+        for (const d of allD) {
+          try { await DB.delete('deposits', d.id); delDep++; }
+          catch (e) { console.error(`입금 삭제 실패 id=${d.id}:`, e); errors.push(`입금 ${d.id}`); }
+        }
+      } catch (e) { console.error('입금 전체 조회 실패:', e); errors.push('입금 조회'); }
+
       try {
         const allT = await DB.getAll('transferRecords');
-        for (const t of allT) { await DB.delete('transferRecords', t.id); delWd++; }
-      } catch (e) { console.error('송금 삭제 실패:', e); }
+        console.log(`[통장업로드] 삭제 대상 송금: ${allT.length}건`);
+        for (const t of allT) {
+          try { await DB.delete('transferRecords', t.id); delWd++; }
+          catch (e) { console.error(`송금 삭제 실패 id=${t.id}:`, e); errors.push(`송금 ${t.id}`); }
+        }
+      } catch (e) { console.error('송금 전체 조회 실패:', e); errors.push('송금 조회'); }
+
       // 매칭된 세금계산서의 matchedDepositId도 해제
       try {
         const invoices = await DB.getAll('taxInvoiceRequests');
@@ -1269,7 +1339,10 @@ const FinanceMatchingModule = {
             await DB.update('taxInvoiceRequests', inv);
           }
         }
-      } catch (e) { console.error('세금계산서 매칭 해제 실패:', e); }
+      } catch (e) { console.error('세금계산서 매칭 해제 실패:', e); errors.push('매칭 해제'); }
+
+      console.log(`[통장업로드] 삭제 완료: 입금 ${delDep} / 송금 ${delWd} / 오류 ${errors.length}`);
+      if (errors.length > 0) Utils.showToast(`⚠️ 일부 삭제 실패: ${errors.slice(0,3).join(', ')}`, 'warning', 5000);
     }
 
     for (const row of depSel) {

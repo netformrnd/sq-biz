@@ -289,13 +289,79 @@ const FinanceMatchingModule = {
   _selectDeposit(id) { this.selectedDepositId = id; this.render(); },
   _selectInvoice(id) { this.selectedInvoiceId = id; this.render(); },
 
-  // ===== 입금 상세 모달 (선발행 건 매칭 포함) =====
+  // 거래처 카탈로그: 모든 소스(세금계산서/입금)에서 거래처 집합 구축
+  async _buildPartnerCatalog() {
+    const invoices = await DB.getAll('taxInvoiceRequests');
+    const deposits = await DB.getAll('deposits');
+    const map = new Map();
+
+    const add = (name, regNumber, lastDate) => {
+      if (!name) return;
+      const key = (regNumber || name).trim();
+      if (!key) return;
+      const existing = map.get(key);
+      if (existing) {
+        existing.frequency++;
+        if (!existing.lastDate || (lastDate && lastDate > existing.lastDate)) {
+          existing.lastDate = lastDate;
+        }
+        if (!existing.regNumber && regNumber) existing.regNumber = regNumber;
+      } else {
+        map.set(key, { name, regNumber: regNumber || '', frequency: 1, lastDate: lastDate || '' });
+      }
+    };
+
+    invoices.forEach(i => add(i.partnerCompanyName, i.partnerRegNumber, i.issueDate || i.createdAt));
+    deposits.forEach(d => add(d.partnerCompanyName, '', d.depositDate));
+
+    return Array.from(map.values());
+  },
+
+  _normalizePartnerName(s) {
+    return (s || '').replace(/[\s()㈜주식회사]/g, '').toLowerCase();
+  },
+
+  // 입금처 기반 거래처 추천 (과거 데이터에서 유사도 계산)
+  _suggestPartners(depositorName, partnerCatalog, rejected = []) {
+    const base = this._normalizePartnerName(depositorName);
+    if (!base) return [];
+    return partnerCatalog
+      .filter(p => !rejected.includes(p.name))
+      .map(p => {
+        const target = this._normalizePartnerName(p.name);
+        let score = 0;
+        if (!target) return { ...p, score: 0 };
+        if (target === base) score += 70;
+        else if (base.includes(target) || target.includes(base)) score += 40;
+        else {
+          // 문자 공통 비율
+          let common = 0;
+          for (const ch of base) if (target.includes(ch)) common++;
+          const ratio = common / Math.max(base.length, target.length);
+          if (ratio >= 0.6) score += Math.round(ratio * 30);
+        }
+        // 사용 빈도 보너스
+        if (p.frequency >= 3) score += 10;
+        else if (p.frequency >= 2) score += 5;
+        return { ...p, score };
+      })
+      .filter(p => p.score >= 20)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  },
+
+  // ===== 입금 상세 모달 (선발행 건 매칭 + 거래처 추천) =====
   async _openDepositDetail(id) {
     const d = await DB.get('deposits', id);
     if (!d) return;
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
     const matchedInvoice = d.matchedInvoiceId ? await DB.get('taxInvoiceRequests', d.matchedInvoiceId) : null;
     const unmatchedInvoices = invoices.filter(i => !i.matchedDepositId);
+
+    // 거래처 카탈로그 + 추천
+    const partnerCatalog = await this._buildPartnerCatalog();
+    const rejectedPartners = d.rejectedPartners || [];
+    const partnerSuggestions = d.partnerCompanyName ? [] : this._suggestPartners(d.depositorName, partnerCatalog, rejectedPartners);
 
     // 매칭 추천 (금액 동일 + 이름 유사)
     const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜]/g, '').toLowerCase();
@@ -312,6 +378,10 @@ const FinanceMatchingModule = {
     }).filter(x => x.score > 0).sort((a, b) => b.score - a.score);
 
     const matched = d.matchStatus === '매칭완료';
+
+    // 검색용 카탈로그를 모달 내 scope에 저장
+    this._currentDepositId = d.id;
+    this._partnerCatalog = partnerCatalog;
 
     Utils.openModal(`
       <div class="modal-header">
@@ -335,6 +405,42 @@ const FinanceMatchingModule = {
           <div><label class="text-xs text-muted">거래처</label><div>${Utils.escapeHtml(d.partnerCompanyName || '-')}</div></div>
         </div>
         <div class="mb-4"><label class="text-xs text-muted">비고</label><div style="padding:var(--sp-2);background:var(--color-surface-hover);border-radius:var(--radius-sm);">${Utils.escapeHtml(d.memo || '-')}</div></div>
+
+        <!-- 거래처 추천/선택 영역 -->
+        <fieldset style="margin-bottom:var(--sp-4);padding:var(--sp-4);border:1px solid var(--color-border);border-radius:var(--radius-md);">
+          <legend style="padding:0 var(--sp-2);font-weight:600;">🏢 거래처</legend>
+
+          ${d.partnerCompanyName ? `
+            <div style="display:flex;align-items:center;gap:8px;padding:var(--sp-2) var(--sp-3);background:var(--color-primary-light);border-radius:var(--radius-sm);margin-bottom:var(--sp-2);">
+              <span class="fw-semibold">${Utils.escapeHtml(d.partnerCompanyName)}</span>
+              <button onclick="FinanceMatchingModule._clearPartner('${d.id}')" class="btn btn-ghost btn-sm" title="제거" style="margin-left:auto;padding:2px 8px;">✕</button>
+            </div>
+          ` : `
+            ${partnerSuggestions.length > 0 ? `
+              <div class="mb-3">
+                <div class="text-xs text-muted mb-2">💡 입금처 "${Utils.escapeHtml(d.depositorName)}" 기반 추천:</div>
+                ${partnerSuggestions.map(p => `
+                  <div style="display:flex;align-items:center;gap:8px;padding:var(--sp-2) var(--sp-3);background:var(--color-surface-hover);border-radius:var(--radius-sm);margin-bottom:var(--sp-1);">
+                    <span style="display:inline-block;padding:1px 6px;background:rgba(59,130,246,.15);color:#2563eb;border-radius:3px;font-size:10px;font-weight:600;">추천 ${p.score}</span>
+                    <span class="fw-medium">${Utils.escapeHtml(p.name)}</span>
+                    ${p.regNumber ? `<span class="text-xs text-muted">${Utils.escapeHtml(p.regNumber)}</span>` : ''}
+                    ${p.frequency > 1 ? `<span class="text-xs text-muted">· ${p.frequency}회 거래</span>` : ''}
+                    <div style="margin-left:auto;display:flex;gap:4px;">
+                      <button class="btn btn-success btn-sm" onclick="FinanceMatchingModule._acceptPartner('${d.id}', ${JSON.stringify(p.name).replace(/"/g, '&quot;')})" title="선택">✓</button>
+                      <button class="btn btn-ghost btn-sm" onclick="FinanceMatchingModule._rejectPartner('${d.id}', ${JSON.stringify(p.name).replace(/"/g, '&quot;')})" title="이 추천 거절">✕</button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : '<div class="text-xs text-muted mb-2">추천할 거래처가 없습니다. 아래에서 직접 검색하세요.</div>'}
+
+            <div class="form-group">
+              <label class="text-xs text-muted">거래처 검색:</label>
+              <input type="text" id="partnerSearchInput" class="form-control" placeholder="거래처명 검색..." oninput="FinanceMatchingModule._onPartnerSearch(this.value)">
+              <div id="partnerSearchResults" style="max-height:200px;overflow-y:auto;margin-top:var(--sp-2);"></div>
+            </div>
+          `}
+        </fieldset>
 
         <!-- 선발행 건 매칭 영역 -->
         <fieldset style="margin-top:var(--sp-4);padding:var(--sp-4);border:1px solid var(--color-border);border-radius:var(--radius-md);">
@@ -442,6 +548,66 @@ const FinanceMatchingModule = {
     if (!confirmed) return;
     await this._unmatch(depositId);
     Utils.closeModal();
+  },
+
+  // ===== 거래처 추천/선택 핸들러 =====
+  async _acceptPartner(depositId, partnerName) {
+    const d = await DB.get('deposits', depositId);
+    if (!d) return;
+    // 카탈로그에서 사업자번호 찾기
+    const catalog = this._partnerCatalog || await this._buildPartnerCatalog();
+    const found = catalog.find(p => p.name === partnerName);
+    d.partnerCompanyName = partnerName;
+    if (found && found.regNumber && !d.partnerRegNumber) d.partnerRegNumber = found.regNumber;
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    await DB.log('UPDATE', 'deposit', depositId, `거래처 지정: ${partnerName}`);
+    Utils.showToast(`거래처 "${partnerName}" 지정됨`, 'success');
+    this._openDepositDetail(depositId);
+  },
+
+  async _rejectPartner(depositId, partnerName) {
+    const d = await DB.get('deposits', depositId);
+    if (!d) return;
+    d.rejectedPartners = d.rejectedPartners || [];
+    if (!d.rejectedPartners.includes(partnerName)) d.rejectedPartners.push(partnerName);
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    this._openDepositDetail(depositId);
+  },
+
+  async _clearPartner(depositId) {
+    const d = await DB.get('deposits', depositId);
+    if (!d) return;
+    d.partnerCompanyName = '';
+    d.partnerRegNumber = '';
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    await DB.log('UPDATE', 'deposit', depositId, `거래처 제거`);
+    this._openDepositDetail(depositId);
+  },
+
+  _onPartnerSearch(query) {
+    const el = document.getElementById('partnerSearchResults');
+    if (!el) return;
+    const q = (query || '').trim().toLowerCase();
+    if (!q) { el.innerHTML = ''; return; }
+    const catalog = this._partnerCatalog || [];
+    const results = catalog
+      .filter(p => (p.name || '').toLowerCase().includes(q) || (p.regNumber || '').includes(q))
+      .slice(0, 10);
+    if (results.length === 0) {
+      el.innerHTML = '<div class="text-xs text-muted" style="padding:8px;">검색 결과가 없습니다.</div>';
+      return;
+    }
+    el.innerHTML = results.map(p => `
+      <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;background:var(--color-surface-hover);border-radius:4px;margin-bottom:4px;cursor:pointer;" onclick="FinanceMatchingModule._acceptPartner('${this._currentDepositId}', ${JSON.stringify(p.name).replace(/"/g, '&quot;')})">
+        <span class="fw-medium">${Utils.escapeHtml(p.name)}</span>
+        ${p.regNumber ? `<span class="text-xs text-muted">${Utils.escapeHtml(p.regNumber)}</span>` : ''}
+        ${p.frequency > 1 ? `<span class="text-xs text-muted">· ${p.frequency}회</span>` : ''}
+        <button class="btn btn-success btn-sm" style="margin-left:auto;padding:2px 10px;">선택</button>
+      </div>
+    `).join('');
   },
 
   async _editDeposit(id) {

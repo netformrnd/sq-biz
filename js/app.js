@@ -167,15 +167,14 @@ const App = {
             <span>나의 요청현황</span>
           </div>
       `;
-      if (isAdmin) {
-        html += `
-          <div class="nav-item" data-path="/tax-invoice/admin" onclick="Router.navigate('/tax-invoice/admin')">
-            <span class="nav-icon">🧾</span>
-            <span>세금계산서 발행</span>
-            <span class="nav-badge hidden" id="badgePending">0</span>
-          </div>
-        `;
-      }
+      // 세금계산서 발행 (모든 사용자 조회 가능, 관리 액션은 관리자만)
+      html += `
+        <div class="nav-item" data-path="/tax-invoice/admin" onclick="Router.navigate('/tax-invoice/admin')">
+          <span class="nav-icon">🧾</span>
+          <span>세금계산서 발행</span>
+          ${isAdmin ? '<span class="nav-badge hidden" id="badgePending">0</span>' : ''}
+        </div>
+      `;
       html += `</div>`;
     }
 
@@ -286,7 +285,7 @@ const App = {
     Router.register('/tax-invoice/admin', {
       module: 'TaxInvoiceAdminModule',
       title: '세금계산서 발행',
-      roles: ['admin']
+      roles: ['admin', 'employee']
     });
     Router.register('/deposits', {
       module: 'DepositModule',

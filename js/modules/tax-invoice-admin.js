@@ -125,6 +125,27 @@ const TaxInvoiceAdminModule = {
           rowClass = isFullMatch ? 'style="background:rgba(16,185,129,.05);"' : 'style="background:rgba(245,158,11,.05);"';
         }
         let actionBtns = '';
+        const isAdminRow = Auth.isAdmin();
+
+        // 직원(비관리자): 상세보기만 제공
+        if (!isAdminRow) {
+          return `
+            <tr ${rowClass}>
+              <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
+              <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
+              <td>${depositDateCell}</td>
+              <td>${depositorCell}</td>
+              <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
+              <td title="${Utils.escapeHtml(item.reason || '-')}">${Utils.escapeHtml(item.reason || '-')}</td>
+              <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
+              <td class="text-center">${Utils.statusBadge(item.status)}</td>
+              <td>${Utils.escapeHtml(item.requesterName || '-')}</td>
+              <td>
+                <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
+              </td>
+            </tr>
+          `;
+        }
 
         if (item.status === '요청') {
           actionBtns = `
@@ -179,7 +200,7 @@ const TaxInvoiceAdminModule = {
     const isAdmin = Auth.isAdmin();
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>🧾 세금계산서 발행</h2>
+        <h2>🧾 세금계산서 발행 ${!isAdmin ? '<span class="text-xs text-muted" style="font-weight:400;">· 조회 모드</span>' : ''}</h2>
         ${isAdmin ? `
           <div class="page-actions d-flex gap-2">
             <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openInvoicePasteModal()">📋 세금계산서 붙여넣기</button>

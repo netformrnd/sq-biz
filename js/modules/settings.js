@@ -134,12 +134,12 @@ const SettingsModule = {
           <h3>📄 CSV 내보내기</h3>
         </div>
         <div class="card-body">
-          <p class="text-sm text-muted mb-4">개별 데이터를 CSV 파일로 내보내 엑셀에서 확인할 수 있습니다.</p>
+          <p class="text-sm text-muted mb-4">각 내역별 핵심 컬럼만 추려서 CSV로 다운로드합니다. (엑셀에서 바로 열기 가능)</p>
           <div class="d-flex gap-2" style="flex-wrap:wrap;">
-            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('taxInvoiceRequests', '세금계산서요청')">세금계산서 요청</button>
-            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('deposits', '입금내역')">입금내역</button>
-            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('transferRecords', '송금내역')">송금내역</button>
-            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('matchingLog', '매칭로그')">매칭 로그</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('taxInvoiceRequests')">📝 세금계산서 발행내역</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('deposits')">💰 입금내역</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('transferRecords')">💸 송금내역</button>
+            <button class="btn btn-secondary" onclick="SettingsModule._exportCSV('matchingLog')">🔗 매칭 로그</button>
           </div>
         </div>
       </div>
@@ -630,29 +630,145 @@ const SettingsModule = {
     setTimeout(() => location.reload(), 1500);
   },
 
-  async _exportCSV(storeName, label) {
+  // 데이터별 내보내기 컬럼 정의 (핵심 컬럼만)
+  _CSV_EXPORTS: {
+    taxInvoiceRequests: {
+      filename: '세금계산서발행내역',
+      sortKey: 'issueDate',
+      columns: [
+        { key: 'issueDate',          label: '작성일자' },
+        { key: 'requestNumber',      label: '요청번호' },
+        { key: 'status',             label: '상태' },
+        { key: 'partnerCompanyName', label: '거래처' },
+        { key: 'partnerRegNumber',   label: '사업자등록번호' },
+        { key: 'partnerCeoName',     label: '대표자명' },
+        { key: 'supplyAmount',       label: '공급가액' },
+        { key: 'taxAmount',          label: '세액' },
+        { key: 'totalAmount',        label: '합계금액' },
+        { key: 'projectName',        label: '프로젝트/비고' },
+        { key: 'hometaxApprovalNo',  label: '승인번호' },
+        { key: '_matched',           label: '입금매칭' },
+        { key: 'requesterName',      label: '등록자' },
+        { key: '_createdDate',       label: '등록일' }
+      ],
+      transform: (r) => {
+        r._matched = r.matchedDepositId ? 'Y' : '';
+        r._createdDate = (r.createdAt || '').split('T')[0];
+      }
+    },
+    deposits: {
+      filename: '입금내역',
+      sortKey: 'depositDate',
+      columns: [
+        { key: 'depositDate',    label: '입금일자' },
+        { key: 'depositorName',  label: '입금자' },
+        { key: 'amount',         label: '금액' },
+        { key: 'matchStatus',    label: '매칭상태' },
+        { key: '_matchedInvoice', label: '매칭요청번호' },
+        { key: 'projectName',    label: '프로젝트' },
+        { key: 'memo',           label: '메모' },
+        { key: 'registeredByName', label: '등록자' },
+        { key: '_createdDate',   label: '등록일' }
+      ],
+      transform: async (r) => {
+        r._createdDate = (r.createdAt || '').split('T')[0];
+        if (r.matchedInvoiceId) {
+          try {
+            const inv = await DB.get('taxInvoiceRequests', r.matchedInvoiceId);
+            r._matchedInvoice = inv ? `${inv.requestNumber} (${inv.partnerCompanyName})` : '';
+          } catch { r._matchedInvoice = ''; }
+        } else {
+          r._matchedInvoice = '';
+        }
+      }
+    },
+    transferRecords: {
+      filename: '송금내역',
+      sortKey: 'transferDate',
+      columns: [
+        { key: 'transferDate',   label: '송금일자' },
+        { key: 'recipientName',  label: '수취인' },
+        { key: 'amount',         label: '금액' },
+        { key: 'purpose',        label: '용도' },
+        { key: 'projectName',    label: '프로젝트' },
+        { key: 'memo',           label: '메모' },
+        { key: 'registeredByName', label: '등록자' },
+        { key: '_createdDate',   label: '등록일' }
+      ],
+      transform: (r) => {
+        r._createdDate = (r.createdAt || '').split('T')[0];
+      }
+    },
+    matchingLog: {
+      filename: '매칭로그',
+      sortKey: 'matchedAt',
+      columns: [
+        { key: '_matchedDate',  label: '매칭일시' },
+        { key: '_invoiceInfo',  label: '세금계산서' },
+        { key: '_depositInfo',  label: '입금' },
+        { key: 'matchedAmount', label: '매칭금액' },
+        { key: 'matchedByName', label: '매칭담당자' },
+        { key: 'memo',          label: '메모' }
+      ],
+      transform: async (r) => {
+        r._matchedDate = (r.matchedAt || '').replace('T', ' ').slice(0, 16);
+        try {
+          if (r.invoiceId) {
+            const inv = await DB.get('taxInvoiceRequests', r.invoiceId);
+            r._invoiceInfo = inv ? `${inv.requestNumber} ${inv.partnerCompanyName}` : '';
+          }
+          if (r.depositId) {
+            const dep = await DB.get('deposits', r.depositId);
+            r._depositInfo = dep ? `${dep.depositDate} ${dep.depositorName}` : '';
+          }
+        } catch {}
+        r._invoiceInfo = r._invoiceInfo || '';
+        r._depositInfo = r._depositInfo || '';
+      }
+    }
+  },
+
+  async _exportCSV(storeName) {
+    const def = this._CSV_EXPORTS[storeName];
+    if (!def) {
+      Utils.showToast('내보내기 설정이 정의되지 않았습니다.', 'error');
+      return;
+    }
+
     try {
-      const records = await DB.getAll(storeName);
+      let records = await DB.getAll(storeName);
       if (records.length === 0) {
         Utils.showToast('내보낼 데이터가 없습니다.', 'warning');
         return;
       }
 
-      // 컬럼 선정 (Blob 제외)
-      const skipKeys = ['attachments', 'passwordHash'];
-      const headers = Object.keys(records[0]).filter(k => !skipKeys.includes(k));
+      // 정렬
+      if (def.sortKey) {
+        records.sort((a, b) => String(a[def.sortKey] || '').localeCompare(String(b[def.sortKey] || '')));
+      }
 
-      const rows = [headers.join(',')];
+      // 가공(transform)
+      if (def.transform) {
+        for (const r of records) {
+          const result = def.transform(r);
+          if (result instanceof Promise) await result;
+        }
+      }
+
+      // 헤더 + 데이터
+      const headers = def.columns.map(c => c.label);
+      const rows = [headers.map(h => Utils.escapeCSV(h)).join(',')];
       for (const r of records) {
-        const vals = headers.map(h => Utils.escapeCSV(r[h]));
+        const vals = def.columns.map(c => Utils.escapeCSV(r[c.key]));
         rows.push(vals.join(','));
       }
 
       const bom = '\uFEFF';
       const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
-      Utils.downloadFile(bom + rows.join('\n'), `${label}_${date}.csv`, 'text/csv;charset=utf-8');
-      Utils.showToast(`${label} CSV 파일이 다운로드되었습니다.`, 'success');
+      Utils.downloadFile(bom + rows.join('\n'), `${def.filename}_${date}.csv`, 'text/csv;charset=utf-8');
+      Utils.showToast(`${def.filename} ${records.length}건 다운로드 완료`, 'success');
     } catch (err) {
+      console.error(err);
       Utils.showToast('CSV 내보내기 실패: ' + err.message, 'error');
     }
   },

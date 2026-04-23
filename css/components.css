@@ -371,12 +371,14 @@ fieldset legend {
   border-bottom: none;
 }
 
-.data-table .text-right {
-  text-align: right;
+.data-table th.text-right,
+.data-table td.text-right {
+  text-align: right !important;
 }
 
-.data-table .text-center {
-  text-align: center;
+.data-table th.text-center,
+.data-table td.text-center {
+  text-align: center !important;
 }
 
 .data-table .amount {

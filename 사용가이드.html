@@ -106,7 +106,7 @@
 
   .step-head {
     display: flex; align-items: center; gap: 8px;
-    margin-bottom: 4px;
+    margin-bottom: 6px;
   }
   .step-head .title {
     font-size: 12pt; font-weight: 800; color: #0f172a;
@@ -116,13 +116,6 @@
     background: #f1f5f9;
     padding: 2px 8px; border-radius: 10px;
     font-weight: 600;
-  }
-  .step-head .menu {
-    font-size: 9pt;
-    background: #1e3a8a; color: #fff;
-    padding: 2px 10px; border-radius: 4px;
-    font-weight: 700;
-    margin-left: auto;
   }
 
   /* 액션 파이프라인 */
@@ -141,6 +134,15 @@
     border: 1px solid #bfdbfe;
   }
   .pipe .tag strong { color: #1e3a8a; }
+
+  /* 메뉴 태그 (파이프라인 첫 항목) */
+  .pipe .tag.menu {
+    background: #1e3a8a;
+    color: #fff;
+    border-color: #1e3a8a;
+    font-weight: 700;
+  }
+
   .pipe .arr {
     color: #3b82f6;
     font-size: 12pt;
@@ -160,15 +162,15 @@
     font-weight: 700;
   }
 
-  /* 그 외 기능 */
-  .cards3 {
-    display: grid; grid-template-columns: 1fr 1fr 1fr;
+  /* 그 외 기능 - 2단 */
+  .cards2 {
+    display: grid; grid-template-columns: 1fr 1fr;
     gap: 10px; margin: 14px 0 8px;
   }
   .mini {
     border: 1.5px solid #e2e8f0;
     border-radius: 8px;
-    padding: 10px 12px;
+    padding: 10px 14px;
     background: #fafbfc;
   }
   .mini h3 {
@@ -179,7 +181,7 @@
   }
   .mini p {
     margin: 0; font-size: 9pt;
-    color: #475569; line-height: 1.5;
+    color: #475569; line-height: 1.55;
   }
 
   /* 마무리 */
@@ -271,9 +273,10 @@
         <div class="step-head">
           <span class="title">발행 요청</span>
           <span class="who">👤 직원</span>
-          <span class="menu">📝 세금계산서 → 발행 요청</span>
         </div>
         <div class="pipe">
+          <span class="tag menu">📝 세금계산서 → 발행 요청</span>
+          <span class="arr">→</span>
           <span class="tag">사업자등록증 캡쳐</span>
           <span class="arr">→</span>
           <span class="tag"><span class="kbd">Ctrl</span>+<span class="kbd">V</span> OCR 자동입력</span>
@@ -291,9 +294,10 @@
         <div class="step-head">
           <span class="title">검토 & 발행</span>
           <span class="who">👔 관리자</span>
-          <span class="menu">🧾 세금계산서 발행</span>
         </div>
         <div class="pipe">
+          <span class="tag menu">🧾 세금계산서 발행</span>
+          <span class="arr">→</span>
           <span class="tag">🗓️ 당일 탭 확인</span>
           <span class="arr">→</span>
           <span class="tag">검토하기</span>
@@ -311,9 +315,10 @@
         <div class="step-head">
           <span class="title">입금내역 업로드</span>
           <span class="who">👔 관리자</span>
-          <span class="menu">💰 입금내역</span>
         </div>
         <div class="pipe">
+          <span class="tag menu">💰 입금내역</span>
+          <span class="arr">→</span>
           <span class="tag">통장 엑셀 파일</span>
           <span class="arr">→</span>
           <span class="tag">📊 드래그 업로드</span>
@@ -331,14 +336,15 @@
         <div class="step-head">
           <span class="title">거래처 지정 & 매칭</span>
           <span class="who">👔 관리자</span>
-          <span class="menu">💰 입금내역 → 👁️ 상세</span>
         </div>
         <div class="pipe">
+          <span class="tag menu">💰 입금내역 → 👁️ 상세</span>
+          <span class="arr">→</span>
           <span class="tag">🏢 거래처 추천 ✓</span>
           <span class="arr">→</span>
           <span class="tag">🔗 선발행 매칭</span>
           <span class="arr">→</span>
-          <span class="tag"><strong>완료</strong> (부분입금도 지원)</span>
+          <span class="tag"><strong>완료</strong> (부분입금 지원)</span>
         </div>
       </div>
     </div>
@@ -349,9 +355,10 @@
         <div class="step-head">
           <span class="title">문서 자동 보관</span>
           <span class="who">🤖 시스템</span>
-          <span class="menu">📁 문서보관</span>
         </div>
         <div class="pipe">
+          <span class="tag menu">📁 문서보관</span>
+          <span class="arr">→</span>
           <span class="tag">첨부파일</span>
           <span class="arr">→</span>
           <span class="tag">거래처명별 자동 분류</span>
@@ -365,18 +372,14 @@
 
   <!-- 그 외 기능 -->
   <h2 style="margin-top:14px;">🔧 그 외</h2>
-  <div class="cards3">
+  <div class="cards2">
     <div class="mini">
       <h3>🗓️ 연차 신청</h3>
       <p>달력에서 날짜 클릭 → 연차/반차 선택 → 관리자 승인</p>
     </div>
     <div class="mini">
-      <h3>🔍 빠른 검색</h3>
-      <p><span class="kbd">Ctrl</span>+<span class="kbd">K</span> 전역 검색 · 당일+완료숨기기 조합 활용</p>
-    </div>
-    <div class="mini">
       <h3>⚠️ 주의</h3>
-      <p>본인 계정으로만 로그인 · 초기 비밀번호 즉시 변경</p>
+      <p>본인 계정으로만 로그인 · 초기 비밀번호는 즉시 변경</p>
     </div>
   </div>
 
@@ -390,7 +393,7 @@
   </div>
 
   <div class="footer">
-    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.2</span>
+    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.3</span>
     <span>경영관리팀 · 넷폼알앤디</span>
   </div>
 

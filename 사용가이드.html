@@ -106,7 +106,8 @@
 
   .step-head {
     display: flex; align-items: center; gap: 8px;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
   }
   .step-head .title {
     font-size: 12pt; font-weight: 800; color: #0f172a;
@@ -116,6 +117,15 @@
     background: #f1f5f9;
     padding: 2px 8px; border-radius: 10px;
     font-weight: 600;
+  }
+  .step-head .menu {
+    display: inline-block;
+    background: #1e3a8a;
+    color: #fff;
+    padding: 3px 12px;
+    border-radius: 6px;
+    font-size: 9.5pt;
+    font-weight: 700;
   }
 
   /* 액션 파이프라인 */
@@ -134,15 +144,6 @@
     border: 1px solid #bfdbfe;
   }
   .pipe .tag strong { color: #1e3a8a; }
-
-  /* 메뉴 태그 (파이프라인 첫 항목) */
-  .pipe .tag.menu {
-    background: #1e3a8a;
-    color: #fff;
-    border-color: #1e3a8a;
-    font-weight: 700;
-  }
-
   .pipe .arr {
     color: #3b82f6;
     font-size: 12pt;
@@ -273,10 +274,9 @@
         <div class="step-head">
           <span class="title">발행 요청</span>
           <span class="who">👤 직원</span>
+          <span class="menu">📝 세금계산서 → 발행 요청</span>
         </div>
         <div class="pipe">
-          <span class="tag menu">📝 세금계산서 → 발행 요청</span>
-          <span class="arr">→</span>
           <span class="tag">사업자등록증 캡쳐</span>
           <span class="arr">→</span>
           <span class="tag"><span class="kbd">Ctrl</span>+<span class="kbd">V</span> OCR 자동입력</span>
@@ -294,10 +294,9 @@
         <div class="step-head">
           <span class="title">검토 & 발행</span>
           <span class="who">👔 관리자</span>
+          <span class="menu">🧾 세금계산서 발행</span>
         </div>
         <div class="pipe">
-          <span class="tag menu">🧾 세금계산서 발행</span>
-          <span class="arr">→</span>
           <span class="tag">🗓️ 당일 탭 확인</span>
           <span class="arr">→</span>
           <span class="tag">검토하기</span>
@@ -315,10 +314,9 @@
         <div class="step-head">
           <span class="title">입금내역 업로드</span>
           <span class="who">👔 관리자</span>
+          <span class="menu">💰 입금내역</span>
         </div>
         <div class="pipe">
-          <span class="tag menu">💰 입금내역</span>
-          <span class="arr">→</span>
           <span class="tag">통장 엑셀 파일</span>
           <span class="arr">→</span>
           <span class="tag">📊 드래그 업로드</span>
@@ -336,10 +334,9 @@
         <div class="step-head">
           <span class="title">거래처 지정 & 매칭</span>
           <span class="who">👔 관리자</span>
+          <span class="menu">💰 입금내역 → 👁️ 상세</span>
         </div>
         <div class="pipe">
-          <span class="tag menu">💰 입금내역 → 👁️ 상세</span>
-          <span class="arr">→</span>
           <span class="tag">🏢 거래처 추천 ✓</span>
           <span class="arr">→</span>
           <span class="tag">🔗 선발행 매칭</span>
@@ -355,10 +352,9 @@
         <div class="step-head">
           <span class="title">문서 자동 보관</span>
           <span class="who">🤖 시스템</span>
+          <span class="menu">📁 문서보관</span>
         </div>
         <div class="pipe">
-          <span class="tag menu">📁 문서보관</span>
-          <span class="arr">→</span>
           <span class="tag">첨부파일</span>
           <span class="arr">→</span>
           <span class="tag">거래처명별 자동 분류</span>
@@ -393,7 +389,7 @@
   </div>
 
   <div class="footer">
-    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.3</span>
+    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.4</span>
     <span>경영관리팀 · 넷폼알앤디</span>
   </div>
 

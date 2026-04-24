@@ -5,13 +5,13 @@
 <title>스퀘어건축사사무소 · 업무관리 시스템 안내</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
-  @page { size: A4; margin: 12mm 10mm; }
+  @page { size: A4; margin: 14mm 12mm; }
   * { box-sizing: border-box; }
   body {
     font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Malgun Gothic', sans-serif;
     color: #1e293b;
-    line-height: 1.45;
-    font-size: 9.5pt;
+    line-height: 1.5;
+    font-size: 10pt;
     background: #f1f5f9;
     margin: 0;
   }
@@ -20,140 +20,131 @@
     min-height: 297mm;
     margin: 0 auto 12px;
     background: #fff;
-    padding: 14mm 12mm;
+    padding: 16mm 14mm;
     box-shadow: 0 2px 10px rgba(0,0,0,.08);
-    position: relative;
   }
 
   /* 헤더 */
   .hdr {
     display: flex; justify-content: space-between; align-items: center;
     border-bottom: 3px solid #0f172a;
-    padding-bottom: 8px; margin-bottom: 14px;
+    padding-bottom: 10px; margin-bottom: 18px;
   }
-  .hdr .left { display: flex; align-items: center; gap: 10px; }
+  .hdr .left { display: flex; align-items: center; gap: 12px; }
   .hdr .logo {
-    width: 40px; height: 40px; background: #0f172a;
-    color: #fff; font-weight: 800; font-size: 15pt;
+    width: 44px; height: 44px; background: #0f172a;
+    color: #fff; font-weight: 800; font-size: 16pt;
     border-radius: 8px;
     display: flex; align-items: center; justify-content: center;
   }
   .hdr h1 {
-    font-size: 14pt; margin: 0; color: #0f172a;
+    font-size: 15pt; margin: 0; color: #0f172a;
     font-weight: 800; letter-spacing: -0.3px;
   }
-  .hdr .sub { font-size: 9pt; color: #64748b; margin-top: 2px; }
-  .hdr .date { font-size: 8.5pt; color: #64748b; text-align: right; }
+  .hdr .sub { font-size: 9.5pt; color: #64748b; margin-top: 3px; }
+  .hdr .date { font-size: 9pt; color: #64748b; text-align: right; line-height: 1.5; }
 
   /* 도입 배너 */
   .banner {
     background: linear-gradient(135deg, #3b82f6 0%, #1e40af 100%);
-    color: #fff; border-radius: 8px;
-    padding: 10px 14px; margin-bottom: 14px;
+    color: #fff; border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 20px;
     display: flex; justify-content: space-between; align-items: center;
-    gap: 14px;
+    gap: 16px;
   }
-  .banner .msg { font-size: 10pt; font-weight: 600; line-height: 1.5; }
+  .banner .msg {
+    font-size: 11pt; font-weight: 700; line-height: 1.5;
+  }
   .banner .url {
-    background: rgba(255,255,255,.2);
-    padding: 6px 12px; border-radius: 6px;
+    background: rgba(255,255,255,.22);
+    padding: 8px 14px; border-radius: 6px;
     font-family: 'JetBrains Mono', monospace;
-    font-size: 9pt; font-weight: 600;
+    font-size: 9.5pt; font-weight: 700;
     white-space: nowrap;
   }
 
   /* 섹션 제목 */
   h2 {
-    font-size: 12pt; color: #0f172a;
-    margin: 0 0 10px;
+    font-size: 12.5pt; color: #0f172a;
+    margin: 0 0 12px;
     padding-left: 10px;
     border-left: 5px solid #3b82f6;
     font-weight: 800;
   }
 
-  /* 핵심 업무 흐름 - 세로 타임라인 */
-  .flow-vertical {
+  /* 업무 흐름 - 세로 타임라인 */
+  .flow {
     position: relative;
-    margin: 8px 0 14px;
+    padding: 6px 0;
   }
-  .flow-vertical::before {
+  .flow::before {
     content: "";
     position: absolute;
-    left: 18px; top: 20px; bottom: 20px;
+    left: 22px; top: 28px; bottom: 28px;
     width: 2px; background: #cbd5e1;
   }
   .step-row {
     display: grid;
-    grid-template-columns: 38px 130px 1fr;
-    gap: 10px;
-    align-items: start;
-    padding: 10px 0;
+    grid-template-columns: 48px 1fr;
+    gap: 16px;
+    padding: 14px 0;
+    align-items: center;
     position: relative;
   }
   .step-row:not(:last-child) {
     border-bottom: 1px dashed #e2e8f0;
   }
   .step-num {
-    width: 38px; height: 38px;
+    width: 44px; height: 44px;
     background: #3b82f6; color: #fff;
     border-radius: 50%;
     display: flex; align-items: center; justify-content: center;
-    font-size: 14pt; font-weight: 800;
+    font-size: 16pt; font-weight: 800;
+    box-shadow: 0 0 0 4px #fff;
     z-index: 1;
-    box-shadow: 0 0 0 3px #fff;
   }
-  .step-title {
-    font-size: 10.5pt; font-weight: 700;
-    color: #0f172a;
-    padding-top: 6px;
-  }
-  .step-title .who {
-    display: block; font-size: 8pt; color: #64748b;
-    font-weight: 600; margin-top: 2px;
-  }
-  .step-body {
-    padding-top: 4px;
-    font-size: 9pt;
-  }
-  .step-body .menu {
-    display: inline-block;
-    background: #1e3a8a; color: #fff;
-    padding: 2px 8px; border-radius: 4px;
-    font-weight: 600; font-size: 8.8pt;
-    margin-right: 4px;
-  }
-  .step-body ul {
-    margin: 4px 0 0; padding-left: 16px;
-  }
-  .step-body li { margin-bottom: 1px; }
 
-  /* 보조 기능 카드 3단 */
-  .cards3 {
-    display: grid; grid-template-columns: 1fr 1fr 1fr;
-    gap: 8px; margin: 10px 0 12px;
+  .step-head {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 4px;
   }
-  .mini-card {
-    border: 1px solid #e2e8f0;
-    border-radius: 6px;
-    padding: 8px 10px;
-    background: #fafbfc;
+  .step-head .title {
+    font-size: 12pt; font-weight: 800; color: #0f172a;
   }
-  .mini-card h3 {
-    margin: 0 0 4px;
-    font-size: 9.5pt;
-    color: #1e3a8a;
-    font-weight: 700;
+  .step-head .who {
+    font-size: 9pt; color: #64748b;
+    background: #f1f5f9;
+    padding: 2px 8px; border-radius: 10px;
+    font-weight: 600;
   }
-  .mini-card p {
-    margin: 0; font-size: 8.8pt;
-    color: #475569; line-height: 1.5;
-  }
-  .mini-card .menu-tag {
-    display: inline-block;
+  .step-head .menu {
+    font-size: 9pt;
     background: #1e3a8a; color: #fff;
-    padding: 1px 6px; border-radius: 3px;
-    font-size: 7.8pt; font-weight: 600;
-    margin-right: 4px;
+    padding: 2px 10px; border-radius: 4px;
+    font-weight: 700;
+    margin-left: auto;
+  }
+
+  /* 액션 파이프라인 */
+  .pipe {
+    display: flex; align-items: center;
+    flex-wrap: wrap;
+    gap: 6px;
+    font-size: 10pt;
+  }
+  .pipe .tag {
+    background: #eff6ff;
+    color: #1e40af;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-weight: 600;
+    border: 1px solid #bfdbfe;
+  }
+  .pipe .tag strong { color: #1e3a8a; }
+  .pipe .arr {
+    color: #3b82f6;
+    font-size: 12pt;
+    font-weight: 800;
   }
 
   /* 키보드 */
@@ -166,35 +157,57 @@
     border-radius: 3px;
     font-family: 'JetBrains Mono', monospace;
     font-size: 0.85em;
-    font-weight: 600;
+    font-weight: 700;
   }
 
-  /* 마무리 메시지 */
+  /* 그 외 기능 */
+  .cards3 {
+    display: grid; grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px; margin: 14px 0 8px;
+  }
+  .mini {
+    border: 1.5px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 10px 12px;
+    background: #fafbfc;
+  }
+  .mini h3 {
+    margin: 0 0 4px;
+    font-size: 10pt;
+    color: #1e3a8a;
+    font-weight: 700;
+  }
+  .mini p {
+    margin: 0; font-size: 9pt;
+    color: #475569; line-height: 1.5;
+  }
+
+  /* 마무리 */
   .closing {
     background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 100%);
-    color: #fff; border-radius: 8px;
-    padding: 14px 16px;
-    margin-top: 14px;
+    color: #fff; border-radius: 10px;
+    padding: 16px 20px;
+    margin-top: 16px;
     text-align: center;
   }
   .closing h3 {
     margin: 0 0 6px;
-    font-size: 11pt;
+    font-size: 12pt;
     font-weight: 700;
   }
   .closing p {
-    margin: 0; font-size: 9pt;
+    margin: 0; font-size: 9.5pt;
     opacity: 0.92;
     line-height: 1.6;
   }
 
   /* 하단 */
   .footer {
-    margin-top: 12px;
-    padding-top: 6px;
+    margin-top: 14px;
+    padding-top: 8px;
     border-top: 1px solid #e2e8f0;
     display: flex; justify-content: space-between;
-    font-size: 8pt; color: #94a3b8;
+    font-size: 8.5pt; color: #94a3b8;
   }
 
   /* 인쇄 */
@@ -235,123 +248,136 @@
       <div class="logo">SQ</div>
       <div>
         <h1>스퀘어건축사사무소 · 업무관리 시스템 도입 안내</h1>
-        <div class="sub">세금계산서 발행 → 입금 매칭까지 한 곳에서 진행됩니다</div>
+        <div class="sub">세금계산서 발행부터 입금 매칭까지 한 곳에서</div>
       </div>
     </div>
-    <div class="date">배포일: 2026. 04. 24.<br>대상: 전 직원</div>
+    <div class="date">2026. 04. 24.<br>전 직원 배포</div>
   </div>
 
   <!-- 도입 배너 -->
   <div class="banner">
-    <div class="msg">
-      📢 <strong>오늘부터 모든 업무는 업무관리 시스템으로 진행합니다.</strong><br>
-      <span style="font-size:9pt;opacity:.9;font-weight:400;">브라우저(Chrome / Edge)에서 아래 주소로 접속 · 본인 계정으로 로그인</span>
-    </div>
+    <div class="msg">📢 오늘부터 모든 업무는 업무관리 시스템으로 진행합니다.</div>
     <div class="url">netformrnd.github.io/sq-biz</div>
   </div>
 
   <!-- 핵심 업무 흐름 -->
-  <h2>📌 핵심 업무 흐름 — 세금계산서 발행부터 입금 확인까지</h2>
+  <h2>📌 업무 흐름</h2>
 
-  <div class="flow-vertical">
+  <div class="flow">
 
     <div class="step-row">
       <div class="step-num">1</div>
-      <div class="step-title">발행 요청<span class="who">👤 요청자(직원)</span></div>
-      <div class="step-body">
-        <span class="menu">📝 세금계산서 → 발행 요청</span>
-        <ul>
-          <li>거래처 사업자등록증 화면캡쳐 (<span class="kbd">⊞Win</span>+<span class="kbd">Shift</span>+<span class="kbd">S</span>) → 페이지에 <span class="kbd">Ctrl</span>+<span class="kbd">V</span></li>
-          <li>OCR로 <strong>상호·사업자번호·대표자 자동 입력</strong> → 공급가액만 넣으면 세액·합계 자동계산</li>
-          <li>사유 입력 후 <strong>[발행 요청]</strong> 클릭 → 관리자에게 알림</li>
-        </ul>
+      <div>
+        <div class="step-head">
+          <span class="title">발행 요청</span>
+          <span class="who">👤 직원</span>
+          <span class="menu">📝 세금계산서 → 발행 요청</span>
+        </div>
+        <div class="pipe">
+          <span class="tag">사업자등록증 캡쳐</span>
+          <span class="arr">→</span>
+          <span class="tag"><span class="kbd">Ctrl</span>+<span class="kbd">V</span> OCR 자동입력</span>
+          <span class="arr">→</span>
+          <span class="tag">공급가액 입력</span>
+          <span class="arr">→</span>
+          <span class="tag"><strong>발행 요청</strong></span>
+        </div>
       </div>
     </div>
 
     <div class="step-row">
       <div class="step-num">2</div>
-      <div class="step-title">검토 & 발행<span class="who">👔 경리 관리자</span></div>
-      <div class="step-body">
-        <span class="menu">🧾 세금계산서 발행</span>
-        <ul>
-          <li>🗓️ 당일 탭에서 신규 요청 확인 → <strong>[검토하기]</strong></li>
-          <li>위하고/홈택스에서 실제 발행 후 시스템에서 <strong>[발행완료 처리]</strong> (또는 사유 입력하여 반려)</li>
-          <li>발행된 내역은 직원도 <strong>조회 모드</strong>로 확인 가능</li>
-        </ul>
+      <div>
+        <div class="step-head">
+          <span class="title">검토 & 발행</span>
+          <span class="who">👔 관리자</span>
+          <span class="menu">🧾 세금계산서 발행</span>
+        </div>
+        <div class="pipe">
+          <span class="tag">🗓️ 당일 탭 확인</span>
+          <span class="arr">→</span>
+          <span class="tag">검토하기</span>
+          <span class="arr">→</span>
+          <span class="tag">위하고/홈택스 발행</span>
+          <span class="arr">→</span>
+          <span class="tag"><strong>발행완료 처리</strong></span>
+        </div>
       </div>
     </div>
 
     <div class="step-row">
       <div class="step-num">3</div>
-      <div class="step-title">입금내역 업로드<span class="who">👔 경리 관리자</span></div>
-      <div class="step-body">
-        <span class="menu">💰 입금내역</span>
-        <ul>
-          <li><strong>[📊 은행/위하고 붙여넣기]</strong> → 통장 엑셀 파일 <strong>드래그 & 드롭</strong> (또는 복사·붙여넣기)</li>
-          <li>기업은행/위하고 형식 <strong>자동 인식</strong> · 입금/송금 자동 분리</li>
-          <li>미리보기 확인 → <strong>[선택 항목 등록]</strong></li>
-        </ul>
+      <div>
+        <div class="step-head">
+          <span class="title">입금내역 업로드</span>
+          <span class="who">👔 관리자</span>
+          <span class="menu">💰 입금내역</span>
+        </div>
+        <div class="pipe">
+          <span class="tag">통장 엑셀 파일</span>
+          <span class="arr">→</span>
+          <span class="tag">📊 드래그 업로드</span>
+          <span class="arr">→</span>
+          <span class="tag">자동 분석</span>
+          <span class="arr">→</span>
+          <span class="tag"><strong>선택 항목 등록</strong></span>
+        </div>
       </div>
     </div>
 
     <div class="step-row">
       <div class="step-num">4</div>
-      <div class="step-title">거래처 지정 & 매칭<span class="who">👔 경리 관리자</span></div>
-      <div class="step-body">
-        <span class="menu">💰 입금내역 → 👁️ 상세</span>
-        <ul>
-          <li>🏢 거래처 추천 목록에서 ✓ 선택 (사업자번호 자동 입력)</li>
-          <li>🔗 선발행 매칭 → 세금계산서와 연결 · 유사도 높은 순 자동 추천</li>
-          <li>공급가액·부가세 분리 입금 건은 <strong>추가매칭</strong>으로 합산 처리</li>
-        </ul>
+      <div>
+        <div class="step-head">
+          <span class="title">거래처 지정 & 매칭</span>
+          <span class="who">👔 관리자</span>
+          <span class="menu">💰 입금내역 → 👁️ 상세</span>
+        </div>
+        <div class="pipe">
+          <span class="tag">🏢 거래처 추천 ✓</span>
+          <span class="arr">→</span>
+          <span class="tag">🔗 선발행 매칭</span>
+          <span class="arr">→</span>
+          <span class="tag"><strong>완료</strong> (부분입금도 지원)</span>
+        </div>
       </div>
     </div>
 
     <div class="step-row">
       <div class="step-num">5</div>
-      <div class="step-title">문서 자동 보관<span class="who">🤖 시스템 자동</span></div>
-      <div class="step-body">
-        <span class="menu">📁 문서보관</span>
-        <ul>
-          <li>발행 요청 시 첨부한 <strong>사업자등록증·계약서</strong>가 거래처명별로 자동 저장</li>
-          <li>가나다순 자동 정렬 · 검색 · 미리보기 · 다운로드 지원</li>
-          <li>필요 시 [+ 문서 업로드]로 사업자등록증/계약서/기타 직접 등록</li>
-        </ul>
+      <div>
+        <div class="step-head">
+          <span class="title">문서 자동 보관</span>
+          <span class="who">🤖 시스템</span>
+          <span class="menu">📁 문서보관</span>
+        </div>
+        <div class="pipe">
+          <span class="tag">첨부파일</span>
+          <span class="arr">→</span>
+          <span class="tag">거래처명별 자동 분류</span>
+          <span class="arr">→</span>
+          <span class="tag"><strong>언제든 검색·다운로드</strong></span>
+        </div>
       </div>
     </div>
 
   </div>
 
   <!-- 그 외 기능 -->
-  <h2>🔧 그 외 기능</h2>
+  <h2 style="margin-top:14px;">🔧 그 외</h2>
   <div class="cards3">
-
-    <div class="mini-card">
+    <div class="mini">
       <h3>🗓️ 연차 신청</h3>
-      <p>
-        <span class="menu-tag">연차 신청</span>
-        달력에서 날짜 클릭 → 연차/반차/반반차 선택 → 관리자 승인.
-        잔여 연차는 사이드에서 실시간 확인.
-      </p>
+      <p>달력에서 날짜 클릭 → 연차/반차 선택 → 관리자 승인</p>
     </div>
-
-    <div class="mini-card">
-      <h3>🔍 전역 검색</h3>
-      <p>
-        <span class="kbd">Ctrl</span>+<span class="kbd">K</span>로 요청번호·거래처·금액 통합 검색.
-        각 메뉴의 <strong>당일</strong> 탭 + <strong>완료 숨기기</strong> 조합으로 처리할 건만 집중.
-      </p>
+    <div class="mini">
+      <h3>🔍 빠른 검색</h3>
+      <p><span class="kbd">Ctrl</span>+<span class="kbd">K</span> 전역 검색 · 당일+완료숨기기 조합 활용</p>
     </div>
-
-    <div class="mini-card">
-      <h3>⚠️ 주의사항</h3>
-      <p>
-        본인 계정으로만 로그인 (공유 금지).
-        사업자등록증은 <strong>화면캡쳐 + Ctrl+V</strong>만 사용.
-        초기 비밀번호는 즉시 변경.
-      </p>
+    <div class="mini">
+      <h3>⚠️ 주의</h3>
+      <p>본인 계정으로만 로그인 · 초기 비밀번호 즉시 변경</p>
     </div>
-
   </div>
 
   <!-- 마무리 -->
@@ -364,7 +390,7 @@
   </div>
 
   <div class="footer">
-    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.1</span>
+    <span>© 2026 스퀘어건축사사무소 · 업무관리 시스템 안내문 v1.2</span>
     <span>경영관리팀 · 넷폼알앤디</span>
   </div>
 

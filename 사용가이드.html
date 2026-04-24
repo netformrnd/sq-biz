@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>스퀘어건축사사무소 업무관리 시스템 · 사용 가이드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  @page { size: A4; margin: 18mm 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Pretendard Variable', Pretendard, -apple-system, 'Malgun Gothic', sans-serif;
+    color: #1e293b;
+    line-height: 1.55;
+    font-size: 10.5pt;
+    background: #f1f5f9;
+    margin: 0;
+  }
+  .page {
+    max-width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto 12px;
+    background: #fff;
+    padding: 18mm 16mm;
+    box-shadow: 0 2px 10px rgba(0,0,0,.08);
+    page-break-after: always;
+  }
+  .page:last-child { page-break-after: auto; }
+
+  /* 표지 */
+  .cover {
+    display: flex; flex-direction: column;
+    justify-content: center; align-items: center;
+    text-align: center;
+    min-height: 260mm;
+  }
+  .cover .logo {
+    width: 76px; height: 76px; background: #0f172a;
+    color: #fff; font-weight: 800; font-size: 28px;
+    border-radius: 18px; display: flex;
+    align-items: center; justify-content: center;
+    margin-bottom: 28px; letter-spacing: -1px;
+  }
+  .cover h1 {
+    font-size: 26pt; margin: 0 0 8px; color: #0f172a;
+    font-weight: 800; letter-spacing: -0.5px;
+  }
+  .cover .subtitle { font-size: 13pt; color: #475569; margin-bottom: 36px; }
+  .cover .badge {
+    display: inline-block; padding: 6px 14px;
+    background: #3b82f6; color: #fff; border-radius: 20px;
+    font-size: 10pt; font-weight: 600; margin-bottom: 48px;
+  }
+  .cover .meta {
+    border-top: 2px solid #0f172a;
+    padding-top: 24px; width: 60%;
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 10px 24px;
+    font-size: 10.5pt;
+  }
+  .cover .meta dt { color: #64748b; font-weight: 600; }
+  .cover .meta dd { margin: 0; color: #0f172a; font-weight: 600; }
+
+  h2 {
+    font-size: 14pt; color: #0f172a; margin: 0 0 14px;
+    padding: 8px 0 10px; border-bottom: 3px solid #3b82f6;
+    font-weight: 800;
+  }
+  h3 {
+    font-size: 11.5pt; color: #1e3a8a;
+    margin: 16px 0 8px; font-weight: 700;
+    display: flex; align-items: center; gap: 6px;
+  }
+  h3::before {
+    content: ""; width: 3px; height: 14px;
+    background: #3b82f6; border-radius: 2px;
+  }
+
+  p { margin: 0 0 8px; }
+  ul, ol { padding-left: 22px; margin: 4px 0 10px; }
+  li { margin-bottom: 3px; }
+
+  code {
+    background: #f1f5f9; padding: 1px 6px;
+    border-radius: 3px; font-size: 0.92em;
+    font-family: 'JetBrains Mono', Consolas, monospace;
+    color: #be185d;
+  }
+
+  .callout {
+    border-left: 4px solid #3b82f6;
+    background: #eff6ff;
+    padding: 10px 14px; margin: 10px 0;
+    border-radius: 0 6px 6px 0;
+    font-size: 10pt;
+  }
+  .callout.warn { border-color: #f59e0b; background: #fffbeb; }
+  .callout.danger { border-color: #ef4444; background: #fef2f2; }
+  .callout.tip { border-color: #10b981; background: #ecfdf5; }
+
+  .kbd {
+    display: inline-block;
+    padding: 1px 6px;
+    background: #fff; color: #1e293b;
+    border: 1px solid #cbd5e1;
+    border-bottom-width: 2px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.85em;
+    font-weight: 600;
+  }
+
+  .role {
+    display: inline-block;
+    padding: 1px 8px; border-radius: 10px;
+    font-size: 0.82em; font-weight: 600;
+    margin-right: 4px;
+  }
+  .role.admin { background: #fee2e2; color: #991b1b; }
+  .role.emp   { background: #dbeafe; color: #1e40af; }
+  .role.all   { background: #dcfce7; color: #166534; }
+
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 8px 0 12px; font-size: 10pt;
+  }
+  th, td {
+    padding: 7px 10px;
+    border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    vertical-align: top;
+  }
+  thead th {
+    background: #0f172a; color: #fff;
+    border-bottom: none; font-weight: 700;
+    font-size: 9.5pt;
+  }
+  tbody tr:nth-child(even) td { background: #f8fafc; }
+
+  .toc li { margin-bottom: 5px; }
+  .toc .sec { font-weight: 600; color: #0f172a; }
+  .toc .page-num { float: right; color: #64748b; font-family: monospace; }
+
+  .step {
+    counter-reset: step;
+    margin: 8px 0;
+  }
+  .step > li {
+    list-style: none;
+    counter-increment: step;
+    position: relative;
+    padding-left: 36px;
+    margin-bottom: 12px;
+    min-height: 26px;
+  }
+  .step > li::before {
+    content: counter(step);
+    position: absolute; left: 0; top: -1px;
+    width: 26px; height: 26px;
+    background: #3b82f6; color: #fff;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 10pt;
+  }
+
+  .two-col {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 16px;
+  }
+
+  .footer-note {
+    position: absolute; bottom: 10mm; left: 16mm; right: 16mm;
+    font-size: 8.5pt; color: #94a3b8; text-align: center;
+    padding-top: 6px; border-top: 1px solid #e2e8f0;
+  }
+
+  .page { position: relative; }
+
+  /* 인쇄용 */
+  @media print {
+    body { background: #fff; font-size: 10pt; }
+    .page {
+      box-shadow: none; margin: 0;
+      padding: 0 !important;
+      min-height: auto;
+    }
+    .no-print { display: none !important; }
+    thead { display: table-header-group; }
+    tr, li { page-break-inside: avoid; }
+    h2, h3 { page-break-after: avoid; }
+  }
+
+  .print-bar {
+    position: sticky; top: 0;
+    background: #0f172a; color: #fff;
+    padding: 10px 20px;
+    display: flex; gap: 12px; align-items: center;
+    justify-content: center;
+    font-size: 11pt; z-index: 100;
+    box-shadow: 0 2px 8px rgba(0,0,0,.15);
+  }
+  .print-bar button {
+    padding: 6px 16px; background: #3b82f6; color: #fff;
+    border: none; border-radius: 6px; font-weight: 600;
+    cursor: pointer; font-size: 11pt;
+  }
+  .print-bar button:hover { background: #2563eb; }
+</style>
+</head>
+<body>
+
+<!-- 상단 인쇄 바 (인쇄 시 숨김) -->
+<div class="print-bar no-print">
+  📄 이 문서는 A4 인쇄용입니다.
+  <button onclick="window.print()">🖨️ 인쇄하기 / PDF 저장</button>
+  <span style="font-size:9.5pt;opacity:.7;">(인쇄 대화상자에서 "대상: PDF로 저장" 선택 가능)</span>
+</div>
+
+<!-- ===================== 표지 ===================== -->
+<section class="page">
+  <div class="cover">
+    <div class="logo">SQ</div>
+    <div class="badge">2026 업무관리 시스템</div>
+    <h1>스퀘어건축사사무소</h1>
+    <h1 style="font-size:18pt;margin-top:-6px;">업무관리 시스템 사용 가이드</h1>
+    <div class="subtitle">세금계산서 · 입금내역 · 연차 · 문서관리 통합 운영</div>
+
+    <dl class="meta">
+      <dt>접속 주소</dt><dd>https://netformrnd.github.io/sq-biz/</dd>
+      <dt>권장 브라우저</dt><dd>Chrome · Edge (최신)</dd>
+      <dt>지원 단말</dt><dd>PC / 태블릿</dd>
+      <dt>관리 부서</dt><dd>경영관리팀 · 넷폼알앤디</dd>
+    </dl>
+  </div>
+</section>
+
+<!-- ===================== 목차 ===================== -->
+<section class="page">
+  <h2>목차</h2>
+  <ul class="toc" style="list-style:none;padding:0;">
+    <li><span class="sec">1.</span> 시작하기 — 접속 & 로그인 <span class="page-num">3</span></li>
+    <li><span class="sec">2.</span> 메뉴 구조 & 역할별 권한 <span class="page-num">3</span></li>
+    <li><span class="sec">3.</span> 세금계산서 발행 요청 <span class="role emp">직원</span> <span class="page-num">4</span></li>
+    <li><span class="sec">4.</span> 세금계산서 발행 관리 <span class="role admin">관리자</span> <span class="role emp">조회직원</span> <span class="page-num">5</span></li>
+    <li><span class="sec">5.</span> 입금내역 & 매칭 <span class="role all">전체</span> <span class="page-num">6</span></li>
+    <li><span class="sec">6.</span> 연차 신청 <span class="role all">전체</span> <span class="page-num">8</span></li>
+    <li><span class="sec">7.</span> 문서보관 <span class="role all">전체</span> <span class="page-num">9</span></li>
+    <li><span class="sec">8.</span> 업무 체크리스트 <span class="role admin">관리자</span> <span class="page-num">9</span></li>
+    <li><span class="sec">9.</span> 자주 쓰는 팁 · 단축키 <span class="page-num">10</span></li>
+    <li><span class="sec">10.</span> 트러블슈팅 · 문의처 <span class="page-num">10</span></li>
+  </ul>
+
+  <div class="callout tip" style="margin-top:20px;">
+    <strong>💡 본 가이드를 읽기 전에</strong><br>
+    시스템은 클라우드 DB(Firebase)를 사용하여 여러 직원이 실시간으로 공유합니다.
+    본인 계정으로만 로그인하시고, <strong>타인 계정을 공유하지 마세요</strong>. 데이터 수정 이력이 남습니다.
+  </div>
+</section>
+
+<!-- ===================== 1. 시작하기 ===================== -->
+<section class="page">
+  <h2>1. 시작하기 — 접속 & 로그인</h2>
+
+  <h3>접속 방법</h3>
+  <ol>
+    <li>Chrome 또는 Edge 브라우저에서 <code>https://netformrnd.github.io/sq-biz/</code> 접속</li>
+    <li>즐겨찾기(★) 등록 권장</li>
+    <li>모바일에서도 접속 가능하나, 일부 기능(엑셀 붙여넣기 등)은 PC 권장</li>
+  </ol>
+
+  <h3>로그인</h3>
+  <ol class="step">
+    <li>관리자로부터 받은 <strong>아이디 / 비밀번호</strong> 입력</li>
+    <li>로그인 성공 시 대시보드 화면으로 이동</li>
+    <li>비밀번호 변경: 좌측 하단 <strong>[내 계정]</strong> → 비밀번호 변경</li>
+  </ol>
+
+  <div class="callout warn">
+    <strong>보안 안내</strong><br>
+    • 비밀번호 5회 연속 실패 시 10분간 계정 잠김<br>
+    • 30분간 활동이 없으면 자동 로그아웃<br>
+    • 초기 비밀번호는 반드시 변경하여 사용
+  </div>
+
+  <h2 style="margin-top:24px;">2. 메뉴 구조 & 역할별 권한</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th style="width:26%;">메뉴</th>
+        <th>주요 기능</th>
+        <th style="width:18%;">사용 권한</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td>📊 대시보드</td><td>주요 현황 요약, 미매칭 알림</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>📝 세금계산서 발행 요청</td><td>거래처 세금계산서 발행 요청 등록 (OCR 지원)</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>📋 나의 요청현황</td><td>본인이 요청한 내역 추적</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>🧾 세금계산서 발행</td><td>요청 검토·발행·반려, 발행내역 조회</td><td><span class="role admin">관리자</span> / <span class="role emp">직원(조회)</span></td></tr>
+      <tr><td>💰 입금내역</td><td>통장내역 업로드, 매칭, 거래처 지정</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>💸 송금내역</td><td>지급내역 조회/관리</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>📁 문서보관</td><td>사업자등록증·계약서·기타 문서 저장</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>🗓️ 연차 신청</td><td>달력 기반 연차/반차/반반차 신청</td><td><span class="role all">전체</span></td></tr>
+      <tr><td>✅ 업무 체크리스트</td><td>일·월·반기·연간 업무 체크</td><td><span class="role admin">관리자</span></td></tr>
+      <tr><td>👥 사용자 관리</td><td>계정·권한·비밀번호 관리</td><td><span class="role admin">관리자</span></td></tr>
+      <tr><td>⚙️ 설정 / 백업</td><td>CSV 내보내기, 백업, 문서 ZIP 다운로드</td><td><span class="role admin">관리자</span></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===================== 3. 세금계산서 발행 요청 ===================== -->
+<section class="page">
+  <h2>3. 세금계산서 발행 요청 <span class="role emp">직원</span></h2>
+
+  <h3>절차</h3>
+  <ol class="step">
+    <li>좌측 메뉴 <strong>[세금계산서 → 발행 요청]</strong> 클릭</li>
+    <li>거래처 사업자등록증 <strong>화면캡쳐</strong> 준비
+      <ul>
+        <li>Windows: <span class="kbd">⊞ Win</span> + <span class="kbd">Shift</span> + <span class="kbd">S</span> 로 영역 캡쳐</li>
+        <li>Mac: <span class="kbd">⌘</span> + <span class="kbd">Control</span> + <span class="kbd">Shift</span> + <span class="kbd">4</span></li>
+      </ul>
+    </li>
+    <li>캡쳐 후 발행 요청 페이지에서 <span class="kbd">Ctrl</span> + <span class="kbd">V</span> 로 붙여넣기
+      <ul><li>OCR 자동 인식 → 상호·사업자번호·대표자·주소 자동 입력</li></ul>
+    </li>
+    <li>OCR 오인식 항목 직접 수정 (거래처명/번호 꼭 확인)</li>
+    <li><strong>공급가액</strong> 입력 → 세액(10%)·합계 자동 계산</li>
+    <li>발행 사유, 프로젝트명, 이메일 입력</li>
+    <li>필요 시 <strong>계약서 파일 첨부</strong> (드래그 또는 클릭)</li>
+    <li><strong>[발행 요청]</strong> 버튼 클릭 → 관리자에게 알림</li>
+  </ol>
+
+  <div class="callout">
+    <strong>📋 나의 요청현황에서 확인 가능한 상태</strong>
+    <ul style="margin:4px 0;">
+      <li><strong>요청</strong> — 접수됨, 관리자 검토 대기</li>
+      <li><strong>검토중</strong> — 관리자가 검토 시작</li>
+      <li><strong>발행완료</strong> ✅ — 세금계산서 실제 발행됨</li>
+      <li><strong>반려</strong> ❌ — 반려사유 확인 후 재요청</li>
+    </ul>
+  </div>
+
+  <div class="callout warn">
+    <strong>주의사항</strong>
+    <ul style="margin:4px 0;">
+      <li>사업자등록증 파일 <strong>클릭 업로드는 지원 중단</strong> — Ctrl+V 화면캡쳐만 사용</li>
+      <li>OCR 인식 오류가 잦으면 <strong>수동으로 각 항목 입력</strong> 후 요청</li>
+      <li>발행 요청 후 수정이 필요하면 관리자에게 반려 요청</li>
+    </ul>
+  </div>
+
+  <h3>반려된 요청 재처리</h3>
+  <ol>
+    <li><strong>[나의 요청현황]</strong> → 반려 건 확인 → 반려사유 확인</li>
+    <li>새로 <strong>[발행 요청]</strong>에서 수정된 내용으로 재요청</li>
+  </ol>
+</section>
+
+<!-- ===================== 4. 세금계산서 발행 관리 ===================== -->
+<section class="page">
+  <h2>4. 세금계산서 발행 관리 <span class="role admin">관리자</span></h2>
+
+  <h3>요청 검토 & 발행 처리</h3>
+  <ol class="step">
+    <li>[세금계산서 발행] 메뉴 → 상태 탭 <strong>[요청]</strong> 선택</li>
+    <li>발행 대기 건의 <strong>[검토하기]</strong> 버튼 클릭 (상태 자동 "검토중"으로 변경)</li>
+    <li>상세 팝업에서 거래처 정보·금액·첨부 확인</li>
+    <li>위하고 등 실제 세금계산서 <strong>발행 완료 후</strong> 버튼 클릭:
+      <ul>
+        <li><strong>[발행완료 처리]</strong> — 발행일 기록, 요청자에게 알림</li>
+        <li><strong>[반려]</strong> — 사유 입력 → 요청자에게 알림</li>
+      </ul>
+    </li>
+  </ol>
+
+  <h3>발행내역 조회 (직원 포함)</h3>
+  <p>직원도 <span class="role emp">조회 모드</span>로 접근 가능. 다음 정보를 확인할 수 있습니다:</p>
+  <ul>
+    <li>요청번호 · 발행일 · <strong>입금일 · 입금처</strong></li>
+    <li>거래처명 · 발행사유 · 합계금액 · 상태</li>
+    <li>상세보기 👁️ 버튼으로 전체 내용 확인</li>
+  </ul>
+
+  <h3>필터 & 검색</h3>
+  <table>
+    <thead>
+      <tr><th>기능</th><th>설명</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>🗓️ <strong>당일</strong> 탭</td><td>오늘 요청/발행된 건만 표시</td></tr>
+      <tr><td>요청 / 검토중 / 발행완료 / 반려</td><td>상태별 필터</td></tr>
+      <tr><td>✅ <strong>완료 숨기기</strong></td><td>매칭 완료된 발행건 숨김 → 미입금/미처리 집중</td></tr>
+      <tr><td>🔍 검색</td><td>요청번호/거래처/사업자번호/발행사유/입금처/금액 통합 검색</td></tr>
+      <tr><td>📋 <strong>붙여넣기</strong></td><td>홈택스/위하고 매출 목록 일괄 등록 (자동 헤더 인식)</td></tr>
+      <tr><td>+ <strong>개별 등록</strong></td><td>수동으로 세금계산서 1건 추가</td></tr>
+    </tbody>
+  </table>
+
+  <h3>매칭 상태 표시</h3>
+  <ul>
+    <li>🔵 <strong>파란 배경</strong>: 단건 매칭 (입금 1건)</li>
+    <li>🟢 <strong>초록 배경 · ✅ 완료</strong>: 다건 매칭 + 합계 일치</li>
+    <li>🟠 <strong>주황 배경 · (부분 XX%)</strong>: 부분입금 — 추가 입금 필요</li>
+    <li>⚫ <strong>미입금</strong>: 아직 입금 없음</li>
+  </ul>
+</section>
+
+<!-- ===================== 5. 입금내역 & 매칭 ===================== -->
+<section class="page">
+  <h2>5. 입금내역 & 매칭 <span class="role all">전체</span></h2>
+
+  <h3>5-1. 통장내역 업로드 (관리자)</h3>
+  <ol class="step">
+    <li>[입금내역] 메뉴 → 상단 <strong>[📊 은행/위하고 붙여넣기]</strong> 클릭</li>
+    <li>업로드 방법 (택1):
+      <ul>
+        <li><strong>파일 드래그</strong>: .xlsx / .xls 파일을 드롭존에 드래그</li>
+        <li><strong>파일 선택</strong>: 드롭존 클릭 후 파일 선택</li>
+        <li><strong>복사·붙여넣기</strong>: 엑셀에서 복사 후 Ctrl+V</li>
+      </ul>
+    </li>
+    <li>지원 포맷:
+      <ul>
+        <li><strong>기업은행 입출식예금</strong> (헤더 없음 자동 인식)</li>
+        <li><strong>위하고</strong> (월/일 | 적요 | 입금액 | 출금액 | 잔액)</li>
+        <li><strong>은행 일반</strong> (거래일시 | 출금 | 입금 | 잔액 | 거래처명)</li>
+      </ul>
+    </li>
+    <li>자동 분석 후 <strong>입금 / 송금 분리 미리보기</strong> 확인</li>
+    <li>필요 시 <strong>[⚠️ 기존 입금/송금 모두 삭제 후 업로드]</strong> 체크
+      <div class="callout danger" style="margin:6px 0;">
+        이 옵션은 <strong>되돌릴 수 없습니다</strong>. 테스트 데이터 정리 시에만 사용.
+      </div>
+    </li>
+    <li><strong>[선택 항목 등록]</strong> 클릭</li>
+  </ol>
+
+  <h3>5-2. 미매칭 입금 확인 → 매칭하기</h3>
+  <ol class="step">
+    <li>상단 <strong>[미매칭]</strong> 필터로 매칭 필요한 건 확인</li>
+    <li>해당 입금건의 <strong>👁️ 상세/매칭</strong> 버튼 클릭</li>
+    <li>모달에서 <strong>🏢 거래처 추천</strong> 자동 제공
+      <ul>
+        <li>✓ 선택 시 거래처 지정 + 사업자번호 자동 기입</li>
+        <li>✕ 클릭 시 해당 추천 영구 숨김</li>
+        <li>검색 박스에서 직접 입력 가능</li>
+      </ul>
+    </li>
+    <li><strong>🔗 선발행 건 매칭</strong> 섹션에서 추천 중 <strong>[매칭]</strong> 클릭 또는 드롭다운에서 직접 선택</li>
+    <li>확인 팝업에서 완전/부분/초과 여부 안내 확인 → 확인</li>
+  </ol>
+
+  <h3>5-3. 다건 입금 → 1건 세금계산서 (부분입금) 매칭</h3>
+  <p><strong>사례:</strong> 공급가액과 부가세가 별도로 2번 입금된 경우</p>
+  <ol class="step">
+    <li>첫 번째 입금 매칭 → 확인창에 "부분 매칭 (남은금액 ...)" 표시</li>
+    <li>두 번째 입금의 상세 모달 진입</li>
+    <li>추천 목록에 해당 세금계산서가 <strong>🟠 "부분입금 1건"</strong>으로 노출됨
+      <ul><li>남은 금액과 일치하면 유사도 최고점(60) + ✅ 완전 매칭 예고</li></ul>
+    </li>
+    <li><strong>[추가매칭]</strong> 버튼 클릭 → 완료</li>
+  </ol>
+  <p>세금계산서 발행 페이지에서 <strong>"외 1건 ✅ 완료"</strong>로 표시됩니다.</p>
+
+  <h3>5-4. 매칭 해제 / 전체 초기화</h3>
+  <ul>
+    <li><strong>개별 해제</strong>: 상세 모달 → 매칭된 항목의 [🔗 매칭 해제] 클릭 (해당 건만)</li>
+    <li><strong>전체 초기화</strong>: 페이지 상단 [🗑️ 전체 초기화] — <u>입금 + 송금 전체 삭제</u>
+      <ul><li>이중 확인: 네이티브 confirm + "삭제" 단어 입력 필수</li></ul>
+    </li>
+  </ul>
+
+  <h3>5-5. 필터 · 검색 · 정렬</h3>
+  <table>
+    <thead><tr><th>기능</th><th>설명</th></tr></thead>
+    <tbody>
+      <tr><td>월별 요약 바</td><td>상단의 월별 카드 클릭 시 해당 월만 표시</td></tr>
+      <tr><td>상태 필터</td><td>미매칭 / 매칭완료 / 확인중</td></tr>
+      <tr><td>완료 숨기기</td><td>매칭완료 항목 숨김 → 미처리 집중</td></tr>
+      <tr><td>컬럼 정렬</td><td>입금일/입금처/금액 헤더 클릭 → 오름/내림차순 토글</td></tr>
+      <tr><td>검색</td><td>입금자·거래처·주문번호·비고·금액 통합</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ===================== 6. 연차 신청 ===================== -->
+<section class="page">
+  <h2>6. 연차 신청 <span class="role all">전체</span></h2>
+
+  <h3>6-1. 연차 신청하기</h3>
+  <ol class="step">
+    <li>좌측 메뉴 <strong>[연차 신청]</strong> 클릭</li>
+    <li>달력에서 신청할 <strong>날짜 클릭</strong> → 팝업 표시</li>
+    <li>연차 종류 선택:
+      <ul>
+        <li><strong>연차</strong> — 1일 차감 (종일)</li>
+        <li><strong>반차</strong> — 0.5일 차감 (4시간)</li>
+        <li><strong>반반차</strong> — 0.25일 차감 (2시간)</li>
+      </ul>
+    </li>
+    <li>반차/반반차 선택 시 <strong>시간 프리셋</strong> 또는 커스텀 시간 지정
+      <div class="callout tip" style="margin:6px 0;">
+        근무시간 <strong>8:30 ~ 17:30</strong> 기준 / 점심시간 <strong>12:00 ~ 13:00</strong> 자동 제외<br>
+        반차는 <strong>4시간</strong>, 반반차는 <strong>2시간</strong>으로 고정 차감
+      </div>
+    </li>
+    <li>사유 입력 (선택) → <strong>[신청]</strong> 클릭</li>
+    <li>관리자 승인 대기 (우측 사이드에 대기 건수 표시)</li>
+  </ol>
+
+  <h3>6-2. 취소 요청</h3>
+  <p>이미 승인된 연차를 취소하려면:</p>
+  <ol>
+    <li>사이드 <strong>[📋 내 신청 내역]</strong>에서 해당 건 우측 [취소 요청] 클릭</li>
+    <li>취소 사유 입력 → 관리자 승인 대기</li>
+    <li>신청 직후(대기 중)라면 [신청 취소] 바로 가능</li>
+  </ol>
+
+  <h3>6-3. 관리자 기능</h3>
+  <ul>
+    <li><strong>⏳ 승인대기</strong> — 신규 신청 / 취소 요청 일괄 승인·반려</li>
+    <li><strong>👥 팀원 연차 관리</strong>
+      <ul>
+        <li>기본 연차 개수 편집 (15일 기본)</li>
+        <li>포상 연차 추가 (사유 포함)</li>
+        <li>무제한 연차 설정 가능</li>
+        <li>팀원별 "연차 사용 대상 추가/제외" 토글</li>
+      </ul>
+    </li>
+    <li><strong>📊 리포트</strong> — 엑셀(.xlsx) 내보내기 (연차현황 + 사용일자상세 2시트)</li>
+    <li><strong>📥 데이터 이관</strong> — 기존 연차 시스템에서 이름 기반 자동 매칭 이관</li>
+  </ul>
+
+  <h3>6-4. 달력 색상</h3>
+  <ul>
+    <li>👤 <strong>김영성 — 파란색</strong></li>
+    <li>👤 <strong>신수진 — 핑크색</strong></li>
+    <li>대기중(점선 테두리) / 승인완료(실선) 자동 구분</li>
+    <li>공휴일 빨강색 자동 표시 (클릭 불가)</li>
+  </ul>
+</section>
+
+<!-- ===================== 7. 문서보관 ===================== -->
+<section class="page">
+  <h2>7. 문서보관 <span class="role all">전체</span></h2>
+
+  <h3>자동 저장 (세금계산서 요청 시)</h3>
+  <p>발행 요청 시 첨부한 <strong>사업자등록증</strong>·<strong>계약서</strong>가 자동으로 문서보관으로 이관되어 거래처명별로 분류됩니다.</p>
+
+  <h3>수동 업로드 (관리자)</h3>
+  <ol class="step">
+    <li>[문서보관] 메뉴 → 상단 <strong>[+ 문서 업로드]</strong> 클릭</li>
+    <li>사업자명 입력 (공통)</li>
+    <li>카테고리별 파일 선택 (동시 선택 가능):
+      <ul>
+        <li>📄 <strong>사업자등록증</strong> (여러 파일)</li>
+        <li>📑 <strong>계약서</strong> (여러 파일)</li>
+        <li>📎 <strong>기타 문서</strong></li>
+      </ul>
+    </li>
+    <li>업로드 → 카테고리별 건수 자동 분류 표시</li>
+  </ol>
+
+  <h3>주요 기능</h3>
+  <ul>
+    <li>🔍 사업자명/사업자번호/파일명 검색</li>
+    <li>📅 등록일 기준 날짜 필터</li>
+    <li>✏️ 파일명 변경 / 👁️ 미리보기 / 💾 다운로드 / 🗑️ 삭제(관리자)</li>
+    <li>설정 메뉴에서 <strong>전체 문서 ZIP 일괄 다운로드</strong> 지원</li>
+  </ul>
+
+  <h2 style="margin-top:28px;">8. 업무 체크리스트 <span class="role admin">관리자</span></h2>
+
+  <h3>주기별 체크리스트</h3>
+  <ul>
+    <li><strong>일일</strong> — 매일 반복 업무 (ex: 통장 확인)</li>
+    <li><strong>월간</strong> — 월별 업무 (ex: 급여, 4대보험)</li>
+    <li><strong>반기 / 연간</strong> — 종합소득세, 결산 등</li>
+  </ul>
+  <p>30개 이상 기본 항목이 내장되어 있습니다. 체크 시 담당자/시간이 자동 기록됩니다.</p>
+</section>
+
+<!-- ===================== 9. 팁 & 단축키 ===================== -->
+<section class="page">
+  <h2>9. 자주 쓰는 팁 · 단축키</h2>
+
+  <h3>키보드 단축키</h3>
+  <table>
+    <thead><tr><th>단축키</th><th>기능</th></tr></thead>
+    <tbody>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">K</span></td><td>전역 검색 (요청번호/거래처/금액 등)</td></tr>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">V</span></td><td>사업자등록증 화면캡쳐 붙여넣기 (OCR 자동)</td></tr>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">V</span></td><td>엑셀 붙여넣기 (통장·세금계산서 일괄 등록)</td></tr>
+      <tr><td><span class="kbd">Esc</span></td><td>팝업 닫기</td></tr>
+      <tr><td>우클릭</td><td>컨텍스트 메뉴 (빠른 액션)</td></tr>
+      <tr><td><span class="kbd">Ctrl</span> + <span class="kbd">Shift</span> + <span class="kbd">R</span></td><td>브라우저 강력 새로고침 (캐시 문제 해결)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>효율 팁</h3>
+  <ul>
+    <li>매칭 시 <strong>금액 완전일치</strong>되면 유사도 90점 이상 → 최상단에 추천됨</li>
+    <li>부분입금 건은 <strong>남은 금액만 추가 매칭</strong>하면 됨</li>
+    <li>엑셀 붙여넣기 시 반드시 <strong>헤더 행 포함</strong>해서 복사 (컬럼 자동 인식)</li>
+    <li>상태·월·완료숨기기 필터 <strong>조합 사용</strong>하면 목록이 간결해짐</li>
+    <li>세금계산서 발행 테이블 내용이 길 때는 <strong>마우스 호버</strong>로 전체 내용 확인</li>
+    <li>당일 탭 + 완료숨기기 체크 → 오늘 처리해야 할 건만 집중 조회</li>
+  </ul>
+
+  <h2 style="margin-top:24px;">10. 트러블슈팅 · 문의</h2>
+
+  <h3>자주 발생하는 문제</h3>
+  <table>
+    <thead><tr><th>증상</th><th>해결 방법</th></tr></thead>
+    <tbody>
+      <tr>
+        <td>변경사항이 반영되지 않음</td>
+        <td><span class="kbd">Ctrl</span>+<span class="kbd">Shift</span>+<span class="kbd">R</span> 로 강력 새로고침.<br>그래도 안 되면 개발자도구(F12) → Application → Clear site data</td>
+      </tr>
+      <tr>
+        <td>OCR 인식 오류 / 미인식</td>
+        <td>사업자등록증이 또렷하게 캡쳐되었는지 확인. 여전히 오인식이면 <strong>수동 입력</strong> 진행</td>
+      </tr>
+      <tr>
+        <td>엑셀 붙여넣기 후 데이터 이상</td>
+        <td><strong>헤더 행 포함</strong> 여부 확인. 기업은행 거래내역 파일은 헤더 없이 드래그 업로드 권장</td>
+      </tr>
+      <tr>
+        <td>입금/세금계산서 중복 등록</td>
+        <td>붙여넣기 로직이 중복 자동 스킵 — 승인번호 또는 상호+금액+일자 기준</td>
+      </tr>
+      <tr>
+        <td>잘못된 매칭 취소</td>
+        <td>해당 입금/세금계산서 상세 → [🔗 매칭 해제] (개별 제거) → 재매칭</td>
+      </tr>
+      <tr>
+        <td>비밀번호 분실</td>
+        <td>관리자에게 비밀번호 초기화 요청 (사용자 관리 → 🔑 버튼)</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout" style="margin-top:20px;">
+    <strong>📞 문의처</strong><br>
+    • 경영관리팀 · 넷폼알앤디<br>
+    • 시스템 오류/개선 요청은 담당자에게 전달 바랍니다.<br>
+    • 긴급 데이터 문제 시 <strong>설정 → 백업</strong> 기능으로 현재 데이터 백업 후 문의
+  </div>
+
+  <p style="text-align:center;color:#94a3b8;margin-top:60px;font-size:9pt;">
+    © 2026 스퀘어건축사사무소 · 업무관리 시스템 사용 가이드<br>
+    본 문서는 내부 업무용이며 외부 배포를 금합니다.
+  </p>
+</section>
+
+</body>
+</html>

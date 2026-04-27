@@ -84,7 +84,7 @@ const FirebaseDB = {
   // ===== CRUD 인터페이스 (IndexedDB DB와 호환) =====
   async add(collection, data) {
     await this.open();
-    const cleaned = this._toFirestore(data);
+    const cleaned = await this._toFirestore(data);
     const ref = await this.db.collection(collection).add({
       ...cleaned,
       _createdAt: firebase.firestore.FieldValue.serverTimestamp()
@@ -115,7 +115,7 @@ const FirebaseDB = {
     await this.open();
     if (!data.id) throw new Error('update: id 필요');
     const id = String(data.id);
-    const cleaned = this._toFirestore({ ...data });
+    const cleaned = await this._toFirestore({ ...data });
     delete cleaned.id;
     await this.db.collection(collection).doc(id).set({
       ...cleaned,
@@ -148,25 +148,63 @@ const FirebaseDB = {
   },
 
   // ===== Firestore <-> 앱 데이터 변환 =====
-  _toFirestore(data) {
+  // Blob/File 인지 확인 (File은 Blob을 상속하지만 일부 환경에서 차이 있음)
+  _isBlobLike(v) {
+    return v && (v instanceof Blob || (typeof File !== 'undefined' && v instanceof File));
+  },
+
+  // 저장 시: Blob/File → base64 문자열로 인라인 변환
+  // (Firestore 1MB 제한 — 사업자등록증 캡쳐는 통상 100~400KB라 안전)
+  async _toFirestore(data) {
     const result = { ...data };
-    // Blob → base64 문자열
-    if (result.attachments && Array.isArray(result.attachments)) {
-      result.attachments = result.attachments.map(att => {
-        if (att.fileData instanceof Blob) {
-          return { ...att, fileData: null, _pendingBlob: true };
+
+    // attachments 배열 처리 (각 첨부의 fileData)
+    if (Array.isArray(result.attachments)) {
+      result.attachments = await Promise.all(result.attachments.map(async att => {
+        if (this._isBlobLike(att.fileData)) {
+          const blob = att.fileData;
+          const base64 = await this._blobToBase64(blob);
+          return {
+            ...att,
+            fileData: base64,
+            fileType: att.fileType || blob.type || '',
+            fileName: att.fileName || blob.name || '',
+            fileSize: blob.size || 0
+          };
+        }
+        return att;
+      }));
+    }
+
+    // 단일 fileData 처리 (documents 컬렉션 등)
+    if (this._isBlobLike(result.fileData)) {
+      const blob = result.fileData;
+      result.fileData = await this._blobToBase64(blob);
+      result.fileType = result.fileType || blob.type || '';
+      if (!result.fileName && blob.name) result.fileName = blob.name;
+      result.fileSize = blob.size || 0;
+    }
+
+    return result;
+  },
+
+  // 조회 시: base64 → Blob 으로 복원 (앱은 Blob을 기대)
+  _fromFirestore(data) {
+    if (!data) return data;
+
+    if (Array.isArray(data.attachments)) {
+      data.attachments = data.attachments.map(att => {
+        if (typeof att.fileData === 'string' && att.fileData.startsWith('data:')) {
+          return { ...att, fileData: this._base64ToBlob(att.fileData, att.fileType) };
         }
         return att;
       });
     }
-    if (result.fileData instanceof Blob) {
-      // documents 스토어: fileData는 blob → base64
-      result._hasBlob = true;
-    }
-    return result;
-  },
 
-  _fromFirestore(data) {
+    if (typeof data.fileData === 'string' && data.fileData.startsWith('data:')) {
+      data.fileData = this._base64ToBlob(data.fileData, data.fileType);
+    }
+
     return data;
   },
 

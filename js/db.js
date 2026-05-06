@@ -283,6 +283,19 @@ const DB = {
     }
   },
 
+  // 첨부 fileData(Blob | { __blobRef } | base64 문자열) → Blob 으로 통일
+  // IndexedDB 모드: 이미 Blob 으로 저장돼 있으므로 그대로 반환
+  // Firebase 모드: { __blobRef } 면 _blobs 에서 다운로드
+  async resolveBlob(refOrBlob, mimeType) {
+    if (!refOrBlob) return null;
+    if (refOrBlob instanceof Blob) return refOrBlob;
+    if (this.useFirebase) return FirebaseDB.resolveBlob(refOrBlob, mimeType);
+    if (typeof refOrBlob === 'string' && refOrBlob.startsWith('data:')) {
+      return this._base64ToBlob(refOrBlob, mimeType);
+    }
+    return null;
+  },
+
   _blobToBase64(blob) {
     return new Promise((resolve) => {
       const reader = new FileReader();

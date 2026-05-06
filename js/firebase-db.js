@@ -153,20 +153,55 @@ const FirebaseDB = {
     return v && (v instanceof Blob || (typeof File !== 'undefined' && v instanceof File));
   },
 
-  // 저장 시: Blob/File → base64 문자열로 인라인 변환
-  // (Firestore 1MB 제한 — 사업자등록증 캡쳐는 통상 100~400KB라 안전)
+  // _blobs 컬렉션 단일 문서 1MB 제한. base64 인코딩 후 ~1MB 안에 들어가도록 raw 700KB로 컷.
+  // (700KB raw → ~933KB base64, Firestore 오버헤드 포함 ~950KB)
+  MAX_BLOB_BYTES: 700 * 1024,
+
+  // Blob → _blobs 컬렉션에 저장 후 참조 객체 반환 ({ __blobRef: id })
+  async _encodeBlobToRef(blob) {
+    if (blob.size > this.MAX_BLOB_BYTES) {
+      const mb = (blob.size / 1024 / 1024).toFixed(2);
+      throw new Error(`첨부파일 용량 초과 (${mb}MB). 한 파일당 최대 700KB까지 가능합니다. PDF는 압축 후 다시 시도해 주세요.`);
+    }
+    const blobId = await this.uploadBlob(blob);
+    return { __blobRef: blobId };
+  },
+
+  _isBlobRef(v) {
+    return v && typeof v === 'object' && typeof v.__blobRef === 'string';
+  },
+
+  // 저장 시: Blob/File → 별도 _blobs 컬렉션 업로드 후 부모 문서엔 참조만 저장
+  // (Firestore 단일 문서 1MB 제한 회피)
   async _toFirestore(data) {
     const result = { ...data };
 
-    // attachments 배열 처리 (각 첨부의 fileData)
+    // 1) 모든 Blob 의 사이즈 사전 검증 (한도 초과 시 업로드 시작 전에 에러)
+    const blobsToCheck = [];
+    if (Array.isArray(result.attachments)) {
+      for (const att of result.attachments) {
+        if (this._isBlobLike(att.fileData)) blobsToCheck.push({ blob: att.fileData, name: att.fileName });
+      }
+    }
+    if (this._isBlobLike(result.fileData)) {
+      blobsToCheck.push({ blob: result.fileData, name: result.fileName });
+    }
+    for (const { blob, name } of blobsToCheck) {
+      if (blob.size > this.MAX_BLOB_BYTES) {
+        const mb = (blob.size / 1024 / 1024).toFixed(2);
+        throw new Error(`첨부파일 용량 초과: ${name || '파일'} (${mb}MB). 한 파일당 최대 700KB까지 가능합니다. PDF는 압축 후 다시 시도해 주세요.`);
+      }
+    }
+
+    // 2) attachments 배열 처리 (각 첨부의 fileData → _blobs 업로드)
     if (Array.isArray(result.attachments)) {
       result.attachments = await Promise.all(result.attachments.map(async att => {
         if (this._isBlobLike(att.fileData)) {
           const blob = att.fileData;
-          const base64 = await this._blobToBase64(blob);
+          const ref = await this._encodeBlobToRef(blob);
           return {
             ...att,
-            fileData: base64,
+            fileData: ref,
             fileType: att.fileType || blob.type || '',
             fileName: att.fileName || blob.name || '',
             fileSize: blob.size || 0
@@ -176,10 +211,10 @@ const FirebaseDB = {
       }));
     }
 
-    // 단일 fileData 처리 (documents 컬렉션 등)
+    // 3) 단일 fileData 처리 (documents 컬렉션 등)
     if (this._isBlobLike(result.fileData)) {
       const blob = result.fileData;
-      result.fileData = await this._blobToBase64(blob);
+      result.fileData = await this._encodeBlobToRef(blob);
       result.fileType = result.fileType || blob.type || '';
       if (!result.fileName && blob.name) result.fileName = blob.name;
       result.fileSize = blob.size || 0;
@@ -188,7 +223,8 @@ const FirebaseDB = {
     return result;
   },
 
-  // 조회 시: base64 → Blob 으로 복원 (앱은 Blob을 기대)
+  // 조회 시: 레거시 base64 → Blob 으로 복원 (구 데이터 호환).
+  // 새 데이터의 { __blobRef } 는 그대로 두고 사용 시점에 resolveBlob 호출.
   _fromFirestore(data) {
     if (!data) return data;
 
@@ -206,6 +242,22 @@ const FirebaseDB = {
     }
 
     return data;
+  },
+
+  // 첨부 fileData 값을 Blob 으로 통일해서 반환.
+  // - Blob/File: 그대로 반환
+  // - { __blobRef }: _blobs 에서 다운로드해서 Blob 생성
+  // - 레거시 base64 문자열: Blob 변환
+  async resolveBlob(refOrBlob, mimeType) {
+    if (!refOrBlob) return null;
+    if (this._isBlobLike(refOrBlob)) return refOrBlob;
+    if (this._isBlobRef(refOrBlob)) {
+      return await this.downloadBlob(refOrBlob.__blobRef);
+    }
+    if (typeof refOrBlob === 'string' && refOrBlob.startsWith('data:')) {
+      return this._base64ToBlob(refOrBlob, mimeType);
+    }
+    return null;
   },
 
   // ===== 파일 업로드 (base64로 별도 컬렉션) =====

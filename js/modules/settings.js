@@ -393,11 +393,15 @@ const SettingsModule = {
           if (doc.fileData instanceof Blob) {
             // IndexedDB 직접 저장된 Blob
             blob = doc.fileData;
+          } else if (doc.fileData && typeof doc.fileData === 'object' && doc.fileData.__blobRef) {
+            // Firebase _blobs 컬렉션 참조
+            blob = await DB.resolveBlob(doc.fileData, doc.fileType);
+            if (!blob) { skippedCount++; continue; }
           } else if (typeof doc.fileData === 'string' && doc.fileData.startsWith('data:')) {
-            // base64 → Blob 변환 (Firebase)
+            // 레거시: base64 → Blob 변환 (Firebase)
             blob = this._base64ToBlob(doc.fileData, doc.fileType);
           } else if (typeof doc.fileData === 'string' && doc.fileData.length > 0) {
-            // data: prefix 없는 base64
+            // 레거시: data: prefix 없는 base64
             try {
               blob = this._base64ToBlob('data:' + (doc.fileType || 'application/octet-stream') + ';base64,' + doc.fileData, doc.fileType);
             } catch (e) {

@@ -235,8 +235,9 @@ const DocumentsModule = {
     if (!doc || !doc.fileData) return;
 
     let contentHtml = '';
-    if (doc.fileData instanceof Blob) {
-      const url = URL.createObjectURL(doc.fileData);
+    const blob = await DB.resolveBlob(doc.fileData, doc.fileType);
+    if (blob) {
+      const url = URL.createObjectURL(blob);
       if (doc.fileType && doc.fileType.startsWith('image/')) {
         contentHtml = `<img src="${url}" style="max-width:100%;border-radius:var(--radius-sm);">`;
       } else {
@@ -268,7 +269,8 @@ const DocumentsModule = {
     const doc = await DB.get('documents', id);
     if (!doc || !doc.fileData) return;
 
-    const blob = doc.fileData instanceof Blob ? doc.fileData : new Blob([doc.fileData]);
+    const resolved = await DB.resolveBlob(doc.fileData, doc.fileType);
+    const blob = resolved || (doc.fileData instanceof Blob ? doc.fileData : new Blob([doc.fileData]));
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

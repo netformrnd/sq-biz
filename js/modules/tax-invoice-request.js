@@ -697,8 +697,9 @@ const TaxInvoiceRequestModule = {
     let attachmentHtml = '';
     if (item.attachments && item.attachments.length > 0) {
       const att = item.attachments[0];
-      if (att.fileData instanceof Blob) {
-        const url = URL.createObjectURL(att.fileData);
+      const blob = await DB.resolveBlob(att.fileData, att.fileType);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
         attachmentHtml = `<div class="mt-4"><label class="fw-semibold text-sm">첨부 사업자등록증:</label><br><img src="${url}" style="max-width:100%;max-height:300px;border-radius:var(--radius-sm);border:1px solid var(--color-border);margin-top:var(--sp-2);"></div>`;
       }
     }

@@ -423,8 +423,9 @@ const TaxInvoiceAdminModule = {
     let attachmentHtml = '';
     if (item.attachments && item.attachments.length > 0) {
       const att = item.attachments[0];
-      if (att.fileData instanceof Blob) {
-        const url = URL.createObjectURL(att.fileData);
+      const blob = await DB.resolveBlob(att.fileData, att.fileType);
+      if (blob) {
+        const url = URL.createObjectURL(blob);
         attachmentHtml = `
           <div class="mt-4">
             <label class="fw-semibold text-sm">📎 첨부 사업자등록증</label>

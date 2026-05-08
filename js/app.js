@@ -195,8 +195,10 @@ const App = {
         `;
       }
       if (showTransfers) {
+        // 송금내역: 관리자는 /transfers/admin, 직원은 /transfers/my (라우트 권한 차이)
+        const transferPath = isAdmin ? '/transfers/admin' : '/transfers/my';
         html += `
-          <div class="nav-item" data-path="/transfers/admin" onclick="Router.navigate('/transfers/admin')">
+          <div class="nav-item" data-path="${transferPath}" onclick="Router.navigate('${transferPath}')">
             <span class="nav-icon">💸</span>
             <span>송금내역</span>
           </div>

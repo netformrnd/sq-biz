@@ -139,7 +139,7 @@ const DashboardModule = {
               <div class="card-sub">${Utils.formatCurrency(totalDepositAmount)}</div>
             </div>
           </div>
-          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/transfers/admin')" title="송금내역으로 이동">
+          <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate(Auth.isAdmin() ? '/transfers/admin' : '/transfers/my')" title="송금내역으로 이동">
             <div class="card-icon orange">💸</div>
             <div class="card-info">
               <div class="card-label">나의 송금내역</div>

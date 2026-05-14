@@ -495,7 +495,13 @@ const SettingsModule = {
       Utils.showToast(url ? '잔디 웹훅 URL이 저장되었습니다. (전체 사용자 공유)' : '잔디 알림이 비활성화되었습니다.', 'success');
     } catch (e) {
       console.error('[Jandi] URL 저장 실패:', e);
-      Utils.showToast('저장 실패: ' + e.message, 'error', 5000);
+      // Firestore 저장 실패해도 localStorage엔 캐시되도록 처리
+      try {
+        if (url) localStorage.setItem(JandiWebhook.STORAGE_KEY, url);
+        else localStorage.removeItem(JandiWebhook.STORAGE_KEY);
+        JandiWebhook._cachedUrl = url;
+      } catch {}
+      Utils.showToast('Firestore 저장 실패 (이 PC에서만 동작): ' + e.message, 'warning', 7000);
     }
   },
 
@@ -504,8 +510,14 @@ const SettingsModule = {
       Utils.showToast('먼저 웹훅 URL을 입력하고 저장하세요.', 'error');
       return;
     }
-    await JandiWebhook.send('🔔 테스트 알림', '스퀘어건축사사무소 업무관리 시스템에서 보낸 테스트 알림입니다.', '#2563EB');
-    Utils.showToast('테스트 알림을 전송했습니다. 잔디에서 확인하세요.', 'success');
+    const r = await JandiWebhook.send('🔔 테스트 알림', '스퀘어건축사사무소 업무관리 시스템에서 보낸 테스트 알림입니다.', '#2563EB');
+    if (r && r.ok) {
+      Utils.showToast(`테스트 알림 전송 완료 (${r.via}). 잔디에서 확인하세요.`, 'success');
+    } else if (r && r.error === 'no-url') {
+      Utils.showToast('웹훅 URL이 비어 있습니다. 저장 후 다시 시도하세요.', 'error', 5000);
+    } else {
+      Utils.showToast('❌ 테스트 전송 실패: 모든 CORS 프록시 차단. F12 콘솔의 [Jandi] 로그를 확인하세요.', 'error', 8000);
+    }
   },
 
   async _exportBackup() {

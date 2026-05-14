@@ -126,6 +126,11 @@ const App = {
 
     // 대시보드로 알림 뱃지 업데이트
     this.updateNotificationBadges();
+
+    // 잔디 웹훅 URL을 Firestore에서 사전 로드 (모든 사용자가 같은 URL 공유)
+    if (window.JandiWebhook && JandiWebhook.loadFromCloud) {
+      JandiWebhook.loadFromCloud().catch(e => console.warn('[Jandi] 사전 로드 실패:', e));
+    }
   },
 
   // 메뉴 권한 체크 (관리자=전체, 직원=할당된 것만)

@@ -11,6 +11,9 @@ const SettingsModule = {
   },
 
   async render() {
+    // 잔디 URL을 Firestore에서 로드 (초기 진입 시 input 값에 반영)
+    try { await JandiWebhook.loadFromCloud(); } catch (e) { console.warn('[Settings] 잔디 URL 로드 실패:', e); }
+
     // 데이터 통계
     const counts = {
       users: await DB.count('users'),
@@ -484,11 +487,16 @@ const SettingsModule = {
     return new Blob([ab], { type: mimeType || 'application/octet-stream' });
   },
 
-  _saveJandiUrl() {
+  async _saveJandiUrl() {
     const url = document.getElementById('jandiUrl').value.trim();
-    JandiWebhook.setWebhookUrl(url);
-    this.render();
-    Utils.showToast(url ? '잔디 웹훅 URL이 저장되었습니다.' : '잔디 알림이 비활성화되었습니다.', 'success');
+    try {
+      await JandiWebhook.setWebhookUrl(url);
+      await this.render();
+      Utils.showToast(url ? '잔디 웹훅 URL이 저장되었습니다. (전체 사용자 공유)' : '잔디 알림이 비활성화되었습니다.', 'success');
+    } catch (e) {
+      console.error('[Jandi] URL 저장 실패:', e);
+      Utils.showToast('저장 실패: ' + e.message, 'error', 5000);
+    }
   },
 
   async _testJandi() {

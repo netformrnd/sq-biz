@@ -6,19 +6,66 @@
 
 const JandiWebhook = {
   STORAGE_KEY: 'sq_jandi_webhook_url',
+  SETTINGS_COLLECTION: 'appSettings',
+  SETTINGS_DOC_ID: 'jandi',
+  _cachedUrl: null,
+  _loadedFromCloud: false,
+  _loadPromise: null,
 
-  // 저장된 웹훅 URL 가져오기
+  // Firestore에서 웹훅 URL 로드 (앱 시작 시 + send() 호출 시 보장)
+  // localStorage는 단순 캐시. 진실의 원천(source of truth)은 Firestore.
+  async loadFromCloud() {
+    if (this._loadedFromCloud) return this._cachedUrl;
+    if (this._loadPromise) return this._loadPromise;
+
+    this._loadPromise = (async () => {
+      try {
+        const doc = await DB.get(this.SETTINGS_COLLECTION, this.SETTINGS_DOC_ID);
+        if (doc && doc.webhookUrl) {
+          this._cachedUrl = doc.webhookUrl;
+          localStorage.setItem(this.STORAGE_KEY, doc.webhookUrl);
+          console.log('[Jandi] 웹훅 URL 로드 완료 (Firestore)');
+        } else {
+          // Firestore에 없으면 localStorage(이전 버전 호환) 사용
+          const lsUrl = localStorage.getItem(this.STORAGE_KEY) || '';
+          this._cachedUrl = lsUrl;
+          if (lsUrl) console.log('[Jandi] 웹훅 URL 로드 완료 (localStorage fallback)');
+        }
+        this._loadedFromCloud = true;
+      } catch (e) {
+        console.warn('[Jandi] Firestore 설정 로드 실패, localStorage 사용:', e.message);
+        this._cachedUrl = localStorage.getItem(this.STORAGE_KEY) || '';
+      }
+      return this._cachedUrl;
+    })();
+
+    return this._loadPromise;
+  },
+
+  // 저장된 웹훅 URL 가져오기 (동기, 캐시 기반)
   getWebhookUrl() {
+    if (this._cachedUrl !== null) return this._cachedUrl;
     return localStorage.getItem(this.STORAGE_KEY) || '';
   },
 
-  // 웹훅 URL 저장
-  setWebhookUrl(url) {
-    if (url) {
-      localStorage.setItem(this.STORAGE_KEY, url.trim());
+  // 웹훅 URL 저장 (Firestore에 영구 저장 + localStorage 캐시) - async
+  async setWebhookUrl(url) {
+    const trimmed = (url || '').trim();
+
+    // 1) Firestore 영구 저장 (모든 사용자 공유)
+    await DB.update(this.SETTINGS_COLLECTION, {
+      id: this.SETTINGS_DOC_ID,
+      webhookUrl: trimmed
+    });
+
+    // 2) localStorage 캐시 + 메모리 캐시
+    if (trimmed) {
+      localStorage.setItem(this.STORAGE_KEY, trimmed);
     } else {
       localStorage.removeItem(this.STORAGE_KEY);
     }
+    this._cachedUrl = trimmed;
+    this._loadedFromCloud = true;
   },
 
   // 잔디 웹훅 활성화 여부
@@ -29,9 +76,14 @@ const JandiWebhook = {
   // 잔디로 알림 전송 (CORS 우회 - 다중 프록시 폴백)
   // 반환: { ok: boolean, via?: string, status?: number, error?: string }
   async send(title, body, color = '#2563EB') {
+    // 캐시가 비어있으면 Firestore에서 자동 로드 (다른 PC에서 등록한 URL도 사용 가능)
+    if (!this._loadedFromCloud) {
+      await this.loadFromCloud();
+    }
+
     const url = this.getWebhookUrl();
     if (!url) {
-      console.warn('[Jandi] webhook URL 미설정');
+      console.warn('[Jandi] webhook URL 미설정 (Firestore appSettings/jandi 문서를 확인하세요)');
       return { ok: false, error: 'no-url' };
     }
 

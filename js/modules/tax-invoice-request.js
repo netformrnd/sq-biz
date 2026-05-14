@@ -604,14 +604,34 @@ const TaxInvoiceRequestModule = {
       updatedAt: new Date().toISOString()
     };
 
+    // ── 1단계: 메인 발행 요청 저장 (반드시 성공해야 진행)
+    let id = null;
     try {
-      const id = await DB.add('taxInvoiceRequests', data);
+      id = await DB.add('taxInvoiceRequests', data);
       await DB.log('CREATE', 'taxInvoice', id, `세금계산서 발행 요청: ${requestNumber}`);
       App.updateNotificationBadges();
+    } catch (err) {
+      console.error('[발행요청] 메인 저장 실패:', err);
+      Utils.showToast('요청 등록 실패: ' + err.message, 'error');
+      return;
+    }
 
-      // 문서보관에 자동 저장 (사업자등록증 + 계약서)
-      if (attachments.length > 0) {
-        for (const att of attachments) {
+    // ── 2단계: 잔디 알림 전송 (문서 저장 실패와 무관하게 우선 발송)
+    try {
+      const r = await JandiWebhook.notifyNewRequest({ ...data, id });
+      if (r && !r.ok && r.error !== 'no-url') {
+        console.warn('[Jandi] 알림 결과:', r);
+        Utils.showToast('⚠️ 잔디 알림 전송 실패 (요청은 정상 등록됨)', 'warning', 4000);
+      }
+    } catch (e) {
+      console.error('[Jandi] notifyNewRequest 예외:', e);
+    }
+
+    // ── 3단계: 문서보관에 첨부파일 자동 저장 (실패해도 잔디·메인엔 영향 없음)
+    let docFailCount = 0;
+    if (attachments.length > 0) {
+      for (const att of attachments) {
+        try {
           await DB.add('documents', {
             companyName: partnerCompanyName,
             regNumber: partnerRegNumber,
@@ -625,25 +645,20 @@ const TaxInvoiceRequestModule = {
             registeredByName: user.displayName,
             createdAt: new Date().toISOString()
           });
+        } catch (e) {
+          docFailCount++;
+          console.error('[문서저장] 실패:', att.fileName, e);
         }
       }
-
-      Utils.showToast(`발행 요청이 등록되었습니다. (${requestNumber})`, 'success');
-
-      // 잔디 알림 전송 (네비게이션 전 완료 보장)
-      try {
-        const r = await JandiWebhook.notifyNewRequest({ ...data, id });
-        if (r && !r.ok && r.error !== 'no-url') {
-          Utils.showToast('⚠️ 잔디 알림 전송 실패 (요청은 정상 등록됨)', 'warning', 4000);
-        }
-      } catch (e) {
-        console.error('[Jandi] notifyNewRequest 예외:', e);
-      }
-
-      Router.navigate('/tax-invoice/my');
-    } catch (err) {
-      Utils.showToast('요청 등록 실패: ' + err.message, 'error');
     }
+
+    if (docFailCount > 0) {
+      Utils.showToast(`발행 요청 등록됨 (${requestNumber}) - 단, 첨부파일 ${docFailCount}건 저장 실패`, 'warning', 5000);
+    } else {
+      Utils.showToast(`발행 요청이 등록되었습니다. (${requestNumber})`, 'success');
+    }
+
+    Router.navigate('/tax-invoice/my');
   },
 
   // ===== 나의 요청 현황 =====

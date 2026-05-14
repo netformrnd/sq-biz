@@ -628,10 +628,18 @@ const TaxInvoiceRequestModule = {
         }
       }
 
-      // 잔디 알림 전송
-      JandiWebhook.notifyNewRequest(data);
-
       Utils.showToast(`발행 요청이 등록되었습니다. (${requestNumber})`, 'success');
+
+      // 잔디 알림 전송 (네비게이션 전 완료 보장)
+      try {
+        const r = await JandiWebhook.notifyNewRequest({ ...data, id });
+        if (r && !r.ok && r.error !== 'no-url') {
+          Utils.showToast('⚠️ 잔디 알림 전송 실패 (요청은 정상 등록됨)', 'warning', 4000);
+        }
+      } catch (e) {
+        console.error('[Jandi] notifyNewRequest 예외:', e);
+      }
+
       Router.navigate('/tax-invoice/my');
     } catch (err) {
       Utils.showToast('요청 등록 실패: ' + err.message, 'error');

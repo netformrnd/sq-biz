@@ -26,12 +26,13 @@ const JandiWebhook = {
     return !!this.getWebhookUrl();
   },
 
-  // 잔디로 알림 전송 (CORS 우회)
+  // 잔디로 알림 전송 (CORS 우회 - 다중 프록시 폴백)
+  // 반환: { ok: boolean, via?: string, status?: number, error?: string }
   async send(title, body, color = '#2563EB') {
     const url = this.getWebhookUrl();
     if (!url) {
       console.warn('[Jandi] webhook URL 미설정');
-      return;
+      return { ok: false, error: 'no-url' };
     }
 
     // 잔디 Incoming Webhook 형식
@@ -43,59 +44,66 @@ const JandiWebhook = {
         description: body
       }]
     };
+    const payloadStr = JSON.stringify(payload);
 
     console.log('[Jandi] 전송 시도:', title);
 
-    // ── 1차 시도: corsproxy.io 경유 (정상 응답 확인 가능)
-    try {
-      const proxyUrl = 'https://corsproxy.io/?' + encodeURIComponent(url);
-      const res = await fetch(proxyUrl, {
-        method: 'POST',
-        headers: {
-          'Accept': 'application/vnd.tosslab.jandi-v2+json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-      if (res.ok) {
-        console.log('[Jandi] ✅ 전송 완료 (proxy):', res.status);
-        return;
+    // CORS 우회 프록시 후보 (순차 시도)
+    const proxies = [
+      { name: 'corsproxy.io',  build: (u) => 'https://corsproxy.io/?' + encodeURIComponent(u) },
+      { name: 'allorigins',    build: (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
+      { name: 'thingproxy',    build: (u) => 'https://thingproxy.freeboard.io/fetch/' + u },
+      { name: 'cors.sh',       build: (u) => 'https://proxy.cors.sh/' + u }
+    ];
+
+    for (const p of proxies) {
+      const proxyUrl = p.build(url);
+      const ctrl = new AbortController();
+      const t = setTimeout(() => ctrl.abort(), 5000);
+      try {
+        const res = await fetch(proxyUrl, {
+          method: 'POST',
+          headers: {
+            'Accept': 'application/vnd.tosslab.jandi-v2+json',
+            'Content-Type': 'application/json'
+          },
+          body: payloadStr,
+          signal: ctrl.signal
+        });
+        clearTimeout(t);
+        if (res.ok) {
+          console.log(`[Jandi] ✅ 전송 완료 (${p.name}):`, res.status);
+          return { ok: true, via: p.name, status: res.status };
+        }
+        console.warn(`[Jandi] ${p.name} 응답 오류:`, res.status);
+      } catch (err) {
+        clearTimeout(t);
+        console.warn(`[Jandi] ${p.name} 시도 실패:`, err.name === 'AbortError' ? 'timeout' : err.message);
       }
-      console.warn('[Jandi] proxy 응답 오류:', res.status);
-    } catch (err) {
-      console.warn('[Jandi] proxy 시도 실패:', err.message);
     }
 
-    // ── 2차 시도: no-cors 모드 직접 호출 (응답 확인 불가, 보낸 결과만)
-    try {
-      await fetch(url, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-      console.log('[Jandi] ✅ 전송 완료 (no-cors fallback)');
-    } catch (err) {
-      console.error('[Jandi] ❌ 최종 전송 실패:', err.message);
-      // 실패해도 업무 프로세스에 영향 없음
-    }
+    console.error('[Jandi] ❌ 모든 프록시 전송 실패');
+    return { ok: false, error: 'all-proxies-failed' };
   },
 
   // 수동 테스트 발송 (설정 화면에서 호출)
   async testSend() {
-    await this.send(
+    const r = await this.send(
       '🧪 잔디 알림 테스트',
       '업무관리 시스템에서 보낸 테스트 메시지입니다.\n이 메시지가 보이면 정상 연동된 상태입니다.',
       '#2563EB'
     );
-    Utils.showToast('잔디 테스트 메시지 발송됨. 잔디 채널 확인하세요.', 'success');
+    if (r && r.ok) {
+      Utils.showToast(`잔디 테스트 메시지 발송됨 (${r.via}). 채널을 확인하세요.`, 'success');
+    } else {
+      Utils.showToast('잔디 전송 실패: 모든 CORS 프록시 실패. 콘솔 로그를 확인하세요.', 'error', 5000);
+    }
+    return r;
   },
 
   // 세금계산서 발행 요청 알림
   async notifyNewRequest(item) {
-    await this.send(
+    return await this.send(
       '📝 세금계산서 발행 요청',
       `요청번호: ${item.requestNumber}\n` +
       `요청자: ${item.requesterName}\n` +
@@ -113,7 +121,7 @@ const JandiWebhook = {
       '발행완료': '#16A34A',
       '반려': '#DC2626'
     };
-    await this.send(
+    return await this.send(
       `📋 세금계산서 ${newStatus}`,
       `요청번호: ${item.requestNumber}\n` +
       `거래처: ${item.partnerCompanyName || '-'}\n` +

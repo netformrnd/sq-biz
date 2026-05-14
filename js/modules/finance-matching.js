@@ -1126,9 +1126,9 @@ const FinanceMatchingModule = {
   },
 
   // 헤더 행에서 컬럼 매핑 추출
-  // 예: ["월/일", "적요", "입금액", "출금액", "잔액"] → {dateIdx:0, nameIdx:1, depositIdx:2, withdrawIdx:3}
+  // 예: ["월/일", "적요", "입금액", "출금액", "잔액"] → {dateIdx:0, nameIdx:1, depositIdx:2, withdrawIdx:3, balanceIdx:4}
   _parseHeader(cols) {
-    const mapping = { dateIdx: -1, nameIdx: -1, depositIdx: -1, withdrawIdx: -1 };
+    const mapping = { dateIdx: -1, nameIdx: -1, depositIdx: -1, withdrawIdx: -1, balanceIdx: -1 };
 
     for (let i = 0; i < cols.length; i++) {
       const c = (cols[i] || '').trim();
@@ -1149,6 +1149,10 @@ const FinanceMatchingModule = {
       if (/^출금|^송금/.test(c) && mapping.withdrawIdx < 0) {
         mapping.withdrawIdx = i; continue;
       }
+      // 잔액
+      if (/잔액|잔고|거래후잔액/.test(c) && mapping.balanceIdx < 0) {
+        mapping.balanceIdx = i; continue;
+      }
     }
 
     // 필수 컬럼이 다 찾아졌는지 확인
@@ -1156,6 +1160,15 @@ const FinanceMatchingModule = {
       return mapping;
     }
     return null;
+  },
+
+  // 잔액 문자열 → 정수 또는 null
+  _parseBalance(s) {
+    if (s === undefined || s === null) return null;
+    const t = String(s).trim();
+    if (!t) return null;
+    const n = Number(t.replace(/[,\s]/g, ''));
+    return Number.isFinite(n) ? Math.trunc(n) : null;
   },
 
   // 헤더 없을 때 자동 감지 (폴백)
@@ -1167,10 +1180,10 @@ const FinanceMatchingModule = {
 
     if (c1HasKorean || (!c1IsNumber && (cols[1] || '').length > 0)) {
       // 위하고 형식 (cols[1]=이름, cols[2]=입금, cols[3]=출금)
-      return { dateIdx: 0, nameIdx: 1, depositIdx: 2, withdrawIdx: 3, format: 'wehago' };
+      return { dateIdx: 0, nameIdx: 1, depositIdx: 2, withdrawIdx: 3, balanceIdx: -1, format: 'wehago' };
     }
-    // 은행 형식 (cols[1]=출금, cols[2]=입금)
-    return { dateIdx: 0, nameIdx: 4, withdrawIdx: 1, depositIdx: 2, format: 'bank' };
+    // 은행 형식 (cols[1]=출금, cols[2]=입금, cols[3]=잔액)
+    return { dateIdx: 0, nameIdx: 4, withdrawIdx: 1, depositIdx: 2, balanceIdx: 3, format: 'bank' };
   },
 
   _parseBankStatement() {
@@ -1221,6 +1234,7 @@ const FinanceMatchingModule = {
         const date = `${dateM[1]}-${dateM[2]}-${dateM[3]}`;
         const withdrawAmount = Number((cols[ibkMapping.withdrawIdx] || '').replace(/[,\s]/g, '')) || 0;
         const depositAmount = Number((cols[ibkMapping.depositIdx] || '').replace(/[,\s]/g, '')) || 0;
+        const balanceAfter = this._parseBalance(cols[ibkMapping.balanceIdx]);
         const fullName = (cols[ibkMapping.fullNameIdx] || '').trim();
         const shortName = (cols[ibkMapping.shortNameIdx] || '').trim();
         const bank = (cols[ibkMapping.bankIdx] || '').trim();
@@ -1229,9 +1243,9 @@ const FinanceMatchingModule = {
         const memo = bank ? `${bank} ${type}`.trim() : type;
 
         if (depositAmount > 0) {
-          this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, memo, paymentMethod: type || '계좌이체', selected: true });
+          this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, balanceAfter, memo, paymentMethod: type || '계좌이체', selected: true });
         } else if (withdrawAmount > 0) {
-          this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, memo, selected: true });
+          this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, balanceAfter, memo, selected: true });
         }
         continue;
       }
@@ -1253,6 +1267,7 @@ const FinanceMatchingModule = {
       const depositStr = (cols[map.depositIdx] || '').trim();
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
+      const balanceAfter = map.balanceIdx >= 0 ? this._parseBalance(cols[map.balanceIdx]) : null;
 
       // 이름
       let name = (cols[map.nameIdx] || '').trim();
@@ -1292,9 +1307,9 @@ const FinanceMatchingModule = {
       }
 
       if (depositAmount > 0) {
-        this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, selected: true });
+        this._bankParsed.deposits.push({ date, name: displayName, amount: depositAmount, balanceAfter, selected: true });
       } else if (withdrawAmount > 0) {
-        this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, selected: true });
+        this._bankParsed.withdrawals.push({ date, name: displayName, amount: withdrawAmount, balanceAfter, selected: true });
       }
     }
 
@@ -1443,6 +1458,7 @@ const FinanceMatchingModule = {
         depositDate: row.date,
         depositorName: row.name,
         amount: row.amount,
+        balanceAfter: row.balanceAfter ?? null,
         projectName: '',
         memo: row.memo || '',
         paymentMethod: row.paymentMethod || '계좌이체',
@@ -1465,6 +1481,7 @@ const FinanceMatchingModule = {
         transferDate: row.date,
         recipientName: row.name,
         amount: row.amount,
+        balanceAfter: row.balanceAfter ?? null,
         purpose,
         projectName: '',
         memo: row.memo || '',

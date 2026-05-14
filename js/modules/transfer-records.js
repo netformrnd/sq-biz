@@ -184,9 +184,17 @@ const TransferModule = {
 
       const dateStr = (cols[0] || '').trim();
       const withdrawStr = (cols[1] || '').trim();
+      const balanceStr = (cols[3] || '').trim();
 
       const withdrawAmount = Number(withdrawStr.replace(/[,\s]/g, '')) || 0;
       if (withdrawAmount <= 0) continue;
+
+      // 잔액 (거래 후 잔액) — 비어있으면 null
+      let balanceAfter = null;
+      if (balanceStr) {
+        const bn = Number(balanceStr.replace(/[,\s]/g, ''));
+        if (Number.isFinite(bn)) balanceAfter = Math.trunc(bn);
+      }
 
       // 수취인: 은행마다 컬럼 위치가 다르므로 cols[3]부터 탐색
       // 형식A: [3]잔액 [4]거래처명 | 형식B: [3]수취인 [4]계좌번호
@@ -220,7 +228,7 @@ const TransferModule = {
         date = `${dateMatch[1]}-${dateMatch[2].padStart(2, '0')}-${dateMatch[3].padStart(2, '0')}`;
       }
 
-      this._parsedRows.push({ date, name: displayName, amount: withdrawAmount, selected: true });
+      this._parsedRows.push({ date, name: displayName, amount: withdrawAmount, balanceAfter, selected: true });
     }
 
     const preview = document.getElementById('trPastePreview');
@@ -284,6 +292,7 @@ const TransferModule = {
         transferDate: row.date,
         recipientName: row.name,
         amount: row.amount,
+        balanceAfter: row.balanceAfter ?? null,
         purpose,
         projectName: '',
         memo: '',

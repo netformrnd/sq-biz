@@ -325,12 +325,20 @@ const DepositModule = {
       const dateStr = (cols[0] || '').trim();
       const withdrawStr = (cols[1] || '').trim();
       const depositStr = (cols[2] || '').trim();
+      const balanceStr = (cols[3] || '').trim();
 
       // 입금액 추출 (콤마 제거)
       const depositAmount = Number(depositStr.replace(/[,\s]/g, '')) || 0;
 
       // 입금액이 0이면 건너뜀 (출금 내역)
       if (depositAmount <= 0) continue;
+
+      // 잔액 (거래 후 잔액) — 비어있으면 null
+      let balanceAfter = null;
+      if (balanceStr) {
+        const bn = Number(balanceStr.replace(/[,\s]/g, ''));
+        if (Number.isFinite(bn)) balanceAfter = Math.trunc(bn);
+      }
 
       // 입금자명: 은행마다 컬럼 위치가 다르므로 cols[3]부터 탐색
       let accountNo = '';
@@ -357,6 +365,7 @@ const DepositModule = {
         date: date,
         name: nameStr,
         amount: depositAmount,
+        balanceAfter,
         selected: true
       });
     }
@@ -424,6 +433,7 @@ const DepositModule = {
         depositDate: row.date,
         depositorName: row.name,
         amount: row.amount,
+        balanceAfter: row.balanceAfter ?? null,
         projectName: '',
         memo: '',
         bankAccount: '',

@@ -10,9 +10,62 @@ const OutsourcingModule = {
 
   STATUS_OPTIONS: ['진행중', '정산예정', '완료', '보류'],
 
+  // 카드 클릭 필터 상태
+  // 'all' | 'deposit' | 'paid' | 'remaining' | 'overpaid'
+  _filter: 'all',
+
   async init(container) {
     this.container = container;
+    this._filter = 'all';
     await this.render();
+  },
+
+  _setFilter(mode) {
+    this._filter = (this._filter === mode && mode !== 'all') ? 'all' : mode;
+    this.render();
+  },
+
+  _filterLabel() {
+    return {
+      all: '전체',
+      deposit: '입금금액 있는 프로젝트',
+      paid: '외주지급 있는 프로젝트',
+      remaining: '잔액 있는 프로젝트',
+      overpaid: '초과지급 프로젝트'
+    }[this._filter] || '전체';
+  },
+
+  // 클릭 가능한 합계 카드. 활성 시 강조 테두리.
+  _renderCard(mode, color, icon, label, value, sub) {
+    const isActive = this._filter === mode;
+    const activeStyle = isActive
+      ? 'border:2px solid var(--color-primary);box-shadow:0 0 0 3px rgba(37,99,235,0.15);'
+      : 'border:2px solid transparent;';
+    return `
+      <div class="summary-card" style="cursor:pointer;transition:all 0.15s;${activeStyle}"
+           onclick="OutsourcingModule._setFilter('${mode}')"
+           title="클릭하여 ${label} 기준 필터링">
+        <div class="card-icon ${color}">${icon}</div>
+        <div class="card-info">
+          <div class="card-label">${label}${isActive ? ' ✓' : ''}</div>
+          <div class="card-value">${value}</div>
+          ${sub ? `<div class="card-sub text-xs text-muted">${sub}</div>` : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  _matchFilter(p, outsourcingTotal) {
+    const dep = Number(p.depositAmount) || 0;
+    const balance = dep - outsourcingTotal;
+    switch (this._filter) {
+      case 'deposit':   return dep > 0;
+      case 'paid':      return outsourcingTotal > 0;
+      case 'remaining': return balance > 0;  // 아직 정산 안된 잔액 있음
+      case 'overpaid':  return balance < 0;  // 입금보다 외주가 더 나감
+      case 'all':
+      default:          return true;
+    }
   },
 
   // 송금내역 합계 계산용 캐시
@@ -31,17 +84,33 @@ const OutsourcingModule = {
   async render() {
     const isAdmin = Auth.isAdmin();
     await this._loadTransferTotals();
-    const all = (await DB.getAll('outsourcingProjects')).reverse();
+    const allRaw = (await DB.getAll('outsourcingProjects')).reverse();
 
-    const totalDeposit = all.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
-    const totalOutsourcing = all.reduce((s, p) => s + (this._transferTotalsByProject[(p.projectName || '').trim()] || 0), 0);
+    // 합계는 전체 기준
+    const totalDeposit = allRaw.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
+    const totalOutsourcing = allRaw.reduce((s, p) => s + (this._transferTotalsByProject[(p.projectName || '').trim()] || 0), 0);
     const totalBalance = totalDeposit - totalOutsourcing;
+
+    // 필터별 건수 계산 (카드 표시용)
+    const countDeposit = allRaw.filter(p => (Number(p.depositAmount) || 0) > 0).length;
+    const countPaid = allRaw.filter(p => (this._transferTotalsByProject[(p.projectName || '').trim()] || 0) > 0).length;
+    const countRemaining = allRaw.filter(p => {
+      const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
+      return (Number(p.depositAmount) || 0) - out > 0;
+    }).length;
+
+    // 필터 적용
+    const all = allRaw.filter(p => {
+      const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
+      return this._matchFilter(p, out);
+    });
 
     let tableRows = '';
     if (all.length === 0) {
-      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">
-        <div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 외주설계 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>
-      </td></tr>`;
+      const emptyMsg = this._filter === 'all'
+        ? '<div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 외주설계 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>'
+        : `<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 프로젝트가 없습니다</h3><p>다른 카드를 클릭하거나 [전체 프로젝트]를 누르세요.</p></div>`;
+      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
       tableRows = all.map(p => {
         const outsourcingTotal = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
@@ -80,35 +149,17 @@ const OutsourcingModule = {
       </div>
 
       <div class="summary-cards">
-        <div class="summary-card">
-          <div class="card-icon cyan">📒</div>
-          <div class="card-info">
-            <div class="card-label">총 프로젝트</div>
-            <div class="card-value">${all.length}건</div>
-          </div>
-        </div>
-        <div class="summary-card">
-          <div class="card-icon green">💰</div>
-          <div class="card-info">
-            <div class="card-label">총 입금금액</div>
-            <div class="card-value">${Utils.formatCurrency(totalDeposit)}</div>
-          </div>
-        </div>
-        <div class="summary-card">
-          <div class="card-icon orange">💸</div>
-          <div class="card-info">
-            <div class="card-label">총 외주지급누계</div>
-            <div class="card-value">${Utils.formatCurrency(totalOutsourcing)}</div>
-          </div>
-        </div>
-        <div class="summary-card">
-          <div class="card-icon ${totalBalance >= 0 ? 'cyan' : 'red'}">📊</div>
-          <div class="card-info">
-            <div class="card-label">총 잔액</div>
-            <div class="card-value">${Utils.formatCurrency(totalBalance)}</div>
-          </div>
-        </div>
+        ${this._renderCard('all',       'cyan',   '📒', '전체 프로젝트',  `${allRaw.length}건`,                                  '클릭: 전체 보기')}
+        ${this._renderCard('deposit',   'green',  '💰', '총 입금금액',     Utils.formatCurrency(totalDeposit),                    `${countDeposit}건 (입금 있음)`)}
+        ${this._renderCard('paid',      'orange', '💸', '총 외주지급누계', Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (외주지급 있음)`)}
+        ${this._renderCard('remaining', totalBalance >= 0 ? 'cyan' : 'red', '📊', '총 잔액', Utils.formatCurrency(totalBalance), `${countRemaining}건 (잔액 있음)`)}
       </div>
+
+      ${this._filter !== 'all' ? `
+        <div style="padding:var(--sp-2) var(--sp-3);background:var(--color-warning-light);border-radius:var(--radius-sm);margin-top:var(--sp-3);font-size:var(--font-size-sm);">
+          🔍 <strong>${this._filterLabel()}</strong> 필터 적용 중 — 카드를 다시 클릭하거나 [전체 프로젝트]를 누르면 해제됩니다.
+        </div>
+      ` : ''}
 
       <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
         <div class="text-sm text-muted">

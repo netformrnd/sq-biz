@@ -16,9 +16,76 @@ const ContractsModule = {
   _invoiceMap: {},
   _depositMap: {},
 
+  // 카드 클릭 필터 상태
+  // 'all' | 'active' | 'paid' | 'unpaid'
+  _filter: 'all',
+
   async init(container) {
     this.container = container;
+    this._filter = 'all';
     await this.render();
+  },
+
+  _setFilter(mode) {
+    this._filter = (this._filter === mode && mode !== 'all') ? 'all' : mode;
+    this.render();
+  },
+
+  _filterLabel() {
+    return {
+      all: '전체',
+      active: '진행중 계약',
+      paid: '입금완료 계약',
+      unpaid: '미수금 있는 계약'
+    }[this._filter] || '전체';
+  },
+
+  // 클릭 가능한 합계 카드. 활성 시 강조 테두리.
+  _renderCard(mode, color, icon, label, value, sub) {
+    const isActive = this._filter === mode;
+    const activeStyle = isActive
+      ? 'border:2px solid var(--color-primary);box-shadow:0 0 0 3px rgba(37,99,235,0.15);'
+      : 'border:2px solid transparent;';
+    return `
+      <div class="summary-card" style="cursor:pointer;transition:all 0.15s;${activeStyle}"
+           onclick="ContractsModule._setFilter('${mode}')"
+           title="클릭하여 ${label} 기준 필터링">
+        <div class="card-icon ${color}">${icon}</div>
+        <div class="card-info">
+          <div class="card-label">${label}${isActive ? ' ✓' : ''}</div>
+          <div class="card-value">${value}</div>
+          ${sub ? `<div class="card-sub text-xs text-muted">${sub}</div>` : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  // 계약별 입금 합계 / 미수금 계산
+  // 입금 = 결제단계 중 세금계산서가 입금내역과 매칭된 단계의 금액 합
+  // 미수금 = 계약금액 - 입금
+  _contractFinance(c) {
+    let paid = 0;
+    for (const key of this.PHASE_KEYS) {
+      const phase = this._normalizePhase(c[key]);
+      if (phase.amount <= 0 || !phase.invoiceId) continue;
+      const inv = this._invoiceMap[String(phase.invoiceId)];
+      if (inv && inv.matchedDepositId && this._depositMap[String(inv.matchedDepositId)]) {
+        paid += phase.amount;
+      }
+    }
+    const totalAmount = Number(c.totalAmount) || 0;
+    return { paid, unpaid: Math.max(0, totalAmount - paid), totalAmount };
+  },
+
+  _matchFilter(c) {
+    const fin = this._contractFinance(c);
+    switch (this._filter) {
+      case 'active': return c.status === '진행중' || (c.status !== '완료' && c.status !== '보류');
+      case 'paid':   return fin.totalAmount > 0 && fin.paid >= fin.totalAmount;
+      case 'unpaid': return fin.unpaid > 0;
+      case 'all':
+      default:       return true;
+    }
   },
 
   async _loadCaches() {
@@ -67,15 +134,34 @@ const ContractsModule = {
   async render() {
     const isAdmin = Auth.isAdmin();
     await this._loadCaches();
-    const all = (await DB.getAll('contracts')).reverse();
+    const allRaw = (await DB.getAll('contracts')).reverse();
 
-    const totalContract = all.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
+    // 합계 (전체 기준)
+    const totalContract = allRaw.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
+    let totalPaid = 0, totalUnpaid = 0;
+    for (const c of allRaw) {
+      const f = this._contractFinance(c);
+      totalPaid += f.paid;
+      totalUnpaid += f.unpaid;
+    }
+
+    // 필터별 건수
+    const countActive = allRaw.filter(c => c.status === '진행중' || (c.status !== '완료' && c.status !== '보류')).length;
+    const countPaid = allRaw.filter(c => {
+      const f = this._contractFinance(c);
+      return f.totalAmount > 0 && f.paid >= f.totalAmount;
+    }).length;
+    const countUnpaid = allRaw.filter(c => this._contractFinance(c).unpaid > 0).length;
+
+    // 필터 적용
+    const all = allRaw.filter(c => this._matchFilter(c));
 
     let tableRows = '';
     if (all.length === 0) {
-      tableRows = `<tr><td colspan="9" class="text-center" style="padding:var(--sp-10);">
-        <div class="empty-state"><div class="empty-icon">📋</div><h3>등록된 계약이 없습니다</h3><p>+ 계약 등록 버튼으로 추가하세요.</p></div>
-      </td></tr>`;
+      const emptyMsg = this._filter === 'all'
+        ? '<div class="empty-state"><div class="empty-icon">📋</div><h3>등록된 계약이 없습니다</h3><p>+ 계약 등록 버튼으로 추가하세요.</p></div>'
+        : '<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 계약이 없습니다</h3><p>다른 카드를 클릭하거나 [전체 계약]을 누르세요.</p></div>';
+      tableRows = `<tr><td colspan="9" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
       tableRows = all.map(c => {
         const down = this._phaseStatus(c.downPayment);
@@ -121,21 +207,17 @@ const ContractsModule = {
       </div>
 
       <div class="summary-cards">
-        <div class="summary-card">
-          <div class="card-icon cyan">📋</div>
-          <div class="card-info">
-            <div class="card-label">총 계약</div>
-            <div class="card-value">${all.length}건</div>
-          </div>
-        </div>
-        <div class="summary-card">
-          <div class="card-icon green">💰</div>
-          <div class="card-info">
-            <div class="card-label">총 계약금액</div>
-            <div class="card-value">${Utils.formatCurrency(totalContract)}</div>
-          </div>
-        </div>
+        ${this._renderCard('all',    'cyan',   '📋', '전체 계약',     `${allRaw.length}건`,                                         `총 계약금액 ${Utils.formatCurrency(totalContract)}`)}
+        ${this._renderCard('active', 'orange', '🔄', '진행중 계약',   `${countActive}건`,                                           '클릭: 진행중만 보기')}
+        ${this._renderCard('paid',   'green',  '✅', '입금완료',       `${countPaid}건`,                                             `입금합 ${Utils.formatCurrency(totalPaid)}`)}
+        ${this._renderCard('unpaid', 'red',    '⚠️', '총 미수금',     Utils.formatCurrency(totalUnpaid),                            `${countUnpaid}건 미수금 발생`)}
       </div>
+
+      ${this._filter !== 'all' ? `
+        <div style="padding:var(--sp-2) var(--sp-3);background:var(--color-warning-light);border-radius:var(--radius-sm);margin-top:var(--sp-3);font-size:var(--font-size-sm);">
+          🔍 <strong>${this._filterLabel()}</strong> 필터 적용 중 — 카드를 다시 클릭하거나 [전체 계약]을 누르면 해제됩니다.
+        </div>
+      ` : ''}
 
       <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
         <div class="text-sm text-muted">

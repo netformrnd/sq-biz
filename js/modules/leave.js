@@ -751,46 +751,71 @@ const LeaveModule = {
     `, { size: 'modal-lg' });
   },
 
-  async approveRequest(id) {
+  // 승인/반려 공통 실행기: DB.update와 DB.log·refresh를 분리해서 부분 실패에도 정확히 보고
+  async _runLeaveAction(id, patch, opts) {
+    const { successMsg, logAction } = opts;
+    if (!id || id === 'undefined' || id === 'null') {
+      console.error('[연차] 잘못된 id:', id);
+      Utils.showToast('실패: 신청 id가 비어 있습니다. 새로고침 후 다시 시도하세요.', 'error', 5000);
+      return false;
+    }
+
+    // 1단계: 메인 상태 업데이트 (이게 실패하면 즉시 종료)
     try {
-      const user = Auth.currentUser();
-      await DB.update('leaveRequests', { id, status: 'approved', approvedAt: new Date().toISOString(), approvedBy: user.displayName });
-      await DB.log('연차승인', 'leaveRequests', id);
-      Utils.showToast('승인 완료', 'success');
+      await DB.update('leaveRequests', { id, ...patch });
+    } catch (e) {
+      console.error(`[연차] ${logAction} DB.update 실패:`, e);
+      Utils.showToast(`실패(저장): ${e.message || e}`, 'error', 6000);
+      return false;
+    }
+
+    Utils.showToast(successMsg, 'success');
+
+    // 2단계: 감사 로그 (실패해도 메인엔 영향 없음)
+    try { await DB.log(logAction, 'leaveRequests', id); }
+    catch (e) { console.warn(`[연차] ${logAction} 감사로그 실패 (무시):`, e); }
+
+    // 3단계: 새로고침 + 목록 갱신 (실패해도 메인엔 영향 없음)
+    try {
       await this.refresh();
       this.openPendingList();
-    } catch (e) { Utils.showToast('실패: ' + e.message, 'error'); }
+    } catch (e) {
+      console.warn('[연차] 새로고침/목록 갱신 실패 (무시):', e);
+    }
+    return true;
+  },
+
+  async approveRequest(id) {
+    const user = Auth.currentUser();
+    const approver = (user && (user.displayName || user.username)) || '관리자';
+    await this._runLeaveAction(id, {
+      status: 'approved',
+      approvedAt: new Date().toISOString(),
+      approvedBy: approver
+    }, { successMsg: '승인 완료', logAction: '연차승인' });
   },
 
   async rejectRequest(id) {
     const reason = prompt('반려 사유 (선택):') || '';
-    try {
-      await DB.update('leaveRequests', { id, status: 'rejected', rejectedAt: new Date().toISOString(), rejectReason: reason });
-      await DB.log('연차반려', 'leaveRequests', id);
-      Utils.showToast('반려 처리됨', 'success');
-      await this.refresh();
-      this.openPendingList();
-    } catch (e) { Utils.showToast('실패: ' + e.message, 'error'); }
+    await this._runLeaveAction(id, {
+      status: 'rejected',
+      rejectedAt: new Date().toISOString(),
+      rejectReason: reason
+    }, { successMsg: '반려 처리됨', logAction: '연차반려' });
   },
 
   async approveCancel(id) {
-    try {
-      await DB.update('leaveRequests', { id, status: 'cancelled', cancelApprovedAt: new Date().toISOString() });
-      await DB.log('연차취소승인', 'leaveRequests', id);
-      Utils.showToast('취소 승인됨', 'success');
-      await this.refresh();
-      this.openPendingList();
-    } catch (e) { Utils.showToast('실패: ' + e.message, 'error'); }
+    await this._runLeaveAction(id, {
+      status: 'cancelled',
+      cancelApprovedAt: new Date().toISOString()
+    }, { successMsg: '취소 승인됨', logAction: '연차취소승인' });
   },
 
   async rejectCancel(id) {
-    try {
-      await DB.update('leaveRequests', { id, status: 'approved', cancelReason: null });
-      await DB.log('연차취소반려', 'leaveRequests', id);
-      Utils.showToast('취소 요청 반려됨', 'success');
-      await this.refresh();
-      this.openPendingList();
-    } catch (e) { Utils.showToast('실패: ' + e.message, 'error'); }
+    await this._runLeaveAction(id, {
+      status: 'approved',
+      cancelReason: null
+    }, { successMsg: '취소 요청 반려됨', logAction: '연차취소반려' });
   },
 
   // ===== 관리자: 팀원 연차 관리 =====

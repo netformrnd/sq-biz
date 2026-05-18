@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 4;
+const DB_VERSION = 5;
 
 const DB = {
   db: null,
@@ -112,6 +112,25 @@ const DB = {
           const store = db.createObjectStore('leaveBalances', { keyPath: 'id', autoIncrement: true });
           store.createIndex('userId', 'userId', { unique: false });
           store.createIndex('year', 'year', { unique: false });
+        }
+
+        // outsourcingProjects (외주설계 관리대장)
+        if (!db.objectStoreNames.contains('outsourcingProjects')) {
+          const store = db.createObjectStore('outsourcingProjects', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('projectName', 'projectName', { unique: false });
+          store.createIndex('clientName', 'clientName', { unique: false });
+          store.createIndex('status', 'status', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // contracts (계약 관리대장)
+        if (!db.objectStoreNames.contains('contracts')) {
+          const store = db.createObjectStore('contracts', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('complexName', 'complexName', { unique: false });
+          store.createIndex('contractName', 'contractName', { unique: false });
+          store.createIndex('clientName', 'clientName', { unique: false });
+          store.createIndex('status', 'status', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };
 

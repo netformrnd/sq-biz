@@ -9,6 +9,8 @@ const MENU_PERMISSIONS = [
   { key: 'deposits',     label: '입금내역',     desc: '입금내역 조회' },
   { key: 'matching',     label: '매칭 관리',    desc: '세금계산서-입금 매칭 (관리자 전용)' },
   { key: 'transfers',    label: '송금내역',     desc: '나의 송금내역 조회' },
+  { key: 'outsourcing',  label: '외주설계 관리', desc: '외주설계 관리대장' },
+  { key: 'contracts',    label: '계약 관리',    desc: '계약 관리대장' },
   { key: 'leave',        label: '연차 신청',    desc: '연차 신청 시스템' },
 ];
 

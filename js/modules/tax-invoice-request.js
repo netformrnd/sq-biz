@@ -54,6 +54,76 @@ const TaxInvoiceRequestModule = {
               <input type="text" id="projectName" class="form-control" placeholder="관련 프로젝트명">
             </div>
 
+            <!-- 계약 연결 (Phase 1: 계약 관리대장과 자동 연동) -->
+            <fieldset id="contractLinkSection" style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--sp-3);margin-bottom:var(--sp-4);">
+              <legend style="padding:0 var(--sp-2);font-weight:600;">📋 계약 연결 <span class="text-xs text-muted">(선택)</span></legend>
+              <div style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin-bottom:var(--sp-3);">
+                연결하면 <strong>계약 관리대장</strong>에 자동 등록됩니다. 외주 진행 건은 관리자에게 별도 등록을 요청하세요.
+              </div>
+
+              <div class="form-group">
+                <label>계약 연결 방식</label>
+                <div style="display:flex;gap:var(--sp-3);flex-wrap:wrap;">
+                  <label style="display:flex;align-items:center;gap:var(--sp-1);cursor:pointer;">
+                    <input type="radio" name="contractMode" value="none" checked onchange="TaxInvoiceRequestModule._onContractModeChange()"> 연결 안함 (단발성)
+                  </label>
+                  <label style="display:flex;align-items:center;gap:var(--sp-1);cursor:pointer;">
+                    <input type="radio" name="contractMode" value="new" onchange="TaxInvoiceRequestModule._onContractModeChange()"> 신규 계약
+                  </label>
+                  <label style="display:flex;align-items:center;gap:var(--sp-1);cursor:pointer;">
+                    <input type="radio" name="contractMode" value="existing" onchange="TaxInvoiceRequestModule._onContractModeChange()"> 기존 계약의 중도금/잔금
+                  </label>
+                </div>
+              </div>
+
+              <!-- 신규 계약 입력 영역 -->
+              <div id="contractNewArea" style="display:none;border-top:1px dashed var(--color-border);padding-top:var(--sp-3);margin-top:var(--sp-2);">
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="contractComplexName">단지명 <span class="required">*</span></label>
+                    <input type="text" id="contractComplexName" class="form-control" placeholder="예: 인천 송도캐슬해모로아파트">
+                  </div>
+                  <div class="form-group">
+                    <label for="contractContractName">계약건명 <span class="required">*</span></label>
+                    <input type="text" id="contractContractName" class="form-control" placeholder="예: 공용계단 누수 보수공사">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="contractTotalAmount">총 계약금액 (원) <span class="required">*</span></label>
+                    <input type="number" id="contractTotalAmount" class="form-control" placeholder="0" min="0">
+                    <div class="hint">VAT 별도 또는 포함 여부는 회사 기준에 따라 입력</div>
+                  </div>
+                  <div class="form-group">
+                    <label for="contractPhase">결제 단계 <span class="required">*</span></label>
+                    <select id="contractPhase" class="form-control">
+                      <option value="downPayment">계약금</option>
+                      <option value="interimPayment">중도금</option>
+                      <option value="finalPayment">잔금</option>
+                    </select>
+                    <div class="hint">이번 발행 = 어느 단계?</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 기존 계약 선택 영역 -->
+              <div id="contractExistingArea" style="display:none;border-top:1px dashed var(--color-border);padding-top:var(--sp-3);margin-top:var(--sp-2);">
+                <div class="form-group">
+                  <label for="contractExistingId">계약 선택 <span class="required">*</span></label>
+                  <select id="contractExistingId" class="form-control" onchange="TaxInvoiceRequestModule._onExistingContractChange()">
+                    <option value="">-- 계약을 선택하세요 --</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="contractExistingPhase">결제 단계 <span class="required">*</span></label>
+                  <select id="contractExistingPhase" class="form-control">
+                    <option value="">-- 계약을 먼저 선택하세요 --</option>
+                  </select>
+                  <div class="hint">이미 발행된 단계는 표시되지 않습니다.</div>
+                </div>
+              </div>
+            </fieldset>
+
             <!-- 사업자등록증 업로드 -->
             <div class="form-group">
               <label>사업자등록증 첨부 <span class="required">*</span></label>
@@ -202,6 +272,63 @@ const TaxInvoiceRequestModule = {
       e.preventDefault();
       await this._submitForm();
     });
+
+    // 계약 연결 드롭다운 옵션 로드 (기존 계약 선택용)
+    this._loadExistingContracts();
+  },
+
+  // ===== 계약 연결 UI 핸들러 =====
+  _onContractModeChange() {
+    const mode = document.querySelector('input[name="contractMode"]:checked')?.value || 'none';
+    const newArea = document.getElementById('contractNewArea');
+    const existingArea = document.getElementById('contractExistingArea');
+    if (newArea) newArea.style.display = mode === 'new' ? 'block' : 'none';
+    if (existingArea) existingArea.style.display = mode === 'existing' ? 'block' : 'none';
+  },
+
+  async _loadExistingContracts() {
+    try {
+      const all = await DB.getAll('contracts');
+      // 잔금까지 모두 발행된 계약은 제외 (선택할 게 없음)
+      const usable = all.filter(c => {
+        for (const k of ['downPayment', 'interimPayment', 'finalPayment']) {
+          const p = c[k] || {};
+          if ((Number(p.amount) || 0) > 0 && !p.invoiceId) return true;
+        }
+        return false;
+      }).sort((a, b) => (a.complexName || '').localeCompare(b.complexName || '', 'ko'));
+
+      const sel = document.getElementById('contractExistingId');
+      if (!sel) return;
+      sel.innerHTML = '<option value="">-- 계약을 선택하세요 --</option>' +
+        usable.map(c => `<option value="${c.id}">${Utils.escapeHtml(c.complexName)} / ${Utils.escapeHtml(c.contractName)} (총 ${Utils.formatCurrency(c.totalAmount || 0)})</option>`).join('');
+    } catch (e) {
+      console.warn('기존 계약 목록 로드 실패:', e);
+    }
+  },
+
+  async _onExistingContractChange() {
+    const id = document.getElementById('contractExistingId').value;
+    const phaseSel = document.getElementById('contractExistingPhase');
+    if (!phaseSel) return;
+    if (!id) {
+      phaseSel.innerHTML = '<option value="">-- 계약을 먼저 선택하세요 --</option>';
+      return;
+    }
+    const c = await DB.get('contracts', id);
+    if (!c) return;
+    const labels = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+    const options = [];
+    for (const k of ['downPayment', 'interimPayment', 'finalPayment']) {
+      const p = c[k] || {};
+      const amt = Number(p.amount) || 0;
+      if (amt <= 0) continue;
+      if (p.invoiceId) continue; // 이미 발행된 단계는 제외
+      options.push(`<option value="${k}">${labels[k]} (${Utils.formatCurrency(amt)})</option>`);
+    }
+    phaseSel.innerHTML = options.length > 0
+      ? options.join('')
+      : '<option value="">-- 발행 가능한 단계가 없습니다 --</option>';
   },
 
   // ===== 기존 거래처 불러오기 =====
@@ -575,6 +702,29 @@ const TaxInvoiceRequestModule = {
       }
     }
 
+    // ── 계약 연결 정보 수집 + 유효성 검사 (선택)
+    const contractMode = document.querySelector('input[name="contractMode"]:checked')?.value || 'none';
+    let contractLink = null;  // { contractId, phaseKey, isNew }
+    if (contractMode === 'new') {
+      const complexName = document.getElementById('contractComplexName').value.trim();
+      const contractName = document.getElementById('contractContractName').value.trim();
+      const totalAmount = Number(document.getElementById('contractTotalAmount').value) || 0;
+      const phaseKey = document.getElementById('contractPhase').value;
+      if (!complexName || !contractName || totalAmount <= 0 || !phaseKey) {
+        Utils.showToast('신규 계약 정보(단지명, 계약건명, 총계약금액, 결제단계)를 모두 입력해 주세요.', 'error');
+        return;
+      }
+      contractLink = { mode: 'new', complexName, contractName, totalAmount, phaseKey };
+    } else if (contractMode === 'existing') {
+      const contractId = document.getElementById('contractExistingId').value;
+      const phaseKey = document.getElementById('contractExistingPhase').value;
+      if (!contractId || !phaseKey) {
+        Utils.showToast('기존 계약과 결제 단계를 선택해 주세요.', 'error');
+        return;
+      }
+      contractLink = { mode: 'existing', contractId, phaseKey };
+    }
+
     const data = {
       requestNumber,
       requesterId: user.id,
@@ -594,6 +744,9 @@ const TaxInvoiceRequestModule = {
       attachments,
       projectName: document.getElementById('projectName').value.trim(),
       memo: document.getElementById('memo').value.trim(),
+      // 계약 연결 정보 (없으면 null)
+      linkedContractId: null,
+      linkedContractPhase: null,
       reviewerId: null,
       reviewerName: null,
       reviewedAt: null,
@@ -614,6 +767,57 @@ const TaxInvoiceRequestModule = {
       console.error('[발행요청] 메인 저장 실패:', err);
       Utils.showToast('요청 등록 실패: ' + err.message, 'error');
       return;
+    }
+
+    // ── 1.5단계: 계약 연결 처리 (실패해도 발행요청은 유지)
+    if (contractLink) {
+      try {
+        if (contractLink.mode === 'new') {
+          // 신규 계약 자동 생성
+          const phases = { downPayment: { amount: 0, invoiceId: null }, interimPayment: { amount: 0, invoiceId: null }, finalPayment: { amount: 0, invoiceId: null } };
+          phases[contractLink.phaseKey] = { amount: amount + taxAmount, invoiceId: id };
+          const newContract = {
+            complexName: contractLink.complexName,
+            contractName: contractLink.contractName,
+            siteAddress: '',
+            clientName: partnerCompanyName,  // 발주처 = 거래처명 기본
+            contractDate: new Date().toISOString().slice(0, 10),
+            totalAmount: contractLink.totalAmount,
+            downPayment: phases.downPayment,
+            interimPayment: phases.interimPayment,
+            finalPayment: phases.finalPayment,
+            status: '진행중',
+            memo: `세금계산서 요청에서 자동 등록 (${requestNumber})`,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            createdBy: user.id,
+            updatedBy: user.id,
+            updatedByName: user.displayName,
+            importedFrom: 'tax-invoice-request'
+          };
+          const contractId = await DB.add('contracts', newContract);
+          // 발행 요청 doc에도 연결 ID 기록
+          await DB.update('taxInvoiceRequests', { id, linkedContractId: contractId, linkedContractPhase: contractLink.phaseKey, updatedAt: new Date().toISOString() });
+          await DB.log('CREATE', 'contracts', contractId, `계약 자동 등록 (발행요청 ${requestNumber}): ${contractLink.complexName} ${contractLink.contractName}`);
+        } else {
+          // 기존 계약의 phase에 invoiceId 설정
+          const c = await DB.get('contracts', contractLink.contractId);
+          if (c) {
+            const phase = c[contractLink.phaseKey] || { amount: 0, invoiceId: null };
+            phase.invoiceId = id;
+            c[contractLink.phaseKey] = phase;
+            c.updatedAt = new Date().toISOString();
+            c.updatedBy = user.id;
+            c.updatedByName = user.displayName;
+            await DB.update('contracts', c);
+            await DB.update('taxInvoiceRequests', { id, linkedContractId: contractLink.contractId, linkedContractPhase: contractLink.phaseKey, updatedAt: new Date().toISOString() });
+            await DB.log('UPDATE', 'contracts', contractLink.contractId, `계약에 세금계산서 연결: ${contractLink.phaseKey} ← ${requestNumber}`);
+          }
+        }
+      } catch (e) {
+        console.error('[계약연결] 실패:', e);
+        Utils.showToast('⚠️ 발행 요청은 등록됐으나 계약 연결에 실패했습니다. 계약 관리대장에서 수동 연결해 주세요.', 'warning', 6000);
+      }
     }
 
     // ── 2단계: 잔디 알림 전송 (문서 저장 실패와 무관하게 우선 발송)
@@ -727,6 +931,25 @@ const TaxInvoiceRequestModule = {
       }
     }
 
+    // 계약 연결 정보 (있을 경우)
+    let contractLinkHtml = '';
+    if (item.linkedContractId) {
+      try {
+        const c = await DB.get('contracts', item.linkedContractId);
+        if (c) {
+          const phaseLabels = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+          const phaseLabel = phaseLabels[item.linkedContractPhase] || item.linkedContractPhase || '-';
+          contractLinkHtml = `
+            <div class="mt-4" style="padding:var(--sp-3);background:#EFF6FF;border-left:4px solid var(--color-primary);border-radius:var(--radius-sm);">
+              <div class="text-sm" style="margin-bottom:var(--sp-2);"><strong>📋 연결된 계약</strong></div>
+              <div><strong>${Utils.escapeHtml(c.complexName)}</strong> / ${Utils.escapeHtml(c.contractName)}</div>
+              <div class="text-sm text-muted mt-1">총 계약금액: ${Utils.formatCurrency(c.totalAmount || 0)} · 결제단계: <strong>${phaseLabel}</strong></div>
+            </div>
+          `;
+        }
+      } catch (e) { console.warn('연결 계약 조회 실패:', e); }
+    }
+
     let rejectInfo = '';
     if (item.status === '반려' && item.rejectReason) {
       rejectInfo = `<div class="mt-4" style="padding:var(--sp-3);background:var(--color-danger-light);border-radius:var(--radius-sm);">
@@ -777,6 +1000,7 @@ const TaxInvoiceRequestModule = {
 
         ${item.projectName ? `<div class="mt-2"><label class="text-xs text-muted">프로젝트</label><div>${Utils.escapeHtml(item.projectName)}</div></div>` : ''}
         ${item.memo ? `<div class="mt-2"><label class="text-xs text-muted">비고</label><div>${Utils.escapeHtml(item.memo)}</div></div>` : ''}
+        ${contractLinkHtml}
         ${rejectInfo}
         ${attachmentHtml}
         ${item.issueDate ? `<div class="mt-4 text-sm text-muted">발행일: ${Utils.formatDate(item.issueDate)} · 처리자: ${Utils.escapeHtml(item.reviewerName || '-')}</div>` : ''}

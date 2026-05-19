@@ -143,6 +143,7 @@ const OutsourcingModule = {
         <h2>외주설계 관리대장</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 보고서 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="OutsourcingModule._openAddModal()">+ 프로젝트 등록</button>` : ''}
@@ -736,6 +737,109 @@ const OutsourcingModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 보고서 PDF 다운로드 ==========
+  // 현재 외주설계 관리대장 데이터를 보고서 형태의 새 창으로 열어 인쇄/PDF 저장
+  async _downloadReportPDF() {
+    await this._loadTransferTotals();
+    const all = (await DB.getAll('outsourcingProjects')).reverse();
+
+    const totalDeposit = all.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
+    const totalOutsourcing = all.reduce((s, p) => s + (this._transferTotalsByProject[(p.projectName || '').trim()] || 0), 0);
+    const totalBalance = totalDeposit - totalOutsourcing;
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const user = Auth.currentUser();
+
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+    const fmt = (n) => `₩${(Number(n) || 0).toLocaleString('ko-KR')}`;
+
+    const rowsHtml = all.map(p => {
+      const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
+      const bal = (Number(p.depositAmount) || 0) - out;
+      const status = p.status || '진행중';
+      return `<tr>
+        <td>${esc(p.projectName)}</td>
+        <td>${esc(p.clientName || '-')}</td>
+        <td>${esc(p.vendorName || '-')}</td>
+        <td class="num">${fmt(p.depositAmount || 0)}</td>
+        <td class="num">${fmt(out)}</td>
+        <td class="num ${bal < 0 ? 'neg' : ''}">${fmt(bal)}</td>
+        <td><span class="st st-${esc(status)}">${esc(status)}</span></td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<title>외주설계 관리 현황 보고서 - ${dateStr}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  @page { size: A4; margin: 14mm 12mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: #1e293b; font-size: 10pt; margin: 16mm 14mm; background: #fff; }
+  .hdr { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0F172A; padding-bottom: 8px; margin-bottom: 16px; }
+  h1 { font-size: 18pt; margin: 0; color: #0F172A; font-weight: 800; }
+  .meta { font-size: 9pt; color: #64748b; text-align: right; line-height: 1.5; }
+  h2 { font-size: 13pt; margin-top: 20px; color: #2563EB; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .summary { width: 100%; border-collapse: collapse; margin: 10px 0 16px; }
+  .summary td { padding: 8px 10px; border: 1px solid #E2E8F0; }
+  .summary td:nth-child(odd) { background: #F8FAFC; font-weight: 600; width: 20%; }
+  .summary td:nth-child(even) { text-align: right; font-size: 11pt; font-weight: 700; width: 30%; }
+  table.list { width: 100%; border-collapse: collapse; font-size: 9pt; }
+  table.list th { background: #0F172A; color: #fff; padding: 6px; text-align: left; font-weight: 600; }
+  table.list td { padding: 5px 6px; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
+  table.list .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.list .neg { color: #DC2626; }
+  .st { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 8pt; font-weight: 600; }
+  .st-진행중 { background: #DBEAFE; color: #1E40AF; }
+  .st-정산예정 { background: #FEF3C7; color: #B45309; }
+  .st-완료 { background: #D1FAE5; color: #065F46; }
+  .st-보류 { background: #FEE2E2; color: #991B1B; }
+  .toolbar { margin: 10px 0; }
+  .btn-print { padding: 8px 16px; background: #2563EB; color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-close { padding: 8px 16px; background: #94A3B8; color: #fff; border: 0; border-radius: 6px; cursor: pointer; margin-left: 6px; }
+  .footer { margin-top: 20px; font-size: 8pt; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 6px; text-align: center; }
+  @media print { .toolbar { display: none; } body { margin: 0; } }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button class="btn-print" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+    <button class="btn-close" onclick="window.close()">닫기</button>
+  </div>
+  <div class="hdr">
+    <h1>📒 외주설계 관리 현황 보고서</h1>
+    <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
+  </div>
+
+  <h2>📊 합계 요약</h2>
+  <table class="summary">
+    <tr><td>총 프로젝트</td><td>${all.length}건</td><td>총 입금금액</td><td>${fmt(totalDeposit)}</td></tr>
+    <tr><td>총 외주지급누계</td><td>${fmt(totalOutsourcing)}</td><td>총 잔액</td><td class="${totalBalance < 0 ? 'neg' : ''}">${fmt(totalBalance)}</td></tr>
+  </table>
+
+  <h2>📋 프로젝트 상세 (${all.length}건)</h2>
+  <table class="list">
+    <thead><tr>
+      <th>프로젝트명</th><th>발주처</th><th>외주업체</th>
+      <th class="num">입금금액</th><th class="num">외주지급</th><th class="num">잔액</th>
+      <th>상태</th>
+    </tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#94A3B8;">등록된 프로젝트가 없습니다.</td></tr>'}</tbody>
+  </table>
+
+  <div class="footer">본 보고서는 스퀘어건축사사무소 업무관리 시스템에서 자동 생성되었습니다.</div>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=1100,height=800');
+    if (!win) {
+      Utils.showToast('팝업 차단으로 보고서 창을 열 수 없습니다. 팝업 허용 후 다시 시도하세요.', 'error', 5000);
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   },
 
   async _bulkSave() {

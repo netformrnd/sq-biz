@@ -348,17 +348,26 @@ const UserGuideModule = {
       </section>
     `).join('<hr style="margin:var(--sp-6) 0;border:none;border-top:1px solid var(--color-border);">');
 
+    // 목차: SPA 라우터 충돌 방지를 위해 onclick 으로 직접 스크롤
     const tocHtml = Object.entries(this.GUIDES).map(([key, g]) =>
-      `<a href="#guide-${key}" style="display:inline-block;padding:var(--sp-2) var(--sp-3);background:var(--color-bg-light);border-radius:var(--radius-sm);text-decoration:none;color:var(--color-text);margin:2px;">${g.icon} ${g.title}</a>`
+      `<button type="button" onclick="UserGuideModule._scrollTo('${key}')" style="display:inline-block;padding:var(--sp-2) var(--sp-3);background:var(--color-bg-light);border:1px solid var(--color-border);border-radius:var(--radius-sm);color:var(--color-text);margin:2px;cursor:pointer;font:inherit;">${g.icon} ${g.title}</button>`
     ).join('');
 
     this.container.innerHTML = `
       <style>
+        /* 인쇄 시 사이드바·헤더 완전 숨김 + 레이아웃 단일 컬럼 강제 */
         @media print {
-          .no-print { display: none !important; }
-          .app-sidebar, .app-header { display: none !important; }
-          .app-content { padding: 0 !important; }
+          @page { size: A4; margin: 14mm 12mm; }
+          html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+          .no-print, .app-sidebar, .app-header, header, nav { display: none !important; }
+          .app-shell { display: block !important; grid-template-columns: 1fr !important; grid-template-rows: auto !important; }
+          .app-content { padding: 0 !important; margin: 0 !important; grid-column: 1 / -1 !important; grid-row: 1 / -1 !important; }
+          .content-wrapper { padding: 0 !important; margin: 0 !important; max-width: none !important; }
           .guide-section { page-break-inside: avoid; }
+          .guide-section + .guide-section { page-break-before: auto; }
+          .card { box-shadow: none !important; border: none !important; padding: 0 !important; }
+          h2, h3 { page-break-after: avoid; }
+          a[href], button { text-decoration: none !important; color: inherit !important; }
         }
         .guide-body ul, .guide-body ol { margin: var(--sp-2) 0; padding-left: var(--sp-5); }
         .guide-body li { margin: var(--sp-1) 0; line-height: 1.6; }
@@ -400,6 +409,12 @@ const UserGuideModule = {
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
       }, 100);
     }
+  },
+
+  // 목차 클릭 → 해당 섹션 스크롤
+  _scrollTo(key) {
+    const el = document.getElementById(`guide-${key}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   },
 
   // 페이지별 도움말 모달 (각 관리대장 페이지의 [📖 도움말] 버튼에서 호출)

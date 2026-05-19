@@ -201,6 +201,7 @@ const ContractsModule = {
         <h2>계약 관리대장</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('contracts')" title="사용가이드">📖 도움말</button>
+          <button class="btn btn-secondary" onclick="ContractsModule._downloadReportPDF()">📄 보고서 PDF</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="ContractsModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="ContractsModule._openAddModal()">+ 계약 등록</button>` : ''}
@@ -845,6 +846,141 @@ const ContractsModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 보고서 PDF 다운로드 ==========
+  async _downloadReportPDF() {
+    await this._loadCaches();
+    const all = (await DB.getAll('contracts')).reverse();
+
+    const totalContract = all.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
+    let totalPaid = 0, totalUnpaid = 0;
+    for (const c of all) {
+      const f = this._contractFinance(c);
+      totalPaid += f.paid;
+      totalUnpaid += f.unpaid;
+    }
+
+    const today = new Date();
+    const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+    const user = Auth.currentUser();
+
+    const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+    const fmt = (n) => `₩${(Number(n) || 0).toLocaleString('ko-KR')}`;
+    const fmtDate = (d) => d ? d : '-';
+
+    const phaseLabel = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+
+    const rowsHtml = all.map(c => {
+      const fin = this._contractFinance(c);
+      const phases = ['downPayment', 'interimPayment', 'finalPayment'].map(k => {
+        const p = this._normalizePhase(c[k]);
+        if (p.amount === 0) return `<div class="phase-empty">-</div>`;
+        const st = this._phaseStatus(p);
+        const dep = st.depositDate ? `<div class="phase-done">✅ 입금 ${fmtDate(st.depositDate)}</div>` : '<div class="phase-wait">⏳ 입금대기</div>';
+        return `<div class="phase">
+          <div class="phase-amt">${fmt(p.amount)}</div>
+          ${st.issueDate ? `<div class="phase-meta">📄 발급 ${fmtDate(st.issueDate)}</div>` : '<div class="phase-meta-wait">⏳ 발급대기</div>'}
+          ${dep}
+        </div>`;
+      });
+      const progress = this._progress(c);
+      return `<tr>
+        <td><div class="proj-name">${esc(c.complexName)}</div><div class="proj-sub">${esc(c.contractName)}</div></td>
+        <td>${esc(c.clientName || '-')}</td>
+        <td class="num">${fmt(c.totalAmount)}</td>
+        <td>${phases[0]}</td>
+        <td>${phases[1]}</td>
+        <td>${phases[2]}</td>
+        <td class="text-center">
+          <span class="st st-${esc(c.status || '진행중')}">${esc(c.status || '진행중')}</span>
+          <div class="prog">${progress}%</div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<title>계약 관리 현황 보고서 - ${dateStr}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  @page { size: A4 landscape; margin: 12mm 10mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: #1e293b; font-size: 9.5pt; margin: 14mm 12mm; background: #fff; }
+  .hdr { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0F172A; padding-bottom: 8px; margin-bottom: 16px; }
+  h1 { font-size: 17pt; margin: 0; color: #0F172A; font-weight: 800; }
+  .meta { font-size: 9pt; color: #64748b; text-align: right; line-height: 1.5; }
+  h2 { font-size: 12pt; margin-top: 18px; color: #2563EB; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .summary { width: 100%; border-collapse: collapse; margin: 8px 0 14px; }
+  .summary td { padding: 8px 10px; border: 1px solid #E2E8F0; }
+  .summary td:nth-child(odd) { background: #F8FAFC; font-weight: 600; width: 20%; }
+  .summary td:nth-child(even) { text-align: right; font-size: 11pt; font-weight: 700; }
+  table.list { width: 100%; border-collapse: collapse; font-size: 8.5pt; }
+  table.list th { background: #0F172A; color: #fff; padding: 6px; text-align: left; font-weight: 600; }
+  table.list td { padding: 5px 6px; border-bottom: 1px solid #E2E8F0; vertical-align: top; }
+  table.list .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.list .text-center { text-align: center; }
+  .proj-name { font-weight: 600; }
+  .proj-sub { color: #64748b; font-size: 8pt; margin-top: 2px; }
+  .phase { font-size: 8pt; }
+  .phase-amt { font-weight: 600; font-size: 9pt; }
+  .phase-meta { color: #64748b; margin-top: 2px; }
+  .phase-meta-wait { color: #94A3B8; margin-top: 2px; }
+  .phase-done { color: #16A34A; margin-top: 2px; font-weight: 600; }
+  .phase-wait { color: #94A3B8; margin-top: 2px; }
+  .phase-empty { color: #CBD5E1; text-align: center; }
+  .st { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 8pt; font-weight: 600; }
+  .st-진행중 { background: #DBEAFE; color: #1E40AF; }
+  .st-완료 { background: #D1FAE5; color: #065F46; }
+  .st-보류 { background: #FEE2E2; color: #991B1B; }
+  .prog { color: #64748b; font-size: 8pt; margin-top: 2px; }
+  .toolbar { margin: 10px 0; }
+  .btn-print { padding: 8px 16px; background: #2563EB; color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-close { padding: 8px 16px; background: #94A3B8; color: #fff; border: 0; border-radius: 6px; cursor: pointer; margin-left: 6px; }
+  .footer { margin-top: 20px; font-size: 8pt; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 6px; text-align: center; }
+  @media print { .toolbar { display: none; } body { margin: 0; } }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button class="btn-print" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+    <button class="btn-close" onclick="window.close()">닫기</button>
+  </div>
+  <div class="hdr">
+    <h1>📋 계약 관리 현황 보고서</h1>
+    <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
+  </div>
+
+  <h2>📊 합계 요약</h2>
+  <table class="summary">
+    <tr><td>총 계약</td><td>${all.length}건</td><td>총 계약금액</td><td>${fmt(totalContract)}</td></tr>
+    <tr><td>총 입금</td><td>${fmt(totalPaid)}</td><td>총 미수금</td><td>${fmt(totalUnpaid)}</td></tr>
+  </table>
+
+  <h2>📋 계약 상세 (${all.length}건)</h2>
+  <table class="list">
+    <thead><tr>
+      <th style="width:22%;">단지명 / 계약건명</th>
+      <th style="width:12%;">발주처</th>
+      <th class="num" style="width:11%;">계약금액</th>
+      <th style="width:14%;">계약금</th>
+      <th style="width:14%;">중도금</th>
+      <th style="width:14%;">잔금</th>
+      <th class="text-center" style="width:13%;">상태</th>
+    </tr></thead>
+    <tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#94A3B8;">등록된 계약이 없습니다.</td></tr>'}</tbody>
+  </table>
+
+  <div class="footer">본 보고서는 스퀘어건축사사무소 업무관리 시스템에서 자동 생성되었습니다.</div>
+</body></html>`;
+
+    const win = window.open('', '_blank', 'width=1400,height=900');
+    if (!win) {
+      Utils.showToast('팝업 차단으로 보고서 창을 열 수 없습니다. 팝업 허용 후 다시 시도하세요.', 'error', 5000);
+      return;
+    }
+    win.document.open();
+    win.document.write(html);
+    win.document.close();
   },
 
   async _bulkSave() {

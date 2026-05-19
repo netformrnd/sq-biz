@@ -443,8 +443,10 @@ const ContractsModule = {
   },
 
   async _save(editId) {
-    const complexName = document.getElementById('ctComplexName').value.trim();
-    const contractName = document.getElementById('ctContractName').value.trim();
+    // NBSP 정규화 (입력 시 비표시 공백 차단)
+    const norm = (s) => String(s || '').replace(/[   ]/g, ' ').trim();
+    const complexName = norm(document.getElementById('ctComplexName').value);
+    const contractName = norm(document.getElementById('ctContractName').value);
     const totalAmount = Number(document.getElementById('ctTotalAmount').value) || 0;
     if (!complexName || !contractName || totalAmount <= 0) {
       Utils.showToast('단지명, 계약건명, 계약금액을 입력해 주세요.', 'error');
@@ -463,15 +465,15 @@ const ContractsModule = {
     const data = {
       complexName,
       contractName,
-      siteAddress: document.getElementById('ctSiteAddress').value.trim(),
-      clientName: document.getElementById('ctClientName').value.trim(),
+      siteAddress: norm(document.getElementById('ctSiteAddress').value),
+      clientName: norm(document.getElementById('ctClientName').value),
       contractDate: document.getElementById('ctContractDate').value || null,
       totalAmount,
       downPayment: phases.downPayment,
       interimPayment: phases.interimPayment,
       finalPayment: phases.finalPayment,
       status: document.getElementById('ctStatus').value || '진행중',
-      memo: document.getElementById('ctMemo').value.trim(),
+      memo: norm(document.getElementById('ctMemo').value),
       updatedAt: new Date().toISOString(),
       updatedBy: user.id,
       updatedByName: user.displayName
@@ -723,7 +725,10 @@ const ContractsModule = {
         if (nameEl) nameEl.textContent = `❌ 헤더를 찾지 못함`;
         return;
       }
-      const headerCols = rows[headerRowIdx].map(c => String(c || '').trim());
+      // NBSP(U+00A0) 등 비표시 공백 → 일반 공백으로 정규화 (매칭 실패 방지)
+      const norm = (v) => String(v || '').replace(/[   ]/g, ' ').trim();
+
+      const headerCols = rows[headerRowIdx].map(c => norm(c));
       const idx = (name) => headerCols.findIndex(c => c === name || c.startsWith(name));
 
       const colMap = {
@@ -741,19 +746,19 @@ const ContractsModule = {
       };
 
       const parsed = [];
-      const num = (v) => Number(String(v || '').replace(/[,\s원]/g, '')) || 0;
+      const num = (v) => Number(String(v || '').replace(/[,\s 원]/g, '')) || 0;
       for (let i = headerRowIdx + 1; i < rows.length; i++) {
         const row = rows[i];
-        if (!row || row.every(c => !String(c || '').trim())) continue;
-        const complexName = colMap.complexName >= 0 ? String(row[colMap.complexName] || '').trim() : '';
-        const contractName = colMap.contractName >= 0 ? String(row[colMap.contractName] || '').trim() : '';
+        if (!row || row.every(c => !norm(c))) continue;
+        const complexName = colMap.complexName >= 0 ? norm(row[colMap.complexName]) : '';
+        const contractName = colMap.contractName >= 0 ? norm(row[colMap.contractName]) : '';
         if (!complexName || !contractName) continue;
         if (complexName.startsWith('(예시)')) continue;
 
         const totalAmount = colMap.totalAmount >= 0 ? num(row[colMap.totalAmount]) : 0;
         if (totalAmount <= 0) continue;
 
-        const status = (colMap.status >= 0 ? String(row[colMap.status] || '').trim() : '') || '진행중';
+        const status = (colMap.status >= 0 ? norm(row[colMap.status]) : '') || '진행중';
         const validStatus = this.STATUS_OPTIONS.includes(status) ? status : '진행중';
 
         parsed.push({
@@ -761,15 +766,15 @@ const ContractsModule = {
           selected: true,
           complexName,
           contractName,
-          siteAddress: colMap.siteAddress >= 0 ? String(row[colMap.siteAddress] || '').trim() : '',
-          clientName: colMap.clientName >= 0 ? String(row[colMap.clientName] || '').trim() : '',
+          siteAddress: colMap.siteAddress >= 0 ? norm(row[colMap.siteAddress]) : '',
+          clientName: colMap.clientName >= 0 ? norm(row[colMap.clientName]) : '',
           contractDate: colMap.contractDate >= 0 ? this._normDate(row[colMap.contractDate]) : null,
           totalAmount,
           downPaymentAmount: colMap.downPayment >= 0 ? num(row[colMap.downPayment]) : 0,
           interimPaymentAmount: colMap.interimPayment >= 0 ? num(row[colMap.interimPayment]) : 0,
           finalPaymentAmount: colMap.finalPayment >= 0 ? num(row[colMap.finalPayment]) : 0,
           status: validStatus,
-          memo: colMap.memo >= 0 ? String(row[colMap.memo] || '').trim() : ''
+          memo: colMap.memo >= 0 ? norm(row[colMap.memo]) : ''
         });
       }
 

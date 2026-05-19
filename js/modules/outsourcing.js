@@ -345,7 +345,9 @@ const OutsourcingModule = {
   },
 
   async _save(editId) {
-    const projectName = document.getElementById('osProjectName').value.trim();
+    // NBSP 정규화 (입력 시 비표시 공백 차단)
+    const norm = (s) => String(s || '').replace(/[   ]/g, ' ').trim();
+    const projectName = norm(document.getElementById('osProjectName').value);
     if (!projectName) {
       Utils.showToast('프로젝트명을 입력해 주세요.', 'error');
       return;
@@ -354,12 +356,12 @@ const OutsourcingModule = {
     const user = Auth.currentUser();
     const data = {
       projectName,
-      clientName: document.getElementById('osClientName').value.trim(),
-      vendorName: document.getElementById('osVendorName').value.trim(),
+      clientName: norm(document.getElementById('osClientName').value),
+      vendorName: norm(document.getElementById('osVendorName').value),
       contractDate: document.getElementById('osContractDate').value || null,
       depositAmount: Number(document.getElementById('osDepositAmount').value) || 0,
       status: document.getElementById('osStatus').value || '진행중',
-      memo: document.getElementById('osMemo').value.trim(),
+      memo: norm(document.getElementById('osMemo').value),
       updatedAt: new Date().toISOString(),
       updatedBy: user.id,
       updatedByName: user.displayName
@@ -600,10 +602,14 @@ const OutsourcingModule = {
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
 
+      // 문자열 정규화: NBSP(U+00A0) 등 비표시 공백 → 일반 공백으로 변환 후 trim
+      // (엑셀/웹 텍스트 복사 시 NBSP 가 섞여들어 매칭 실패하는 문제 방지)
+      const norm = (v) => String(v || '').replace(/[   ]/g, ' ').trim();
+
       // 헤더 행 탐색 (첫 15줄 이내)
       let headerRowIdx = -1;
       for (let i = 0; i < Math.min(15, rows.length); i++) {
-        const r = rows[i].map(c => String(c || '').trim());
+        const r = rows[i].map(c => norm(c));
         if (r.includes('프로젝트명')) { headerRowIdx = i; break; }
       }
       if (headerRowIdx < 0) {
@@ -611,7 +617,7 @@ const OutsourcingModule = {
         if (nameEl) nameEl.textContent = `❌ 헤더를 찾지 못함`;
         return;
       }
-      const headerCols = rows[headerRowIdx].map(c => String(c || '').trim());
+      const headerCols = rows[headerRowIdx].map(c => norm(c));
       const idx = (name) => headerCols.findIndex(c => c === name || c.startsWith(name));
 
       const colMap = {
@@ -627,27 +633,27 @@ const OutsourcingModule = {
       const parsed = [];
       for (let i = headerRowIdx + 1; i < rows.length; i++) {
         const row = rows[i];
-        if (!row || row.every(c => !String(c || '').trim())) continue;
-        const projectName = colMap.projectName >= 0 ? String(row[colMap.projectName] || '').trim() : '';
+        if (!row || row.every(c => !norm(c))) continue;
+        const projectName = colMap.projectName >= 0 ? norm(row[colMap.projectName]) : '';
         if (!projectName) continue;
         // 예시 행 자동 제외 (시작이 "(예시)")
         if (projectName.startsWith('(예시)')) continue;
 
-        const depAmtRaw = colMap.depositAmount >= 0 ? String(row[colMap.depositAmount] || '').replace(/[,\s원]/g, '') : '';
+        const depAmtRaw = colMap.depositAmount >= 0 ? String(row[colMap.depositAmount] || '').replace(/[,\s 원]/g, '') : '';
         const depAmt = Number(depAmtRaw) || 0;
-        const status = (colMap.status >= 0 ? String(row[colMap.status] || '').trim() : '') || '진행중';
+        const status = (colMap.status >= 0 ? norm(row[colMap.status]) : '') || '진행중';
         const validStatus = this.STATUS_OPTIONS.includes(status) ? status : '진행중';
 
         parsed.push({
           rowNum: i + 1,
           selected: true,
           projectName,
-          clientName: colMap.clientName >= 0 ? String(row[colMap.clientName] || '').trim() : '',
-          vendorName: colMap.vendorName >= 0 ? String(row[colMap.vendorName] || '').trim() : '',
+          clientName: colMap.clientName >= 0 ? norm(row[colMap.clientName]) : '',
+          vendorName: colMap.vendorName >= 0 ? norm(row[colMap.vendorName]) : '',
           contractDate: colMap.contractDate >= 0 ? this._normDate(row[colMap.contractDate]) : null,
           depositAmount: depAmt,
           status: validStatus,
-          memo: colMap.memo >= 0 ? String(row[colMap.memo] || '').trim() : ''
+          memo: colMap.memo >= 0 ? norm(row[colMap.memo]) : ''
         });
       }
 

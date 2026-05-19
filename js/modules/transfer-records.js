@@ -367,8 +367,10 @@ const TransferModule = {
   },
 
   async _save(editId) {
+    // NBSP(U+00A0) 등 비표시 공백 → 일반 공백 정규화 (외주설계 자동 매칭 실패 방지)
+    const norm = (s) => String(s || '').replace(/[   ]/g, ' ').trim();
     const date = document.getElementById('trDate').value;
-    const recipient = document.getElementById('trRecipient').value.trim();
+    const recipient = norm(document.getElementById('trRecipient').value);
     const amount = Number(document.getElementById('trAmount').value) || 0;
 
     if (!date || !recipient || amount <= 0) {
@@ -382,8 +384,8 @@ const TransferModule = {
       recipientName: recipient,
       amount,
       purpose: document.getElementById('trPurpose').value,
-      projectName: document.getElementById('trProject').value.trim(),
-      memo: document.getElementById('trMemo').value.trim(),
+      projectName: norm(document.getElementById('trProject').value),
+      memo: norm(document.getElementById('trMemo').value),
       registeredBy: user.id,
       registeredByName: user.displayName,
       updatedAt: new Date().toISOString()

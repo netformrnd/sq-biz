@@ -142,6 +142,7 @@ const OutsourcingModule = {
       <div class="page-header">
         <h2>외주설계 관리대장</h2>
         <div class="page-actions">
+          <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="OutsourcingModule._openAddModal()">+ 프로젝트 등록</button>` : ''}

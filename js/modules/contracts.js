@@ -200,6 +200,7 @@ const ContractsModule = {
       <div class="page-header">
         <h2>계약 관리대장</h2>
         <div class="page-actions">
+          <button class="btn btn-ghost" onclick="UserGuideModule.showModal('contracts')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="ContractsModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="ContractsModule._openAddModal()">+ 계약 등록</button>` : ''}

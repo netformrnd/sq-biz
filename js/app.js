@@ -260,6 +260,17 @@ const App = {
       `;
     }
 
+    // 사용가이드 (전체 사용자)
+    html += `
+      <div class="nav-section">
+        <div class="nav-section-title">도움말</div>
+        <div class="nav-item" data-path="/user-guide" onclick="Router.navigate('/user-guide')">
+          <span class="nav-icon">📖</span>
+          <span>사용가이드</span>
+        </div>
+      </div>
+    `;
+
     // 내 정보 (전체 사용자)
     html += `
       <div class="nav-divider"></div>
@@ -363,6 +374,11 @@ const App = {
     Router.register('/contracts', {
       module: 'ContractsModule',
       title: '계약 관리대장',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/user-guide', {
+      module: 'UserGuideModule',
+      title: '사용가이드',
       roles: ['admin', 'employee']
     });
     Router.register('/leave', {

@@ -144,6 +144,7 @@ const OutsourcingModule = {
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 보고서 PDF</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="OutsourcingModule._openAddModal()">+ 프로젝트 등록</button>` : ''}
@@ -737,6 +738,180 @@ const OutsourcingModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
+  // 현재 외주설계 관리대장에 등록된 모든 프로젝트를 엑셀 파일로 출력
+  async _downloadListExcel() {
+    try {
+      await this._ensureXlsx();
+      const XLSX = window.XLSX;
+
+      await this._loadTransferTotals();
+      const all = (await DB.getAll('outsourcingProjects')).reverse();
+
+      const totalDeposit = all.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
+      const totalOutsourcing = all.reduce((s, p) => s + (this._transferTotalsByProject[(p.projectName || '').trim()] || 0), 0);
+      const totalBalance = totalDeposit - totalOutsourcing;
+
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+      // 데이터 시트 구성 (AOA)
+      const HEADERS = ['프로젝트명', '발주처', '외주업체', '계약일', '입금금액', '외주지급누계', '잔액', '진행상태', '비고'];
+      const aoa = [
+        [`📒 외주설계 관리대장 (총 ${all.length}건)`],
+        [`작성일: ${dateStr}`],
+        [],
+        HEADERS,
+        ...all.map(p => {
+          const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
+          const bal = (Number(p.depositAmount) || 0) - out;
+          return [
+            p.projectName || '',
+            p.clientName || '',
+            p.vendorName || '',
+            p.contractDate || '',
+            Number(p.depositAmount) || 0,
+            out,
+            bal,
+            p.status || '진행중',
+            p.memo || ''
+          ];
+        }),
+        [],
+        ['합계', '', '', '', totalDeposit, totalOutsourcing, totalBalance, '', '']
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // 컬럼 폭
+      ws['!cols'] = [
+        { wch: 40 }, { wch: 20 }, { wch: 22 }, { wch: 13 },
+        { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 30 }
+      ];
+
+      // 행 높이
+      ws['!rows'] = [
+        { hpt: 32 }, { hpt: 18 }, { hpt: 8 }, { hpt: 30 }
+      ];
+      for (let i = 0; i < all.length; i++) ws['!rows'].push({ hpt: 22 });
+      ws['!rows'].push({ hpt: 8 });
+      ws['!rows'].push({ hpt: 28 });
+
+      // 머지 (타이틀, 작성일)
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }
+      ];
+
+      const COL_COUNT = HEADERS.length;
+
+      // 스타일 헬퍼
+      const styleTitle = {
+        font: { bold: true, sz: 14, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+      const styleDate = {
+        font: { italic: true, sz: 10, color: { rgb: '64748B' }, name: '맑은 고딕' },
+        alignment: { horizontal: 'right', vertical: 'center' }
+      };
+      const styleHeader = {
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 11, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: '2563EB' } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '94A3B8' } },
+          bottom: { style: 'thin', color: { rgb: '94A3B8' } },
+          left: { style: 'thin', color: { rgb: '94A3B8' } },
+          right: { style: 'thin', color: { rgb: '94A3B8' } }
+        }
+      };
+      const styleBody = (isOdd, col) => ({
+        font: { sz: 10, color: { rgb: '1E293B' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: isOdd ? 'F8FAFC' : 'FFFFFF' } },
+        alignment: {
+          horizontal: (col >= 4 && col <= 6) ? 'right' : (col === 7 ? 'center' : 'left'),
+          vertical: 'center',
+          wrapText: (col === 0 || col === 8)
+        },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+        }
+      });
+      const styleTotal = (col) => ({
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } },
+        alignment: {
+          horizontal: (col >= 4 && col <= 6) ? 'right' : (col === 0 ? 'center' : 'left'),
+          vertical: 'center'
+        },
+        border: {
+          top: { style: 'medium', color: { rgb: '0F172A' } },
+          bottom: { style: 'medium', color: { rgb: '0F172A' } },
+          left: { style: 'thin', color: { rgb: '94A3B8' } },
+          right: { style: 'thin', color: { rgb: '94A3B8' } }
+        }
+      });
+
+      // 타이틀
+      ws[XLSX.utils.encode_cell({ r: 0, c: 0 })].s = styleTitle;
+      // 작성일
+      ws[XLSX.utils.encode_cell({ r: 1, c: 0 })].s = styleDate;
+
+      // 헤더
+      for (let c = 0; c < COL_COUNT; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 3, c });
+        if (ws[addr]) ws[addr].s = styleHeader;
+      }
+
+      // 데이터 행 (행 4부터 시작)
+      const dataStart = 4;
+      for (let i = 0; i < all.length; i++) {
+        const row = dataStart + i;
+        const isOdd = i % 2 === 1;
+        for (let c = 0; c < COL_COUNT; c++) {
+          const addr = XLSX.utils.encode_cell({ r: row, c });
+          if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+          ws[addr].s = styleBody(isOdd, c);
+          // 금액 컬럼은 숫자 포맷
+          if (c >= 4 && c <= 6) {
+            ws[addr].t = 'n';
+            ws[addr].z = '#,##0';
+          }
+        }
+      }
+
+      // 합계 행
+      const totalsRow = dataStart + all.length + 1;
+      for (let c = 0; c < COL_COUNT; c++) {
+        const addr = XLSX.utils.encode_cell({ r: totalsRow, c });
+        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+        ws[addr].s = styleTotal(c);
+        if (c >= 4 && c <= 6) {
+          ws[addr].t = 'n';
+          ws[addr].z = '#,##0';
+        }
+      }
+
+      // 헤더 고정 (행 4까지: 타이틀/작성일/공백/헤더)
+      ws['!freeze'] = { xSplit: 0, ySplit: 4 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '외주설계 관리대장');
+
+      const stamp = dateStr.replace(/-/g, '');
+      const filename = `외주설계_관리대장_${stamp}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      Utils.showToast(`${filename} 다운로드 완료 (${all.length}건)`, 'success');
+    } catch (e) {
+      console.error('[외주설계] 리스트 엑셀 다운로드 실패:', e);
+      Utils.showToast('엑셀 다운로드 실패: ' + e.message, 'error');
+    }
   },
 
   // ========== 보고서 PDF 다운로드 ==========

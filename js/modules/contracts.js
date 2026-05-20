@@ -202,6 +202,7 @@ const ContractsModule = {
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('contracts')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadReportPDF()">📄 보고서 PDF</button>
+          <button class="btn btn-secondary" onclick="ContractsModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="ContractsModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="ContractsModule._openAddModal()">+ 계약 등록</button>` : ''}
@@ -846,6 +847,213 @@ const ContractsModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
+  // 현재 계약 관리대장에 등록된 모든 계약을 엑셀 파일로 출력
+  // 컬럼: 단지명, 계약건명, 현장소재지, 발주처, 계약일, 총계약금액,
+  //       계약금/계약금발급일/계약금입금일, 중도금/.../중도금입금일, 잔금/.../잔금입금일,
+  //       총입금, 미수금, 진행상태, 진행률, 비고
+  async _downloadListExcel() {
+    try {
+      await this._ensureXlsx();
+      const XLSX = window.XLSX;
+
+      await this._loadCaches();
+      const all = (await DB.getAll('contracts')).reverse();
+
+      const totalContract = all.reduce((s, c) => s + (Number(c.totalAmount) || 0), 0);
+      let totalPaid = 0, totalUnpaid = 0;
+      for (const c of all) {
+        const f = this._contractFinance(c);
+        totalPaid += f.paid;
+        totalUnpaid += f.unpaid;
+      }
+
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+
+      const HEADERS = [
+        '단지명', '계약건명', '현장소재지', '발주처', '계약일', '총계약금액',
+        '계약금', '계약금 발급일', '계약금 입금일',
+        '중도금', '중도금 발급일', '중도금 입금일',
+        '잔금', '잔금 발급일', '잔금 입금일',
+        '총입금', '미수금', '진행상태', '진행률', '비고'
+      ];
+      const COL_COUNT = HEADERS.length;
+      // 금액 컬럼: 5(총계약금액), 6(계약금), 9(중도금), 12(잔금), 15(총입금), 16(미수금)
+      const AMOUNT_COLS = new Set([5, 6, 9, 12, 15, 16]);
+
+      const aoa = [
+        [`📋 계약 관리대장 (총 ${all.length}건)`],
+        [`작성일: ${dateStr}`],
+        [],
+        HEADERS,
+        ...all.map(c => {
+          const fin = this._contractFinance(c);
+          const dp = this._normalizePhase(c.downPayment);
+          const ip = this._normalizePhase(c.interimPayment);
+          const fp = this._normalizePhase(c.finalPayment);
+          const dpS = this._phaseStatus(dp);
+          const ipS = this._phaseStatus(ip);
+          const fpS = this._phaseStatus(fp);
+          return [
+            c.complexName || '',
+            c.contractName || '',
+            c.siteAddress || '',
+            c.clientName || '',
+            c.contractDate || '',
+            Number(c.totalAmount) || 0,
+            dp.amount || 0, dpS.issueDate || '', dpS.depositDate || '',
+            ip.amount || 0, ipS.issueDate || '', ipS.depositDate || '',
+            fp.amount || 0, fpS.issueDate || '', fpS.depositDate || '',
+            fin.paid,
+            fin.unpaid,
+            c.status || '진행중',
+            `${this._progress(c)}%`,
+            c.memo || ''
+          ];
+        }),
+        [],
+        ['합계', '', '', '', '', totalContract,
+         '', '', '', '', '', '', '', '', '',
+         totalPaid, totalUnpaid, '', '', '']
+      ];
+
+      const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+      // 컬럼 폭
+      ws['!cols'] = [
+        { wch: 25 }, { wch: 30 }, { wch: 35 }, { wch: 18 }, { wch: 13 }, { wch: 16 },
+        { wch: 14 }, { wch: 13 }, { wch: 13 },
+        { wch: 14 }, { wch: 13 }, { wch: 13 },
+        { wch: 14 }, { wch: 13 }, { wch: 13 },
+        { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 10 }, { wch: 28 }
+      ];
+
+      // 행 높이
+      ws['!rows'] = [
+        { hpt: 32 }, { hpt: 18 }, { hpt: 8 }, { hpt: 36 }
+      ];
+      for (let i = 0; i < all.length; i++) ws['!rows'].push({ hpt: 22 });
+      ws['!rows'].push({ hpt: 8 });
+      ws['!rows'].push({ hpt: 28 });
+
+      // 머지 (타이틀, 작성일)
+      ws['!merges'] = [
+        { s: { r: 0, c: 0 }, e: { r: 0, c: COL_COUNT - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: COL_COUNT - 1 } }
+      ];
+
+      // 스타일
+      const styleTitle = {
+        font: { bold: true, sz: 14, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } },
+        alignment: { horizontal: 'center', vertical: 'center' }
+      };
+      const styleDate = {
+        font: { italic: true, sz: 10, color: { rgb: '64748B' }, name: '맑은 고딕' },
+        alignment: { horizontal: 'right', vertical: 'center' }
+      };
+      const styleHeader = (col) => ({
+        font: { bold: true, color: { rgb: 'FFFFFF' }, sz: 10.5, name: '맑은 고딕' },
+        // 결제단계별 색상 구분: 계약금=하늘, 중도금=주황, 잔금=보라
+        fill: { patternType: 'solid', fgColor: { rgb:
+          (col >= 6 && col <= 8) ? '0EA5E9' :
+          (col >= 9 && col <= 11) ? 'F97316' :
+          (col >= 12 && col <= 14) ? '8B5CF6' :
+          '2563EB'
+        } },
+        alignment: { horizontal: 'center', vertical: 'center', wrapText: true },
+        border: {
+          top: { style: 'thin', color: { rgb: '94A3B8' } },
+          bottom: { style: 'thin', color: { rgb: '94A3B8' } },
+          left: { style: 'thin', color: { rgb: '94A3B8' } },
+          right: { style: 'thin', color: { rgb: '94A3B8' } }
+        }
+      });
+      const styleBody = (isOdd, col) => ({
+        font: { sz: 9.5, color: { rgb: '1E293B' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: isOdd ? 'F8FAFC' : 'FFFFFF' } },
+        alignment: {
+          horizontal: AMOUNT_COLS.has(col) ? 'right' : ((col === 17 || col === 18 || col === 4 || col === 7 || col === 8 || col === 10 || col === 11 || col === 13 || col === 14) ? 'center' : 'left'),
+          vertical: 'center',
+          wrapText: (col === 0 || col === 1 || col === 2 || col === 19)
+        },
+        border: {
+          top: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          bottom: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          left: { style: 'thin', color: { rgb: 'E2E8F0' } },
+          right: { style: 'thin', color: { rgb: 'E2E8F0' } }
+        }
+      });
+      const styleTotal = (col) => ({
+        font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
+        fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } },
+        alignment: {
+          horizontal: AMOUNT_COLS.has(col) ? 'right' : (col === 0 ? 'center' : 'left'),
+          vertical: 'center'
+        },
+        border: {
+          top: { style: 'medium', color: { rgb: '0F172A' } },
+          bottom: { style: 'medium', color: { rgb: '0F172A' } },
+          left: { style: 'thin', color: { rgb: '94A3B8' } },
+          right: { style: 'thin', color: { rgb: '94A3B8' } }
+        }
+      });
+
+      // 적용
+      ws[XLSX.utils.encode_cell({ r: 0, c: 0 })].s = styleTitle;
+      ws[XLSX.utils.encode_cell({ r: 1, c: 0 })].s = styleDate;
+
+      // 헤더 (row 3)
+      for (let c = 0; c < COL_COUNT; c++) {
+        const addr = XLSX.utils.encode_cell({ r: 3, c });
+        if (ws[addr]) ws[addr].s = styleHeader(c);
+      }
+
+      // 데이터 (row 4부터)
+      const dataStart = 4;
+      for (let i = 0; i < all.length; i++) {
+        const row = dataStart + i;
+        const isOdd = i % 2 === 1;
+        for (let c = 0; c < COL_COUNT; c++) {
+          const addr = XLSX.utils.encode_cell({ r: row, c });
+          if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+          ws[addr].s = styleBody(isOdd, c);
+          if (AMOUNT_COLS.has(c)) {
+            ws[addr].t = 'n';
+            ws[addr].z = '#,##0';
+          }
+        }
+      }
+
+      // 합계 행
+      const totalsRow = dataStart + all.length + 1;
+      for (let c = 0; c < COL_COUNT; c++) {
+        const addr = XLSX.utils.encode_cell({ r: totalsRow, c });
+        if (!ws[addr]) ws[addr] = { v: '', t: 's' };
+        ws[addr].s = styleTotal(c);
+        if (AMOUNT_COLS.has(c)) {
+          ws[addr].t = 'n';
+          ws[addr].z = '#,##0';
+        }
+      }
+
+      // 헤더 고정
+      ws['!freeze'] = { xSplit: 0, ySplit: 4 };
+
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '계약 관리대장');
+
+      const stamp = dateStr.replace(/-/g, '');
+      const filename = `계약_관리대장_${stamp}.xlsx`;
+      XLSX.writeFile(wb, filename);
+      Utils.showToast(`${filename} 다운로드 완료 (${all.length}건)`, 'success');
+    } catch (e) {
+      console.error('[계약] 리스트 엑셀 다운로드 실패:', e);
+      Utils.showToast('엑셀 다운로드 실패: ' + e.message, 'error');
+    }
   },
 
   // ========== 보고서 PDF 다운로드 ==========

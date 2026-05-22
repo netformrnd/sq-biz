@@ -18,7 +18,7 @@ const UserGuideModule = {
           heading: '[1] 신규 외주 발생 시 (등록)',
           body: `
             <ol>
-              <li>사이드바 → <strong>외주관리 → 외주설계 관리대장</strong></li>
+              <li>사이드바 → <strong>프로젝트 관리 → 프로젝트 정산관리</strong></li>
               <li>우측 상단 <strong>[+ 프로젝트 등록]</strong> 클릭</li>
               <li>입력 항목:
                 <ul>
@@ -44,7 +44,7 @@ const UserGuideModule = {
                 <ul>
                   <li>송금일 / 수취인 / 금액</li>
                   <li>용도 = <strong>용역비</strong></li>
-                  <li><strong>프로젝트</strong> = 외주설계 관리대장의 프로젝트명과 <strong style="color:#dc2626;">정확히 동일하게</strong> 입력</li>
+                  <li><strong>프로젝트</strong> = 프로젝트 정산관리의 프로젝트명과 <strong style="color:#dc2626;">정확히 동일하게</strong> 입력</li>
                 </ul>
               </li>
               <li><strong>[등록]</strong> 클릭</li>
@@ -56,7 +56,7 @@ const UserGuideModule = {
           heading: '[3] 정산 완료 시',
           body: `
             <ol>
-              <li>외주설계 관리대장 → 해당 프로젝트 클릭</li>
+              <li>프로젝트 정산관리 → 해당 프로젝트 클릭</li>
               <li>✏️ 수정 → <strong>진행상태: "완료"</strong> 변경</li>
               <li>비고에 정산 완료일 메모</li>
               <li>저장</li>
@@ -68,11 +68,11 @@ const UserGuideModule = {
           heading: '[4] 매월 점검 (월말 루틴)',
           body: `
             <ol>
-              <li>외주설계 관리대장 페이지</li>
-              <li>상단 카드 확인: <strong>총 입금금액 / 총 외주지급누계 / 총 잔액</strong></li>
+              <li>프로젝트 정산관리 페이지</li>
+              <li>상단 카드 확인: <strong>총 매출금액 / 총 집행금액 / 총 잔액</strong></li>
               <li>카드 클릭 필터 활용:
                 <ul>
-                  <li>[총 외주지급누계] → 외주지급 있는 건만</li>
+                  <li>[총 집행금액] → 집행(외주지급) 있는 건만</li>
                   <li>[총 잔액] → 잔액 있는 건 (미정산)</li>
                 </ul>
               </li>
@@ -84,9 +84,9 @@ const UserGuideModule = {
           heading: '[5] 자주 발생하는 상황별 대처',
           body: `
             <dl>
-              <dt>🔹 "외주지급누계가 0원으로 나옴"</dt>
-              <dd>송금내역과 외주설계의 프로젝트명이 정확히 일치 안 함<br>
-              → 외주설계 프로젝트명 복사 → 송금내역에 붙여넣기</dd>
+              <dt>🔹 "집행금액이 0원으로 나옴"</dt>
+              <dd>송금내역과 프로젝트 정산관리의 프로젝트명이 정확히 일치 안 함<br>
+              → 프로젝트 정산관리의 프로젝트명 복사 → 송금내역에 붙여넣기</dd>
 
               <dt>🔹 "같은 날 여러 외주 합쳐서 송금"</dt>
               <dd>송금내역에서 각 프로젝트별로 분할 등록</dd>
@@ -95,7 +95,7 @@ const UserGuideModule = {
               <dd>임시로 등록 후 비고에 "[확인 필요]" 메모 → 담당자와 협의 후 정리</dd>
 
               <dt>🔹 "엑셀로 한 번에 여러 건 등록"</dt>
-              <dd>외주설계 관리대장 [📥 엑셀 양식 다운로드] → 양식 채워서 [📤 엑셀 일괄 업로드]</dd>
+              <dd>프로젝트 정산관리 [📥 엑셀 양식 다운로드] → 양식 채워서 [📤 엑셀 일괄 업로드]</dd>
             </dl>
           `
         }
@@ -110,7 +110,7 @@ const UserGuideModule = {
           heading: '[1] 신규 계약 등록',
           body: `
             <ol>
-              <li>사이드바 → <strong>외주관리 → 계약 관리대장</strong></li>
+              <li>사이드바 → <strong>프로젝트 관리 → 계약 수금 관리</strong></li>
               <li>우측 상단 <strong>[+ 계약 등록]</strong> 클릭</li>
               <li>입력 항목:
                 <ul>
@@ -136,7 +136,7 @@ const UserGuideModule = {
                   <li><strong>기존 계약</strong> 선택 → 드롭다운에서 선택 + 단계 선택</li>
                 </ul>
               </li>
-              <li>등록 → <strong>계약 관리대장에 자동 반영</strong></li>
+              <li>등록 → <strong>계약 수금 관리에 자동 반영</strong></li>
             </ol>
           `
         },
@@ -146,7 +146,7 @@ const UserGuideModule = {
             <ol>
               <li>통장 데이터 업로드 → 입금내역에 자동 등록</li>
               <li>입금내역에서 해당 입금을 세금계산서와 매칭</li>
-              <li>매칭되면 → 계약 관리대장에 <strong>입금일 자동 표시 ✅</strong></li>
+              <li>매칭되면 → 계약 수금 관리에 <strong>입금일 자동 표시 ✅</strong></li>
             </ol>
             <p class="tip">→ 계약 → 세금계산서 → 입금내역이 연결되어 진행 상황을 한눈에 확인 가능</p>
           `
@@ -155,7 +155,7 @@ const UserGuideModule = {
           heading: '[4] 미수금 확인',
           body: `
             <ol>
-              <li>계약 관리대장 페이지</li>
+              <li>계약 수금 관리 페이지</li>
               <li>상단 카드 중 <strong>[⚠️ 총 미수금]</strong> 클릭</li>
               <li>→ 미수금 발생 계약만 표시</li>
               <li>각 계약 클릭 → 어느 단계에서 미수금인지 확인</li>
@@ -179,18 +179,18 @@ const UserGuideModule = {
                 <ul>
                   <li>송금일 / 수취인 / 금액</li>
                   <li>용도 (용역비, 외주비 등)</li>
-                  <li><strong>프로젝트명</strong> (외주설계 매칭용 — 정확히 동일하게 입력)</li>
+                  <li><strong>프로젝트명</strong> (프로젝트 정산관리 매칭용 — 정확히 동일하게 입력)</li>
                 </ul>
               </li>
             </ol>
           `
         },
         {
-          heading: '[2] 외주설계와 자동 매칭',
+          heading: '[2] 프로젝트 정산관리와 자동 매칭',
           body: `
-            <p>송금의 <strong>프로젝트명</strong>이 외주설계 관리대장의 프로젝트명과 정확히 일치하면:</p>
+            <p>송금의 <strong>프로젝트명</strong>이 프로젝트 정산관리의 프로젝트명과 정확히 일치하면:</p>
             <ul>
-              <li>외주설계 관리대장의 <strong>"외주지급누계"</strong>가 자동 합산</li>
+              <li>프로젝트 정산관리의 <strong>"집행금액"</strong>이 자동 합산</li>
               <li>잔액 (입금 - 지급) 자동 계산</li>
             </ul>
             <p class="warn">⚠️ 한 글자라도 다르면 매칭 안 됨. 띄어쓰기·괄호 주의.</p>
@@ -212,7 +212,7 @@ const UserGuideModule = {
                 <ul>
                   <li>발행 사유 / 공급가액 (자동으로 세액·합계 계산)</li>
                   <li>프로젝트명</li>
-                  <li><strong>📋 계약 연결</strong> (선택): 신규/기존 계약 선택 → 자동으로 계약 관리대장에 반영</li>
+                  <li><strong>📋 계약 연결</strong> (선택): 신규/기존 계약 선택 → 자동으로 계약 수금 관리에 반영</li>
                   <li>사업자등록증 첨부 (Ctrl+V로 화면캡쳐 붙여넣기 → OCR 자동 인식)</li>
                   <li>거래처 정보 (OCR이 자동 입력)</li>
                 </ul>
@@ -243,7 +243,7 @@ const UserGuideModule = {
           body: `
             <h4>▣ 월간 보고 (매월 말일)</h4>
             <ul>
-              <li><strong>항목</strong>: 외주설계 진행 현황, 신규 등록 건, 정산 완료 건, 미수금 발생, 총 입금/지급/잔액</li>
+              <li><strong>항목</strong>: 프로젝트 진행 현황, 신규 등록 건, 정산 완료 건, 미수금 발생, 총 매출/집행/잔액</li>
               <li><strong>형식</strong>: 시스템 화면 캡쳐 + 1페이지 요약</li>
               <li><strong>대상</strong>: 대표님 (잔디 또는 대면)</li>
               <li><strong>책임자</strong>: 관리자</li>
@@ -398,7 +398,7 @@ const UserGuideModule = {
       </div>
 
       <div class="no-print" style="margin-top:var(--sp-4);padding:var(--sp-3);background:var(--color-bg-light);border-radius:var(--radius-sm);font-size:var(--font-size-sm);color:var(--color-text-muted);">
-        💡 <strong>도움말</strong>: 각 페이지(외주설계, 계약 관리대장 등)에서 우측 상단 <strong>[📖 도움말]</strong> 버튼을 클릭하면 해당 페이지 전용 가이드만 빠르게 볼 수 있습니다.
+        💡 <strong>도움말</strong>: 각 페이지(프로젝트 정산관리, 계약 수금 관리 등)에서 우측 상단 <strong>[📖 도움말]</strong> 버튼을 클릭하면 해당 페이지 전용 가이드만 빠르게 볼 수 있습니다.
       </div>
     `;
 

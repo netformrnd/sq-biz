@@ -212,11 +212,11 @@ const App = {
       html += `</div>`;
     }
 
-    // 외주관리 (관리대장)
+    // 프로젝트 관리 (정산관리 + 계약 수금 관리)
     const showOutsourcing = hasPerm('outsourcing');
     const showContracts = hasPerm('contracts');
     if (showOutsourcing || showContracts) {
-      html += `<div class="nav-section"><div class="nav-section-title">외주관리</div>`;
+      html += `<div class="nav-section"><div class="nav-section-title">프로젝트 관리</div>`;
       if (showOutsourcing) {
         html += `
           <div class="nav-item" data-path="/outsourcing" onclick="Router.navigate('/outsourcing')">

@@ -54,11 +54,11 @@ const TaxInvoiceRequestModule = {
               <input type="text" id="projectName" class="form-control" placeholder="관련 프로젝트명">
             </div>
 
-            <!-- 계약 연결 (Phase 1: 계약 관리대장과 자동 연동) -->
+            <!-- 계약 연결 (Phase 1: 계약 수금 관리와 자동 연동) -->
             <fieldset id="contractLinkSection" style="border:1px solid var(--color-border);border-radius:var(--radius-sm);padding:var(--sp-3);margin-bottom:var(--sp-4);">
               <legend style="padding:0 var(--sp-2);font-weight:600;">📋 계약 연결 <span class="text-xs text-muted">(선택)</span></legend>
               <div style="font-size:var(--font-size-sm);color:var(--color-text-muted);margin-bottom:var(--sp-3);">
-                연결하면 <strong>계약 관리대장</strong>에 자동 등록됩니다. 외주 진행 건은 관리자에게 별도 등록을 요청하세요.
+                연결하면 <strong>계약 수금 관리</strong>에 자동 등록됩니다. 외주 진행 건은 관리자에게 별도 등록을 요청하세요.
               </div>
 
               <div class="form-group">
@@ -816,7 +816,7 @@ const TaxInvoiceRequestModule = {
         }
       } catch (e) {
         console.error('[계약연결] 실패:', e);
-        Utils.showToast('⚠️ 발행 요청은 등록됐으나 계약 연결에 실패했습니다. 계약 관리대장에서 수동 연결해 주세요.', 'warning', 6000);
+        Utils.showToast('⚠️ 발행 요청은 등록됐으나 계약 연결에 실패했습니다. 계약 수금 관리에서 수동 연결해 주세요.', 'warning', 6000);
       }
     }
 

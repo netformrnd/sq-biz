@@ -1,5 +1,5 @@
 /* ============================================
-   외주설계 관리대장 모듈
+   프로젝트 정산관리 모듈 (구 외주설계 관리대장)
    - 프로젝트별 입금금액 / 외주지급누계 / 잔액 관리
    - 외주지급누계는 송금내역(transferRecords) 자동 합산
    - 권한: 관리자 + 'outsourcing' 메뉴 권한 보유자
@@ -890,7 +890,7 @@ const OutsourcingModule = {
   },
 
   // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
-  // 현재 외주설계 관리대장에 등록된 모든 프로젝트를 엑셀 파일로 출력
+  // 현재 프로젝트 정산관리에 등록된 모든 프로젝트를 엑셀 파일로 출력
   async _downloadListExcel() {
     try {
       await this._ensureXlsx();
@@ -1067,7 +1067,7 @@ const OutsourcingModule = {
   },
 
   // ========== 보고서 PDF 다운로드 ==========
-  // 현재 외주설계 관리대장 데이터를 보고서 형태의 새 창으로 열어 인쇄/PDF 저장
+  // 현재 프로젝트 정산관리 데이터를 보고서 형태의 새 창으로 열어 인쇄/PDF 저장
   async _downloadReportPDF() {
     await this._loadTransferTotals();
     const all = (await DB.getAll('outsourcingProjects')).reverse();

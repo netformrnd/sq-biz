@@ -18,9 +18,12 @@ const TaxInvoiceAdminModule = {
     const all = await DB.getAll('taxInvoiceRequests');
     let items = all.reverse();
 
-    // 날짜 필터
+    // 날짜 필터 — 발행일(issueDate) 우선, 없으면 작성일(createdAt)
+    // 외부에서 일괄 등록한 매출(위하고 등)은 issueDate 가 실제 발행일,
+    // createdAt 은 시스템 등록일이라 다름. 발행일 기준 필터링이 회계상 옳음.
     DateFilter.onChange('taxInvoices', () => this.render());
-    items = DateFilter.filter(items, 'createdAt', 'taxInvoices');
+    const itemsWithEffectiveDate = items.map(i => ({ ...i, _filterDate: i.issueDate || i.createdAt }));
+    items = DateFilter.filter(itemsWithEffectiveDate, '_filterDate', 'taxInvoices');
 
     // 입금내역 전체 로드 (매칭된 입금 정보 표시용)
     const allDeposits = await DB.getAll('deposits');

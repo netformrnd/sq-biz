@@ -190,7 +190,7 @@ const ContractsModule = {
 
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>계약 관리대장</h2>
+        <h2>계약 수금 관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('contracts')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadReportPDF()">📄 보고서 PDF</button>

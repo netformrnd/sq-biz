@@ -131,7 +131,7 @@ const OutsourcingModule = {
 
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>외주설계 관리대장</h2>
+        <h2>프로젝트 정산관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 보고서 PDF</button>

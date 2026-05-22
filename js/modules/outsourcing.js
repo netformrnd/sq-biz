@@ -28,10 +28,10 @@ const OutsourcingModule = {
   _filterLabel() {
     return {
       all: '전체',
-      deposit: '입금금액 있는 프로젝트',
-      paid: '외주지급 있는 프로젝트',
+      deposit: '매출 있는 프로젝트',
+      paid: '집행 있는 프로젝트',
       remaining: '잔액 있는 프로젝트',
-      overpaid: '초과지급 프로젝트'
+      overpaid: '초과집행 프로젝트'
     }[this._filter] || '전체';
   },
 
@@ -108,31 +108,22 @@ const OutsourcingModule = {
     let tableRows = '';
     if (all.length === 0) {
       const emptyMsg = this._filter === 'all'
-        ? '<div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 외주설계 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>'
+        ? '<div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>'
         : `<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 프로젝트가 없습니다</h3><p>다른 카드를 클릭하거나 [전체 프로젝트]를 누르세요.</p></div>`;
-      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
+      tableRows = `<tr><td colspan="6" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
       tableRows = all.map(p => {
         const outsourcingTotal = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
         const balance = (Number(p.depositAmount) || 0) - outsourcingTotal;
         const balanceColor = balance < 0 ? 'color:var(--color-danger);' : '';
         return `
-          <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')">
+          <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
             <td class="fw-medium">${Utils.escapeHtml(p.projectName || '-')}</td>
             <td>${Utils.escapeHtml(p.clientName || '-')}</td>
-            <td>${Utils.escapeHtml(p.vendorName || '-')}</td>
             <td class="text-right amount">${Utils.formatCurrency(p.depositAmount || 0)}</td>
             <td class="text-right amount">${Utils.formatCurrency(outsourcingTotal)}</td>
             <td class="text-right amount" style="${balanceColor}">${Utils.formatCurrency(balance)}</td>
             <td class="text-center">${this._statusBadge(p.status)}</td>
-            <td onclick="event.stopPropagation();">
-              ${isAdmin ? `
-                <div class="d-flex gap-2">
-                  <button class="btn btn-ghost btn-sm" onclick="OutsourcingModule._edit('${p.id}')" title="수정">✏️</button>
-                  <button class="btn btn-ghost btn-sm text-danger" onclick="OutsourcingModule._delete('${p.id}')" title="삭제">🗑️</button>
-                </div>
-              ` : ''}
-            </td>
           </tr>
         `;
       }).join('');
@@ -153,8 +144,8 @@ const OutsourcingModule = {
 
       <div class="summary-cards">
         ${this._renderCard('all',       'cyan',   '📒', '전체 프로젝트',  `${allRaw.length}건`,                                  '클릭: 전체 보기')}
-        ${this._renderCard('deposit',   'green',  '💰', '총 입금금액',     Utils.formatCurrency(totalDeposit),                    `${countDeposit}건 (입금 있음)`)}
-        ${this._renderCard('paid',      'orange', '💸', '총 외주지급누계', Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (외주지급 있음)`)}
+        ${this._renderCard('deposit',   'green',  '💰', '총 매출금액',     Utils.formatCurrency(totalDeposit),                    `${countDeposit}건 (매출 있음)`)}
+        ${this._renderCard('paid',      'orange', '💸', '총 집행금액',     Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (집행 있음)`)}
         ${this._renderCard('remaining', totalBalance >= 0 ? 'cyan' : 'red', '📊', '총 잔액', Utils.formatCurrency(totalBalance), `${countRemaining}건 (잔액 있음)`)}
       </div>
 
@@ -166,7 +157,7 @@ const OutsourcingModule = {
 
       <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
         <div class="text-sm text-muted">
-          💡 <strong>안내</strong>: <strong>외주지급누계</strong>는 송금내역의 <strong>프로젝트명이 정확히 일치하는</strong> 건들의 합계로 자동 계산됩니다.
+          💡 <strong>안내</strong>: <strong>집행금액</strong>은 송금내역의 <strong>프로젝트명이 정확히 일치하는</strong> 건들의 합계로 자동 계산됩니다.
           송금내역 등록 시 프로젝트명을 본 대장과 동일하게 입력해주세요.
         </div>
       </div>
@@ -177,12 +168,10 @@ const OutsourcingModule = {
             <tr>
               <th>프로젝트명</th>
               <th>발주처</th>
-              <th>외주업체</th>
-              <th class="text-right">입금금액</th>
-              <th class="text-right">외주지급누계</th>
+              <th class="text-right">매출금액</th>
+              <th class="text-right">집행금액</th>
               <th class="text-right">잔액</th>
               <th class="text-center">진행상태</th>
-              <th>관리</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -248,13 +237,13 @@ const OutsourcingModule = {
         <div class="summary-cards" style="margin-bottom:var(--sp-4);">
           <div class="summary-card">
             <div class="card-info">
-              <div class="card-label">입금금액</div>
+              <div class="card-label">매출금액</div>
               <div class="card-value">${Utils.formatCurrency(p.depositAmount || 0)}</div>
             </div>
           </div>
           <div class="summary-card">
             <div class="card-info">
-              <div class="card-label">외주지급누계</div>
+              <div class="card-label">집행금액</div>
               <div class="card-value">${Utils.formatCurrency(outsourcingTotal)}</div>
             </div>
           </div>
@@ -266,7 +255,7 @@ const OutsourcingModule = {
           </div>
         </div>
 
-        <h4 style="margin-bottom:var(--sp-2);">💸 외주지급 내역 (송금내역 자동 연동)</h4>
+        <h4 style="margin-bottom:var(--sp-2);">💸 집행 내역 (송금내역 자동 연동)</h4>
         <div class="table-wrapper">
           <table class="data-table">
             <thead>
@@ -288,11 +277,24 @@ const OutsourcingModule = {
           </div>
         ` : ''}
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
-        ${isAdmin ? `<button class="btn btn-primary" onclick="Utils.closeModal(); OutsourcingModule._edit('${p.id}')">수정</button>` : ''}
+      <div class="modal-footer" style="justify-content:space-between;">
+        <div>
+          ${isAdmin ? `<button class="btn btn-ghost text-danger" onclick="OutsourcingModule._deleteFromDetail('${p.id}')">🗑️ 삭제</button>` : ''}
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadSinglePDF('${p.id}')">📄 이 프로젝트 보고서 PDF</button>
+          <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+          ${isAdmin ? `<button class="btn btn-primary" onclick="Utils.closeModal(); OutsourcingModule._edit('${p.id}')">✏️ 수정</button>` : ''}
+        </div>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  // 상세 모달에서 삭제 (모달 닫고 기존 _delete 호출)
+  async _deleteFromDetail(id) {
+    Utils.closeModal();
+    // 약간 지연 후 삭제 confirm (모달 전환 안정성)
+    setTimeout(() => this._delete(id), 100);
   },
 
   // ===== 등록/수정 모달 =====
@@ -325,7 +327,7 @@ const OutsourcingModule = {
             <input type="date" id="osContractDate" class="form-control" value="${editData ? (editData.contractDate || '') : ''}">
           </div>
           <div class="form-group">
-            <label for="osDepositAmount">입금금액 (원)</label>
+            <label for="osDepositAmount">매출금액 (원)</label>
             <input type="number" id="osDepositAmount" class="form-control" placeholder="0" min="0" value="${editData ? (editData.depositAmount || '') : ''}">
           </div>
         </div>
@@ -409,11 +411,11 @@ const OutsourcingModule = {
   },
 
   // ========== 엑셀 양식 다운로드 ==========
-  // 컬럼: 프로젝트명, 발주처, 외주업체, 계약일, 입금금액, 진행상태, 비고
-  EXCEL_HEADERS: ['프로젝트명', '발주처', '외주업체', '계약일(YYYY-MM-DD)', '입금금액', '진행상태', '비고'],
+  // 컬럼: 프로젝트명, 발주처, 계약일, 매출금액, 진행상태, 비고
+  EXCEL_HEADERS: ['프로젝트명', '발주처', '계약일(YYYY-MM-DD)', '매출금액', '진행상태', '비고'],
   EXCEL_SAMPLE: [
-    ['인천 송도캐슬해모로아파트 누수 보수공사', '입주자대표회의', '대림건축(홍정란)', '2025-12-01', 50000000, '진행중', '예시: 비상주 감리용역'],
-    ['(예시) 서울 OO상가 설계', '(주)OO개발', 'OO설계사무소', '2026-01-15', 30000000, '정산예정', '(이 예시 행은 삭제하고 사용하세요)']
+    ['인천 송도캐슬해모로아파트 누수 보수공사', '입주자대표회의', '2025-12-01', 50000000, '진행중', '예시: 비상주 감리용역'],
+    ['(예시) 서울 OO상가 설계', '(주)OO개발', '2026-01-15', 30000000, '정산예정', '(이 예시 행은 삭제하고 사용하세요)']
   ],
 
   async _ensureXlsx() {
@@ -464,11 +466,11 @@ const OutsourcingModule = {
 
       // 안내 행 + 헤더 + 예시 행
       const aoa = [
-        ['📒 외주설계 관리대장 — 일괄 등록 양식'],
+        ['📒 프로젝트 정산관리 — 일괄 등록 양식'],
         ['• 필수: 프로젝트명 (송금내역의 프로젝트명과 정확히 동일하게 입력)'],
         ['• 진행상태: 진행중 / 정산예정 / 완료 / 보류 중 하나 (비워두면 "진행중")'],
         ['• 계약일은 YYYY-MM-DD 형식 (예: 2026-01-15). 비워둬도 됩니다.'],
-        ['• 입금금액은 숫자만 (예: 50000000). 쉼표·원 단위는 빼주세요.'],
+        ['• 매출금액은 숫자만 (예: 50000000). 쉼표·원 단위는 빼주세요.'],
         ['• 예시 행은 모두 지우고 본인 데이터로 채워서 업로드하세요.'],
         [],
         this.EXCEL_HEADERS,
@@ -477,19 +479,19 @@ const OutsourcingModule = {
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-      // 컬럼 폭
+      // 컬럼 폭 (6컬럼)
       ws['!cols'] = [
-        { wch: 40 }, { wch: 20 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 30 }
+        { wch: 40 }, { wch: 20 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 30 }
       ];
 
-      // 머지 (안내 영역)
+      // 머지 (안내 영역) - 6컬럼으로 변경
       ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 6 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 6 } },
-        { s: { r: 2, c: 0 }, e: { r: 2, c: 6 } },
-        { s: { r: 3, c: 0 }, e: { r: 3, c: 6 } },
-        { s: { r: 4, c: 0 }, e: { r: 4, c: 6 } },
-        { s: { r: 5, c: 0 }, e: { r: 5, c: 6 } }
+        { s: { r: 0, c: 0 }, e: { r: 0, c: 5 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: 5 } },
+        { s: { r: 2, c: 0 }, e: { r: 2, c: 5 } },
+        { s: { r: 3, c: 0 }, e: { r: 3, c: 5 } },
+        { s: { r: 4, c: 0 }, e: { r: 4, c: 5 } },
+        { s: { r: 5, c: 0 }, e: { r: 5, c: 5 } }
       ];
 
       // 행 높이
@@ -528,10 +530,10 @@ const OutsourcingModule = {
       // 헤더 행 고정
       ws['!freeze'] = { xSplit: 0, ySplit: 8 };
 
-      XLSX.utils.book_append_sheet(wb, ws, '외주설계 관리대장');
+      XLSX.utils.book_append_sheet(wb, ws, '프로젝트 정산관리');
 
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
-      const filename = `외주설계_관리대장_양식_${stamp}.xlsx`;
+      const filename = `프로젝트_정산관리_양식_${stamp}.xlsx`;
       XLSX.writeFile(wb, filename);
       Utils.showToast(`${filename} 다운로드 완료`, 'success');
     } catch (e) {
@@ -547,7 +549,7 @@ const OutsourcingModule = {
     this._uploadParsed = [];
     Utils.openModal(`
       <div class="modal-header">
-        <h3>📤 외주설계 엑셀 일괄 업로드</h3>
+        <h3>📤 프로젝트 정산관리 엑셀 일괄 업로드</h3>
         <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
       <div class="modal-body">
@@ -623,12 +625,14 @@ const OutsourcingModule = {
       const headerCols = rows[headerRowIdx].map(c => norm(c));
       const idx = (name) => headerCols.findIndex(c => c === name || c.startsWith(name));
 
+      // 매출금액(신) / 입금금액(구 양식) 둘 다 지원
+      const depAmtIdx = idx('매출금액') >= 0 ? idx('매출금액') : idx('입금금액');
       const colMap = {
         projectName: idx('프로젝트명'),
         clientName: idx('발주처'),
-        vendorName: idx('외주업체'),
+        vendorName: idx('외주업체'),  // 구 양식 호환 (있으면 등록, 신 양식엔 없음)
         contractDate: idx('계약일'),
-        depositAmount: idx('입금금액'),
+        depositAmount: depAmtIdx,
         status: idx('진행상태'),
         memo: idx('비고')
       };
@@ -701,7 +705,6 @@ const OutsourcingModule = {
         <td class="text-center text-xs text-muted">${r.rowNum}</td>
         <td>${Utils.escapeHtml(r.projectName)}</td>
         <td>${Utils.escapeHtml(r.clientName || '-')}</td>
-        <td>${Utils.escapeHtml(r.vendorName || '-')}</td>
         <td>${r.contractDate || '-'}</td>
         <td class="text-right amount">${Utils.formatCurrency(r.depositAmount)}</td>
         <td class="text-center">${Utils.escapeHtml(r.status)}</td>
@@ -720,9 +723,8 @@ const OutsourcingModule = {
               <th class="text-center">행</th>
               <th>프로젝트명</th>
               <th>발주처</th>
-              <th>외주업체</th>
               <th>계약일</th>
-              <th class="text-right">입금금액</th>
+              <th class="text-right">매출금액</th>
               <th class="text-center">상태</th>
             </tr>
           </thead>
@@ -738,6 +740,153 @@ const OutsourcingModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 단일 프로젝트 보고서 PDF ==========
+  // 특정 프로젝트 1건만 담긴 보고서. 결재 시 대표님께 어느 프로젝트인지 명확히 보여줌
+  async _downloadSinglePDF(id) {
+    try {
+      const p = await DB.get('outsourcingProjects', id);
+      if (!p) { Utils.showToast('프로젝트를 찾을 수 없습니다.', 'error'); return; }
+
+      await this._loadTransferTotals();
+      const projectKey = (p.projectName || '').trim();
+
+      // 해당 프로젝트의 송금내역
+      const allTransfers = (await DB.getAll('transferRecords'))
+        .filter(t => (t.projectName || '').trim() === projectKey)
+        .sort((a, b) => (a.transferDate || '').localeCompare(b.transferDate || ''));
+
+      const outsourcingTotal = allTransfers.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+      const depositAmount = Number(p.depositAmount) || 0;
+      const balance = depositAmount - outsourcingTotal;
+
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+      const user = Auth.currentUser();
+
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+      const fmt = (n) => `₩${(Number(n) || 0).toLocaleString('ko-KR')}`;
+
+      const transferRows = allTransfers.length === 0
+        ? `<tr><td colspan="4" style="text-align:center;padding:16px;color:#94A3B8;">매칭된 송금내역이 없습니다.</td></tr>`
+        : allTransfers.map(t => `<tr>
+            <td>${t.transferDate || '-'}</td>
+            <td>${esc(t.recipientName || '-')}</td>
+            <td class="num">${fmt(t.amount)}</td>
+            <td>${esc(t.memo || '-')}</td>
+          </tr>`).join('');
+
+      const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<title>프로젝트 정산 보고서 - ${esc(p.projectName)}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: #1e293b; font-size: 10pt; margin: 18mm 16mm; background: #fff; }
+  .hdr { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0F172A; padding-bottom: 8px; margin-bottom: 18px; }
+  h1 { font-size: 18pt; margin: 0; color: #0F172A; font-weight: 800; }
+  .doc-type { font-size: 10pt; color: #64748b; margin-top: 4px; }
+  .meta { font-size: 9pt; color: #64748b; text-align: right; line-height: 1.5; }
+  .project-title { background: linear-gradient(135deg, #2563EB 0%, #1E40AF 100%); color: #fff; padding: 16px 20px; border-radius: 8px; margin-bottom: 16px; }
+  .project-title h2 { margin: 0; font-size: 16pt; font-weight: 700; }
+  .project-title .sub { font-size: 10pt; opacity: 0.9; margin-top: 4px; }
+  h3 { font-size: 12pt; margin-top: 18px; color: #2563EB; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .info { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+  .info td { padding: 8px 12px; border: 1px solid #E2E8F0; }
+  .info td:nth-child(odd) { background: #F8FAFC; font-weight: 600; width: 25%; }
+  .summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 10px 0 20px; }
+  .summary .card { background: #F8FAFC; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 4px; }
+  .summary .card .lbl { font-size: 9pt; color: #64748B; margin-bottom: 4px; }
+  .summary .card .val { font-size: 14pt; font-weight: 700; color: #0F172A; }
+  .summary .card.balance { border-color: ${balance < 0 ? '#DC2626' : '#16A34A'}; }
+  .summary .card.balance .val { color: ${balance < 0 ? '#DC2626' : '#16A34A'}; }
+  table.list { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+  table.list th { background: #0F172A; color: #fff; padding: 7px; text-align: left; font-weight: 600; }
+  table.list td { padding: 6px 7px; border-bottom: 1px solid #E2E8F0; }
+  table.list .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .memo-box { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 12px 14px; border-radius: 4px; margin-top: 12px; font-size: 10pt; white-space: pre-wrap; }
+  .toolbar { margin: 10px 0 16px; }
+  .btn-print { padding: 8px 16px; background: #2563EB; color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-close { padding: 8px 16px; background: #94A3B8; color: #fff; border: 0; border-radius: 6px; cursor: pointer; margin-left: 6px; }
+  .footer { margin-top: 24px; font-size: 8pt; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 8px; text-align: center; }
+  .status-badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 9pt; font-weight: 600; }
+  .status-진행중 { background: #DBEAFE; color: #1E40AF; }
+  .status-정산예정 { background: #FEF3C7; color: #B45309; }
+  .status-완료 { background: #D1FAE5; color: #065F46; }
+  .status-보류 { background: #FEE2E2; color: #991B1B; }
+  @media print { .toolbar { display: none; } body { margin: 0; } }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button class="btn-print" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+    <button class="btn-close" onclick="window.close()">닫기</button>
+  </div>
+  <div class="hdr">
+    <div>
+      <h1>📒 프로젝트 정산 보고서</h1>
+      <div class="doc-type">개별 프로젝트 결재용</div>
+    </div>
+    <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
+  </div>
+
+  <div class="project-title">
+    <h2>${esc(p.projectName)}</h2>
+    <div class="sub">발주처: ${esc(p.clientName || '-')} · 진행상태: ${esc(p.status || '진행중')}</div>
+  </div>
+
+  <h3>📋 프로젝트 정보</h3>
+  <table class="info">
+    <tr>
+      <td>프로젝트명</td><td>${esc(p.projectName)}</td>
+      <td>발주처</td><td>${esc(p.clientName || '-')}</td>
+    </tr>
+    <tr>
+      <td>외주업체</td><td>${esc(p.vendorName || '-')}</td>
+      <td>계약일</td><td>${p.contractDate || '-'}</td>
+    </tr>
+    <tr>
+      <td>진행상태</td><td><span class="status-badge status-${esc(p.status || '진행중')}">${esc(p.status || '진행중')}</span></td>
+      <td>등록일</td><td>${p.createdAt ? new Date(p.createdAt).toLocaleDateString('ko-KR') : '-'}</td>
+    </tr>
+  </table>
+
+  <h3>💰 정산 요약</h3>
+  <div class="summary">
+    <div class="card"><div class="lbl">매출금액</div><div class="val">${fmt(depositAmount)}</div></div>
+    <div class="card"><div class="lbl">집행금액 (외주지급)</div><div class="val">${fmt(outsourcingTotal)}</div></div>
+    <div class="card balance"><div class="lbl">잔액</div><div class="val">${fmt(balance)}</div></div>
+  </div>
+
+  <h3>💸 외주지급 내역 (${allTransfers.length}건)</h3>
+  <table class="list">
+    <thead><tr>
+      <th style="width:16%;">송금일</th>
+      <th style="width:22%;">수취인</th>
+      <th class="num" style="width:18%;">금액</th>
+      <th>비고</th>
+    </tr></thead>
+    <tbody>${transferRows}</tbody>
+  </table>
+
+  ${p.memo ? `<h3>📝 비고</h3><div class="memo-box">${esc(p.memo)}</div>` : ''}
+
+  <div class="footer">본 보고서는 스퀘어건축사사무소 업무관리 시스템에서 자동 생성되었습니다.</div>
+</body></html>`;
+
+      const win = window.open('', '_blank', 'width=900,height=900');
+      if (!win) {
+        Utils.showToast('팝업 차단으로 보고서 창을 열 수 없습니다.', 'error', 5000);
+        return;
+      }
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (e) {
+      console.error('[외주설계] 단일 PDF 실패:', e);
+      Utils.showToast('보고서 PDF 생성 실패: ' + e.message, 'error');
+    }
   },
 
   // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
@@ -757,10 +906,10 @@ const OutsourcingModule = {
       const today = new Date();
       const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
 
-      // 데이터 시트 구성 (AOA)
-      const HEADERS = ['프로젝트명', '발주처', '외주업체', '계약일', '입금금액', '외주지급누계', '잔액', '진행상태', '비고'];
+      // 데이터 시트 구성 (AOA) - 외주업체 컬럼 제외, 매출금액/집행금액 라벨
+      const HEADERS = ['프로젝트명', '발주처', '계약일', '매출금액', '집행금액', '잔액', '진행상태', '비고'];
       const aoa = [
-        [`📒 외주설계 관리대장 (총 ${all.length}건)`],
+        [`📒 프로젝트 정산관리 (총 ${all.length}건)`],
         [`작성일: ${dateStr}`],
         [],
         HEADERS,
@@ -770,7 +919,6 @@ const OutsourcingModule = {
           return [
             p.projectName || '',
             p.clientName || '',
-            p.vendorName || '',
             p.contractDate || '',
             Number(p.depositAmount) || 0,
             out,
@@ -780,14 +928,14 @@ const OutsourcingModule = {
           ];
         }),
         [],
-        ['합계', '', '', '', totalDeposit, totalOutsourcing, totalBalance, '', '']
+        ['합계', '', '', totalDeposit, totalOutsourcing, totalBalance, '', '']
       ];
 
       const ws = XLSX.utils.aoa_to_sheet(aoa);
 
-      // 컬럼 폭
+      // 컬럼 폭 (8컬럼)
       ws['!cols'] = [
-        { wch: 40 }, { wch: 20 }, { wch: 22 }, { wch: 13 },
+        { wch: 40 }, { wch: 20 }, { wch: 13 },
         { wch: 16 }, { wch: 16 }, { wch: 16 }, { wch: 12 }, { wch: 30 }
       ];
 
@@ -799,13 +947,18 @@ const OutsourcingModule = {
       ws['!rows'].push({ hpt: 8 });
       ws['!rows'].push({ hpt: 28 });
 
-      // 머지 (타이틀, 작성일)
+      const COL_COUNT = HEADERS.length;  // 8
+
+      // 머지 (타이틀, 작성일) - COL_COUNT-1 까지
       ws['!merges'] = [
-        { s: { r: 0, c: 0 }, e: { r: 0, c: 8 } },
-        { s: { r: 1, c: 0 }, e: { r: 1, c: 8 } }
+        { s: { r: 0, c: 0 }, e: { r: 0, c: COL_COUNT - 1 } },
+        { s: { r: 1, c: 0 }, e: { r: 1, c: COL_COUNT - 1 } }
       ];
 
-      const COL_COUNT = HEADERS.length;
+      // 금액 컬럼: 매출금액(3), 집행금액(4), 잔액(5) / 상태(6) 가운데 / 비고(7) wrap
+      const AMOUNT_COLS = new Set([3, 4, 5]);
+      const CENTER_COLS = new Set([6]);
+      const WRAP_COLS = new Set([0, 7]);
 
       // 스타일 헬퍼
       const styleTitle = {
@@ -832,9 +985,9 @@ const OutsourcingModule = {
         font: { sz: 10, color: { rgb: '1E293B' }, name: '맑은 고딕' },
         fill: { patternType: 'solid', fgColor: { rgb: isOdd ? 'F8FAFC' : 'FFFFFF' } },
         alignment: {
-          horizontal: (col >= 4 && col <= 6) ? 'right' : (col === 7 ? 'center' : 'left'),
+          horizontal: AMOUNT_COLS.has(col) ? 'right' : (CENTER_COLS.has(col) ? 'center' : 'left'),
           vertical: 'center',
-          wrapText: (col === 0 || col === 8)
+          wrapText: WRAP_COLS.has(col)
         },
         border: {
           top: { style: 'thin', color: { rgb: 'E2E8F0' } },
@@ -847,7 +1000,7 @@ const OutsourcingModule = {
         font: { bold: true, sz: 11, color: { rgb: 'FFFFFF' }, name: '맑은 고딕' },
         fill: { patternType: 'solid', fgColor: { rgb: '0F172A' } },
         alignment: {
-          horizontal: (col >= 4 && col <= 6) ? 'right' : (col === 0 ? 'center' : 'left'),
+          horizontal: AMOUNT_COLS.has(col) ? 'right' : (col === 0 ? 'center' : 'left'),
           vertical: 'center'
         },
         border: {
@@ -878,8 +1031,7 @@ const OutsourcingModule = {
           const addr = XLSX.utils.encode_cell({ r: row, c });
           if (!ws[addr]) ws[addr] = { v: '', t: 's' };
           ws[addr].s = styleBody(isOdd, c);
-          // 금액 컬럼은 숫자 포맷
-          if (c >= 4 && c <= 6) {
+          if (AMOUNT_COLS.has(c)) {
             ws[addr].t = 'n';
             ws[addr].z = '#,##0';
           }
@@ -892,7 +1044,7 @@ const OutsourcingModule = {
         const addr = XLSX.utils.encode_cell({ r: totalsRow, c });
         if (!ws[addr]) ws[addr] = { v: '', t: 's' };
         ws[addr].s = styleTotal(c);
-        if (c >= 4 && c <= 6) {
+        if (AMOUNT_COLS.has(c)) {
           ws[addr].t = 'n';
           ws[addr].z = '#,##0';
         }
@@ -902,10 +1054,10 @@ const OutsourcingModule = {
       ws['!freeze'] = { xSplit: 0, ySplit: 4 };
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '외주설계 관리대장');
+      XLSX.utils.book_append_sheet(wb, ws, '프로젝트 정산관리');
 
       const stamp = dateStr.replace(/-/g, '');
-      const filename = `외주설계_관리대장_${stamp}.xlsx`;
+      const filename = `프로젝트_정산관리_${stamp}.xlsx`;
       XLSX.writeFile(wb, filename);
       Utils.showToast(`${filename} 다운로드 완료 (${all.length}건)`, 'success');
     } catch (e) {
@@ -938,7 +1090,6 @@ const OutsourcingModule = {
       return `<tr>
         <td>${esc(p.projectName)}</td>
         <td>${esc(p.clientName || '-')}</td>
-        <td>${esc(p.vendorName || '-')}</td>
         <td class="num">${fmt(p.depositAmount || 0)}</td>
         <td class="num">${fmt(out)}</td>
         <td class="num ${bal < 0 ? 'neg' : ''}">${fmt(bal)}</td>
@@ -984,24 +1135,24 @@ const OutsourcingModule = {
     <button class="btn-close" onclick="window.close()">닫기</button>
   </div>
   <div class="hdr">
-    <h1>📒 외주설계 관리 현황 보고서</h1>
+    <h1>📒 프로젝트 정산관리 현황 보고서</h1>
     <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
   </div>
 
   <h2>📊 합계 요약</h2>
   <table class="summary">
-    <tr><td>총 프로젝트</td><td>${all.length}건</td><td>총 입금금액</td><td>${fmt(totalDeposit)}</td></tr>
-    <tr><td>총 외주지급누계</td><td>${fmt(totalOutsourcing)}</td><td>총 잔액</td><td class="${totalBalance < 0 ? 'neg' : ''}">${fmt(totalBalance)}</td></tr>
+    <tr><td>총 프로젝트</td><td>${all.length}건</td><td>총 매출금액</td><td>${fmt(totalDeposit)}</td></tr>
+    <tr><td>총 집행금액</td><td>${fmt(totalOutsourcing)}</td><td>총 잔액</td><td class="${totalBalance < 0 ? 'neg' : ''}">${fmt(totalBalance)}</td></tr>
   </table>
 
   <h2>📋 프로젝트 상세 (${all.length}건)</h2>
   <table class="list">
     <thead><tr>
-      <th>프로젝트명</th><th>발주처</th><th>외주업체</th>
-      <th class="num">입금금액</th><th class="num">외주지급</th><th class="num">잔액</th>
+      <th>프로젝트명</th><th>발주처</th>
+      <th class="num">매출금액</th><th class="num">집행금액</th><th class="num">잔액</th>
       <th>상태</th>
     </tr></thead>
-    <tbody>${rowsHtml || '<tr><td colspan="7" style="text-align:center;padding:20px;color:#94A3B8;">등록된 프로젝트가 없습니다.</td></tr>'}</tbody>
+    <tbody>${rowsHtml || '<tr><td colspan="6" style="text-align:center;padding:20px;color:#94A3B8;">등록된 프로젝트가 없습니다.</td></tr>'}</tbody>
   </table>
 
   <div class="footer">본 보고서는 스퀘어건축사사무소 업무관리 시스템에서 자동 생성되었습니다.</div>

@@ -161,7 +161,7 @@ const ContractsModule = {
       const emptyMsg = this._filter === 'all'
         ? '<div class="empty-state"><div class="empty-icon">📋</div><h3>등록된 계약이 없습니다</h3><p>+ 계약 등록 버튼으로 추가하세요.</p></div>'
         : '<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 계약이 없습니다</h3><p>다른 카드를 클릭하거나 [전체 계약]을 누르세요.</p></div>';
-      tableRows = `<tr><td colspan="9" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
+      tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
       tableRows = all.map(c => {
         const down = this._phaseStatus(c.downPayment);
@@ -169,7 +169,7 @@ const ContractsModule = {
         const fin = this._phaseStatus(c.finalPayment);
         const progress = this._progress(c);
         return `
-          <tr style="cursor:pointer;" onclick="ContractsModule._showDetail('${c.id}')">
+          <tr style="cursor:pointer;" onclick="ContractsModule._showDetail('${c.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
             <td class="fw-medium">${Utils.escapeHtml(c.complexName || '-')}</td>
             <td>${Utils.escapeHtml(c.contractName || '-')}</td>
             <td>${Utils.escapeHtml(c.clientName || '-')}</td>
@@ -182,14 +182,6 @@ const ContractsModule = {
                 ${this._statusBadge(c.status)}
                 <span class="text-xs text-muted">${progress}%</span>
               </div>
-            </td>
-            <td onclick="event.stopPropagation();">
-              ${isAdmin ? `
-                <div class="d-flex gap-2">
-                  <button class="btn btn-ghost btn-sm" onclick="ContractsModule._edit('${c.id}')" title="수정">✏️</button>
-                  <button class="btn btn-ghost btn-sm text-danger" onclick="ContractsModule._delete('${c.id}')" title="삭제">🗑️</button>
-                </div>
-              ` : ''}
             </td>
           </tr>
         `;
@@ -241,7 +233,6 @@ const ContractsModule = {
               <th>중도금</th>
               <th>잔금</th>
               <th class="text-center">상태</th>
-              <th>관리</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>
@@ -347,11 +338,22 @@ const ContractsModule = {
           </div>
         ` : ''}
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
-        ${isAdmin ? `<button class="btn btn-primary" onclick="Utils.closeModal(); ContractsModule._edit('${c.id}')">수정</button>` : ''}
+      <div class="modal-footer" style="justify-content:space-between;">
+        <div>
+          ${isAdmin ? `<button class="btn btn-ghost text-danger" onclick="ContractsModule._deleteFromDetail('${c.id}')">🗑️ 삭제</button>` : ''}
+        </div>
+        <div class="d-flex gap-2">
+          <button class="btn btn-secondary" onclick="ContractsModule._downloadSinglePDF('${c.id}')">📄 이 계약 보고서 PDF</button>
+          <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+          ${isAdmin ? `<button class="btn btn-primary" onclick="Utils.closeModal(); ContractsModule._edit('${c.id}')">✏️ 수정</button>` : ''}
+        </div>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  async _deleteFromDetail(id) {
+    Utils.closeModal();
+    setTimeout(() => this._delete(id), 100);
   },
 
   // ===== 등록/수정 모달 =====
@@ -847,6 +849,157 @@ const ContractsModule = {
   _toggleAllUpload(checked) {
     this._uploadParsed.forEach(r => r.selected = checked);
     this._renderUploadPreview();
+  },
+
+  // ========== 단일 계약 보고서 PDF ==========
+  // 특정 계약 1건만 담긴 보고서. 결재 시 대표님께 어느 계약인지 명확히 보여줌
+  async _downloadSinglePDF(id) {
+    try {
+      const c = await DB.get('contracts', id);
+      if (!c) { Utils.showToast('계약을 찾을 수 없습니다.', 'error'); return; }
+
+      await this._loadCaches();
+      const fin = this._contractFinance(c);
+      const progress = this._progress(c);
+
+      const today = new Date();
+      const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+      const user = Auth.currentUser();
+
+      const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, ch => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[ch]));
+      const fmt = (n) => `₩${(Number(n) || 0).toLocaleString('ko-KR')}`;
+
+      const phaseLabels = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+
+      const phaseRows = this.PHASE_KEYS.map(k => {
+        const p = this._normalizePhase(c[k]);
+        if (p.amount === 0) return `<tr><td>${phaseLabels[k]}</td><td colspan="3" class="muted">미설정</td></tr>`;
+        const st = this._phaseStatus(p);
+        const inv = st.invoice ? `${esc(st.invoice.requestNumber || '')} (${st.issueDate ? '발급 ' + st.issueDate : '미발급'})` : '<span class="muted">미연결</span>';
+        const dep = st.depositDate ? `<span class="ok">✅ ${st.depositDate}</span>` : '<span class="muted">대기</span>';
+        return `<tr>
+          <td>${phaseLabels[k]}</td>
+          <td class="num">${fmt(p.amount)}</td>
+          <td>${inv}</td>
+          <td>${dep}</td>
+        </tr>`;
+      }).join('');
+
+      const html = `<!DOCTYPE html>
+<html lang="ko"><head><meta charset="UTF-8">
+<title>계약 수금 보고서 - ${esc(c.complexName)} ${esc(c.contractName)}</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
+<style>
+  @page { size: A4; margin: 16mm 14mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Pretendard Variable', Pretendard, 'Malgun Gothic', sans-serif; color: #1e293b; font-size: 10pt; margin: 18mm 16mm; background: #fff; }
+  .hdr { display: flex; justify-content: space-between; align-items: flex-end; border-bottom: 3px solid #0F172A; padding-bottom: 8px; margin-bottom: 18px; }
+  h1 { font-size: 18pt; margin: 0; color: #0F172A; font-weight: 800; }
+  .doc-type { font-size: 10pt; color: #64748b; margin-top: 4px; }
+  .meta { font-size: 9pt; color: #64748b; text-align: right; line-height: 1.5; }
+  .project-title { background: linear-gradient(135deg, #0EA5E9 0%, #0369A1 100%); color: #fff; padding: 16px 20px; border-radius: 8px; margin-bottom: 16px; }
+  .project-title h2 { margin: 0; font-size: 16pt; font-weight: 700; }
+  .project-title .sub { font-size: 10pt; opacity: 0.9; margin-top: 4px; }
+  h3 { font-size: 12pt; margin-top: 18px; color: #0EA5E9; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; }
+  .info { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+  .info td { padding: 8px 12px; border: 1px solid #E2E8F0; }
+  .info td:nth-child(odd) { background: #F8FAFC; font-weight: 600; width: 22%; }
+  .summary { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; margin: 10px 0 20px; }
+  .summary .card { background: #F8FAFC; border-left: 4px solid #0EA5E9; padding: 12px 14px; border-radius: 4px; }
+  .summary .card .lbl { font-size: 9pt; color: #64748B; margin-bottom: 4px; }
+  .summary .card .val { font-size: 13pt; font-weight: 700; color: #0F172A; }
+  .summary .card.unpaid { border-color: #DC2626; }
+  .summary .card.unpaid .val { color: #DC2626; }
+  .summary .card.paid { border-color: #16A34A; }
+  .summary .card.paid .val { color: #16A34A; }
+  table.list { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
+  table.list th { background: #0F172A; color: #fff; padding: 7px; text-align: left; font-weight: 600; }
+  table.list td { padding: 6px 7px; border-bottom: 1px solid #E2E8F0; }
+  table.list .num { text-align: right; font-variant-numeric: tabular-nums; }
+  table.list .muted { color: #94A3B8; }
+  table.list .ok { color: #16A34A; font-weight: 600; }
+  .memo-box { background: #FEF3C7; border-left: 4px solid #F59E0B; padding: 12px 14px; border-radius: 4px; margin-top: 12px; font-size: 10pt; white-space: pre-wrap; }
+  .toolbar { margin: 10px 0 16px; }
+  .btn-print { padding: 8px 16px; background: #2563EB; color: #fff; border: 0; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  .btn-close { padding: 8px 16px; background: #94A3B8; color: #fff; border: 0; border-radius: 6px; cursor: pointer; margin-left: 6px; }
+  .footer { margin-top: 24px; font-size: 8pt; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 8px; text-align: center; }
+  .status-badge { display: inline-block; padding: 3px 12px; border-radius: 12px; font-size: 9pt; font-weight: 600; }
+  .status-진행중 { background: #DBEAFE; color: #1E40AF; }
+  .status-완료 { background: #D1FAE5; color: #065F46; }
+  .status-보류 { background: #FEE2E2; color: #991B1B; }
+  @media print { .toolbar { display: none; } body { margin: 0; } }
+</style></head>
+<body>
+  <div class="toolbar">
+    <button class="btn-print" onclick="window.print()">🖨️ 인쇄 / PDF 저장</button>
+    <button class="btn-close" onclick="window.close()">닫기</button>
+  </div>
+  <div class="hdr">
+    <div>
+      <h1>📋 계약 수금 보고서</h1>
+      <div class="doc-type">개별 계약 결재용</div>
+    </div>
+    <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
+  </div>
+
+  <div class="project-title">
+    <h2>${esc(c.complexName)} / ${esc(c.contractName)}</h2>
+    <div class="sub">발주처: ${esc(c.clientName || '-')} · 진행률: ${progress}% · 진행상태: ${esc(c.status || '진행중')}</div>
+  </div>
+
+  <h3>📋 계약 정보</h3>
+  <table class="info">
+    <tr>
+      <td>단지명</td><td>${esc(c.complexName)}</td>
+      <td>계약건명</td><td>${esc(c.contractName)}</td>
+    </tr>
+    ${c.siteAddress ? `<tr><td>현장소재지</td><td colspan="3">${esc(c.siteAddress)}</td></tr>` : ''}
+    <tr>
+      <td>발주처</td><td>${esc(c.clientName || '-')}</td>
+      <td>계약일</td><td>${c.contractDate || '-'}</td>
+    </tr>
+    <tr>
+      <td>진행상태</td><td><span class="status-badge status-${esc(c.status || '진행중')}">${esc(c.status || '진행중')}</span></td>
+      <td>진행률</td><td>${progress}%</td>
+    </tr>
+  </table>
+
+  <h3>💰 수금 요약</h3>
+  <div class="summary">
+    <div class="card"><div class="lbl">총 계약금액</div><div class="val">${fmt(c.totalAmount)}</div></div>
+    <div class="card paid"><div class="lbl">입금 완료</div><div class="val">${fmt(fin.paid)}</div></div>
+    <div class="card unpaid"><div class="lbl">미수금</div><div class="val">${fmt(fin.unpaid)}</div></div>
+    <div class="card"><div class="lbl">진행률</div><div class="val">${progress}%</div></div>
+  </div>
+
+  <h3>📊 결제 단계별 상세</h3>
+  <table class="list">
+    <thead><tr>
+      <th style="width:15%;">단계</th>
+      <th class="num" style="width:18%;">금액</th>
+      <th style="width:35%;">세금계산서</th>
+      <th>입금일</th>
+    </tr></thead>
+    <tbody>${phaseRows}</tbody>
+  </table>
+
+  ${c.memo ? `<h3>📝 비고</h3><div class="memo-box">${esc(c.memo)}</div>` : ''}
+
+  <div class="footer">본 보고서는 스퀘어건축사사무소 업무관리 시스템에서 자동 생성되었습니다.</div>
+</body></html>`;
+
+      const win = window.open('', '_blank', 'width=900,height=900');
+      if (!win) {
+        Utils.showToast('팝업 차단으로 보고서 창을 열 수 없습니다.', 'error', 5000);
+        return;
+      }
+      win.document.open();
+      win.document.write(html);
+      win.document.close();
+    } catch (e) {
+      console.error('[계약] 단일 PDF 실패:', e);
+      Utils.showToast('보고서 PDF 생성 실패: ' + e.message, 'error');
+    }
   },
 
   // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========

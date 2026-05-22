@@ -12,7 +12,7 @@ const UserGuideModule = {
   GUIDES: {
     outsourcing: {
       icon: '📒',
-      title: '외주설계 관리대장',
+      title: '프로젝트 정산관리',
       sections: [
         {
           heading: '[1] 신규 외주 발생 시 (등록)',
@@ -104,7 +104,7 @@ const UserGuideModule = {
 
     contracts: {
       icon: '📋',
-      title: '계약 관리대장',
+      title: '계약 수금 관리',
       sections: [
         {
           heading: '[1] 신규 계약 등록',

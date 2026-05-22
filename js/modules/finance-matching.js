@@ -1861,7 +1861,19 @@ const FinanceMatchingModule = {
     if (skipped > 0) parts.push(`중복 스킵 ${skipped}건`);
     if (failed > 0) parts.push(`실패 ${failed}건`);
     Utils.showToast(parts.join(' / '), 'success');
-    await this.render();
+    // 현재 라우터가 가리키는 페이지에 따라 적절한 모듈의 화면을 새로고침
+    // 세금계산서 발행 페이지에서 이 모달을 열 수도 있어 FinanceMatching DOM 이 없을 수 있음
+    try {
+      const path = (window.location.hash || '').slice(1).split('?')[0];
+      if (path === '/finance' && document.getElementById('contentArea')) {
+        await this.render();
+      } else if (window.TaxInvoiceAdminModule && document.getElementById('pageContent')) {
+        // 세금계산서 발행 페이지에 있을 가능성: 그 모듈의 화면 갱신
+        await window.TaxInvoiceAdminModule.render?.();
+      }
+    } catch (e) {
+      console.warn('등록 후 화면 갱신 실패 (데이터는 정상 저장됨):', e);
+    }
   },
 
   // ===== 세금계산서 개별 등록 (발행완료 상태) =====

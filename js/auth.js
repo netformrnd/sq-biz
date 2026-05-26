@@ -216,6 +216,7 @@ const Auth = {
       passwordHash: hash,
       role: userData.role || 'employee',
       department: userData.department || '',
+      transferFilter: userData.transferFilter || '',
       isActive: true,
       createdAt: new Date().toISOString(),
       lastLogin: null

@@ -14,7 +14,34 @@ const TransferModule = {
 
   async render() {
     const isAdmin = Auth.isAdmin();
-    const allRecords = (await DB.getAll('transferRecords')).reverse();
+    const user = Auth.currentUser();
+    let allRecords = (await DB.getAll('transferRecords')).reverse();
+
+    // ===== 직원 권한: 본인 등록건 + 송금필터 키워드 일치만 보이게 =====
+    // (관리자는 전체 보임)
+    let restrictionInfo = null;
+    if (!isAdmin && user) {
+      const filterRaw = (user.transferFilter || '').trim();
+      const keywords = filterRaw
+        ? filterRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const beforeCount = allRecords.length;
+      allRecords = allRecords.filter(r => {
+        // 1) 본인 등록건
+        if (r.registeredBy === user.id) return true;
+        // 2) 송금필터 키워드가 수신자명에 포함되면 보임
+        if (keywords.length > 0) {
+          const recipient = (r.recipientName || '').toLowerCase();
+          return keywords.some(k => recipient.includes(k));
+        }
+        return false;
+      });
+      restrictionInfo = {
+        filter: filterRaw,
+        before: beforeCount,
+        after: allRecords.length
+      };
+    }
 
     // 날짜 필터 적용
     DateFilter.onChange('transfers', () => this.render());
@@ -48,6 +75,17 @@ const TransferModule = {
       `).join('');
     }
 
+    // 직원 권한 안내 배너
+    const restrictionBanner = (!isAdmin && restrictionInfo) ? `
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
+        ℹ️ <strong>제한된 화면입니다.</strong>
+        ${restrictionInfo.filter
+          ? `본인 등록건 + 수신자명에 <strong>"${Utils.escapeHtml(restrictionInfo.filter)}"</strong> 포함된 송금만 보입니다.`
+          : `본인이 직접 등록한 송금만 보입니다. (송금필터 미설정)`}
+        <span class="text-muted">(전체 ${restrictionInfo.before}건 중 ${restrictionInfo.after}건 표시)</span>
+      </div>
+    ` : '';
+
     this.container.innerHTML = `
       <div class="page-header">
         <h2>송금내역</h2>
@@ -58,6 +96,7 @@ const TransferModule = {
           </div>
         ` : ''}
       </div>
+      ${restrictionBanner}
 
       <div class="summary-cards">
         <div class="summary-card">

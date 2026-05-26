@@ -199,6 +199,16 @@ const UserManagementModule = {
                      value="${editData ? Utils.escapeHtml(editData.department || '') : ''}">
             </div>
           </div>
+          <div class="form-group">
+            <label for="uTransferFilter">송금내역 필터 <span class="text-xs text-muted">(직원 전용)</span></label>
+            <input type="text" id="uTransferFilter" class="form-control"
+                   placeholder="예: 홍정란 (콤마로 여러 키워드 가능: 홍정란, 대림)"
+                   value="${editData ? Utils.escapeHtml(editData.transferFilter || '') : ''}">
+            <div class="text-xs text-muted" style="margin-top:4px;">
+              직원은 송금내역에서 <strong>본인 등록건</strong> + <strong>이 키워드가 수신자명에 포함된 송금만</strong> 보입니다.<br>
+              관리자는 이 설정과 무관하게 전체 송금이 보입니다. 비워두면 본인 등록건만 보임.
+            </div>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -219,15 +229,19 @@ const UserManagementModule = {
     }
 
     try {
+      const transferFilterEl = document.getElementById('uTransferFilter');
+      const transferFilter = transferFilterEl ? transferFilterEl.value.trim() : '';
+
       if (editId) {
         const user = await DB.get('users', editId);
         user.displayName = displayName;
         user.role = role;
         user.department = department;
+        user.transferFilter = transferFilter;
         // 관리자 전환 시 권한 초기화
         if (role === 'admin') user.menuPermissions = [];
         await DB.update('users', user);
-        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}`);
+        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}${transferFilter ? ` (송금필터: ${transferFilter})` : ''}`);
       } else {
         const username = document.getElementById('uUsername').value.trim();
         const password = document.getElementById('uPassword').value;
@@ -235,7 +249,7 @@ const UserManagementModule = {
           Utils.showToast('아이디와 비밀번호를 입력해 주세요.', 'error');
           return;
         }
-        await Auth.createUser({ username, displayName, password, role, department });
+        await Auth.createUser({ username, displayName, password, role, department, transferFilter });
       }
       Utils.closeModal();
       await this.render();

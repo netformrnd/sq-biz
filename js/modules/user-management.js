@@ -6,6 +6,7 @@
 // 메뉴 권한 정의
 const MENU_PERMISSIONS = [
   { key: 'tax-invoice',  label: '세금계산서',   desc: '발행 요청 / 나의 요청현황' },
+  { key: 'purchaseInvoices', label: '매입 세금계산서', desc: '외주업체 수령 매입 세금계산서 (관리자 전용)' },
   { key: 'deposits',     label: '입금내역',     desc: '입금내역 조회' },
   { key: 'matching',     label: '매칭 관리',    desc: '세금계산서-입금 매칭 (관리자 전용)' },
   { key: 'transfers',    label: '송금내역',     desc: '나의 송금내역 조회' },

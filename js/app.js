@@ -180,6 +180,15 @@ const App = {
           ${isAdmin ? '<span class="nav-badge hidden" id="badgePending">0</span>' : ''}
         </div>
       `;
+      // 매입 세금계산서 (외주업체 수령) — 관리자 + purchaseInvoices 권한
+      if (hasPerm('purchaseInvoices')) {
+        html += `
+          <div class="nav-item" data-path="/purchase-invoices" onclick="Router.navigate('/purchase-invoices')">
+            <span class="nav-icon">📥</span>
+            <span>매입 세금계산서</span>
+          </div>
+        `;
+      }
       html += `</div>`;
     }
 
@@ -374,6 +383,11 @@ const App = {
     Router.register('/contracts', {
       module: 'ContractsModule',
       title: '아파트 스퀘어 수금 관리',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/purchase-invoices', {
+      module: 'PurchaseInvoiceModule',
+      title: '매입 세금계산서',
       roles: ['admin', 'employee']
     });
     Router.register('/user-guide', {

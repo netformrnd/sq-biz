@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 const DB = {
   db: null,
@@ -130,6 +130,15 @@ const DB = {
           store.createIndex('contractName', 'contractName', { unique: false });
           store.createIndex('clientName', 'clientName', { unique: false });
           store.createIndex('status', 'status', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // purchaseInvoices (매입 세금계산서 — 외주업체로부터 수령)
+        if (!db.objectStoreNames.contains('purchaseInvoices')) {
+          const store = db.createObjectStore('purchaseInvoices', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('partnerCompanyName', 'partnerCompanyName', { unique: false });
+          store.createIndex('issueDate', 'issueDate', { unique: false });
+          store.createIndex('hometaxApprovalNo', 'hometaxApprovalNo', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };

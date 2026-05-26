@@ -1,5 +1,5 @@
 /* ============================================
-   계약 수금 관리 모듈 (구 계약 관리대장)
+   아파트 스퀘어 수금 관리 모듈 (구 계약 관리대장)
    - 단지별 계약 등록 (계약금/중도금/잔금)
    - 각 결제단계 → 세금계산서 매칭 → 발급일/입금일 자동 표시
    - 권한: 관리자 + 'contracts' 메뉴 권한 보유자
@@ -190,7 +190,7 @@ const ContractsModule = {
 
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>계약 수금 관리</h2>
+        <h2>아파트 스퀘어 수금 관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('contracts')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="ContractsModule._downloadReportPDF()">📄 보고서 PDF</button>
@@ -574,7 +574,7 @@ const ContractsModule = {
       const wb = XLSX.utils.book_new();
 
       const aoa = [
-        ['📋 계약 수금 관리 — 일괄 등록 양식'],
+        ['📋 아파트 스퀘어 수금 관리 — 일괄 등록 양식'],
         ['• 필수: 단지명, 계약건명, 계약금액'],
         ['• 진행상태: 진행중 / 완료 / 보류 중 하나 (비워두면 "진행중")'],
         ['• 계약일은 YYYY-MM-DD 형식. 계약금/중도금/잔금은 숫자만 (쉼표·원 단위 제외).'],
@@ -629,7 +629,7 @@ const ContractsModule = {
 
       ws['!freeze'] = { xSplit: 0, ySplit: 9 };
 
-      XLSX.utils.book_append_sheet(wb, ws, '계약 수금 관리');
+      XLSX.utils.book_append_sheet(wb, ws, '아파트 스퀘어 수금 관리');
 
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const filename = `계약_수금관리_양식_${stamp}.xlsx`;
@@ -1003,7 +1003,7 @@ const ContractsModule = {
   },
 
   // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
-  // 현재 계약 수금 관리에 등록된 모든 계약을 엑셀 파일로 출력
+  // 현재 아파트 스퀘어 수금 관리에 등록된 모든 계약을 엑셀 파일로 출력
   // 컬럼: 단지명, 계약건명, 현장소재지, 발주처, 계약일, 총계약금액,
   //       계약금/계약금발급일/계약금입금일, 중도금/.../중도금입금일, 잔금/.../잔금입금일,
   //       총입금, 미수금, 진행상태, 진행률, 비고
@@ -1038,7 +1038,7 @@ const ContractsModule = {
       const AMOUNT_COLS = new Set([5, 6, 9, 12, 15, 16]);
 
       const aoa = [
-        [`📋 계약 수금 관리 (총 ${all.length}건)`],
+        [`📋 아파트 스퀘어 수금 관리 (총 ${all.length}건)`],
         [`작성일: ${dateStr}`],
         [],
         HEADERS,
@@ -1197,7 +1197,7 @@ const ContractsModule = {
       ws['!freeze'] = { xSplit: 0, ySplit: 4 };
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '계약 수금 관리');
+      XLSX.utils.book_append_sheet(wb, ws, '아파트 스퀘어 수금 관리');
 
       const stamp = dateStr.replace(/-/g, '');
       const filename = `계약_수금관리_${stamp}.xlsx`;

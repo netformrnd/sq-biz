@@ -212,7 +212,7 @@ const App = {
       html += `</div>`;
     }
 
-    // 프로젝트 관리 (정산관리 + 계약 수금 관리)
+    // 프로젝트 관리 (대림프로젝트 정산관리 + 아파트 스퀘어 수금 관리)
     const showOutsourcing = hasPerm('outsourcing');
     const showContracts = hasPerm('contracts');
     if (showOutsourcing || showContracts) {
@@ -221,7 +221,7 @@ const App = {
         html += `
           <div class="nav-item" data-path="/outsourcing" onclick="Router.navigate('/outsourcing')">
             <span class="nav-icon">📒</span>
-            <span>프로젝트 정산관리</span>
+            <span>대림프로젝트 정산관리</span>
           </div>
         `;
       }
@@ -229,7 +229,7 @@ const App = {
         html += `
           <div class="nav-item" data-path="/contracts" onclick="Router.navigate('/contracts')">
             <span class="nav-icon">📋</span>
-            <span>계약 수금 관리</span>
+            <span>아파트 스퀘어 수금 관리</span>
           </div>
         `;
       }
@@ -368,12 +368,12 @@ const App = {
     });
     Router.register('/outsourcing', {
       module: 'OutsourcingModule',
-      title: '프로젝트 정산관리',
+      title: '대림프로젝트 정산관리',
       roles: ['admin', 'employee']
     });
     Router.register('/contracts', {
       module: 'ContractsModule',
-      title: '계약 수금 관리',
+      title: '아파트 스퀘어 수금 관리',
       roles: ['admin', 'employee']
     });
     Router.register('/user-guide', {

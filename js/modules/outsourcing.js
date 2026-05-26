@@ -1,5 +1,5 @@
 /* ============================================
-   프로젝트 정산관리 모듈 (구 외주설계 관리대장)
+   대림프로젝트 정산관리 모듈 (구 외주설계 관리대장)
    - 프로젝트별 입금금액 / 외주지급누계 / 잔액 관리
    - 외주지급누계는 송금내역(transferRecords) 자동 합산
    - 권한: 관리자 + 'outsourcing' 메뉴 권한 보유자
@@ -131,7 +131,7 @@ const OutsourcingModule = {
 
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>프로젝트 정산관리</h2>
+        <h2>대림프로젝트 정산관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 보고서 PDF</button>
@@ -466,7 +466,7 @@ const OutsourcingModule = {
 
       // 안내 행 + 헤더 + 예시 행
       const aoa = [
-        ['📒 프로젝트 정산관리 — 일괄 등록 양식'],
+        ['📒 대림프로젝트 정산관리 — 일괄 등록 양식'],
         ['• 필수: 프로젝트명 (송금내역의 프로젝트명과 정확히 동일하게 입력)'],
         ['• 진행상태: 진행중 / 정산예정 / 완료 / 보류 중 하나 (비워두면 "진행중")'],
         ['• 계약일은 YYYY-MM-DD 형식 (예: 2026-01-15). 비워둬도 됩니다.'],
@@ -530,7 +530,7 @@ const OutsourcingModule = {
       // 헤더 행 고정
       ws['!freeze'] = { xSplit: 0, ySplit: 8 };
 
-      XLSX.utils.book_append_sheet(wb, ws, '프로젝트 정산관리');
+      XLSX.utils.book_append_sheet(wb, ws, '대림프로젝트 정산관리');
 
       const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
       const filename = `프로젝트_정산관리_양식_${stamp}.xlsx`;
@@ -549,7 +549,7 @@ const OutsourcingModule = {
     this._uploadParsed = [];
     Utils.openModal(`
       <div class="modal-header">
-        <h3>📤 프로젝트 정산관리 엑셀 일괄 업로드</h3>
+        <h3>📤 대림프로젝트 정산관리 엑셀 일괄 업로드</h3>
         <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
       <div class="modal-body">
@@ -890,7 +890,7 @@ const OutsourcingModule = {
   },
 
   // ========== 리스트 엑셀 다운로드 (스타일 적용) ==========
-  // 현재 프로젝트 정산관리에 등록된 모든 프로젝트를 엑셀 파일로 출력
+  // 현재 대림프로젝트 정산관리에 등록된 모든 프로젝트를 엑셀 파일로 출력
   async _downloadListExcel() {
     try {
       await this._ensureXlsx();
@@ -909,7 +909,7 @@ const OutsourcingModule = {
       // 데이터 시트 구성 (AOA) - 외주업체 컬럼 제외, 매출금액/집행금액 라벨
       const HEADERS = ['프로젝트명', '발주처', '계약일', '매출금액', '집행금액', '잔액', '진행상태', '비고'];
       const aoa = [
-        [`📒 프로젝트 정산관리 (총 ${all.length}건)`],
+        [`📒 대림프로젝트 정산관리 (총 ${all.length}건)`],
         [`작성일: ${dateStr}`],
         [],
         HEADERS,
@@ -1054,7 +1054,7 @@ const OutsourcingModule = {
       ws['!freeze'] = { xSplit: 0, ySplit: 4 };
 
       const wb = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(wb, ws, '프로젝트 정산관리');
+      XLSX.utils.book_append_sheet(wb, ws, '대림프로젝트 정산관리');
 
       const stamp = dateStr.replace(/-/g, '');
       const filename = `프로젝트_정산관리_${stamp}.xlsx`;
@@ -1067,7 +1067,7 @@ const OutsourcingModule = {
   },
 
   // ========== 보고서 PDF 다운로드 ==========
-  // 현재 프로젝트 정산관리 데이터를 보고서 형태의 새 창으로 열어 인쇄/PDF 저장
+  // 현재 대림프로젝트 정산관리 데이터를 보고서 형태의 새 창으로 열어 인쇄/PDF 저장
   async _downloadReportPDF() {
     await this._loadTransferTotals();
     const all = (await DB.getAll('outsourcingProjects')).reverse();
@@ -1135,7 +1135,7 @@ const OutsourcingModule = {
     <button class="btn-close" onclick="window.close()">닫기</button>
   </div>
   <div class="hdr">
-    <h1>📒 프로젝트 정산관리 현황 보고서</h1>
+    <h1>📒 대림프로젝트 정산관리 현황 보고서</h1>
     <div class="meta">작성일: ${dateStr}<br>작성자: ${esc(user ? user.displayName : '-')}<br>스퀘어건축사사무소 업무관리 시스템</div>
   </div>
 

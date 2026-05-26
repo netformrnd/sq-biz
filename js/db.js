@@ -114,7 +114,7 @@ const DB = {
           store.createIndex('year', 'year', { unique: false });
         }
 
-        // outsourcingProjects (프로젝트 정산관리, 구 외주설계 관리대장)
+        // outsourcingProjects (대림프로젝트 정산관리, 구 외주설계 관리대장)
         if (!db.objectStoreNames.contains('outsourcingProjects')) {
           const store = db.createObjectStore('outsourcingProjects', { keyPath: 'id', autoIncrement: true });
           store.createIndex('projectName', 'projectName', { unique: false });
@@ -123,7 +123,7 @@ const DB = {
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
 
-        // contracts (계약 수금 관리, 구 계약 관리대장)
+        // contracts (아파트 스퀘어 수금 관리, 구 계약 관리대장)
         if (!db.objectStoreNames.contains('contracts')) {
           const store = db.createObjectStore('contracts', { keyPath: 'id', autoIncrement: true });
           store.createIndex('complexName', 'complexName', { unique: false });

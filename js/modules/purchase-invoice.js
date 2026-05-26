@@ -235,7 +235,8 @@ const PurchaseInvoiceModule = {
         const c = (cols[i] || '').trim();
         if (!c) continue;
         if (/^일자$/.test(c) && mapping.issueDate < 0) { mapping.issueDate = i; continue; }
-        if (/^Code$/i.test(c) && mapping.approvalNo < 0) { mapping.approvalNo = i; continue; }
+        // ⚠️ 위하고 'Code' 는 거래처 코드(00122 등)일 뿐 국세청 승인번호가 아니므로 매핑하지 않음
+        //    (매핑하면 같은 거래처가 연도/거래마다 중복 스킵됨)
         if (/^거래처$/.test(c) && mapping.partnerCompany < 0) { mapping.partnerCompany = i; continue; }
         if (/^품명$/.test(c) && mapping.memo < 0) { mapping.memo = i; continue; }
         if (/^공급\s*가액$/.test(c) && mapping.supplyAmount < 0) { mapping.supplyAmount = i; continue; }

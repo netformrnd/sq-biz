@@ -124,6 +124,8 @@ const Auth = {
       username: user.username,
       displayName: user.displayName,
       role: user.role,
+      transferFilter: user.transferFilter || '',
+      department: user.department || '',
       loginAt: Date.now(),
       lastActivity: Date.now()
     };

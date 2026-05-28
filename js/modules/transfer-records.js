@@ -14,13 +14,21 @@ const TransferModule = {
 
   async render() {
     const isAdmin = Auth.isAdmin();
-    const user = Auth.currentUser();
+    const sessionUser = Auth.currentUser();
     let allRecords = (await DB.getAll('transferRecords')).reverse();
 
     // ===== 직원 권한: 본인 등록건 + 송금필터 키워드 일치만 보이게 =====
     // (관리자는 전체 보임)
     let restrictionInfo = null;
-    if (!isAdmin && user) {
+    if (!isAdmin && sessionUser) {
+      // 세션이 아니라 DB에서 최신 user 정보를 가져옴 (관리자가 transferFilter 변경 즉시 반영)
+      let user = sessionUser;
+      try {
+        const freshUser = await DB.get('users', sessionUser.id);
+        if (freshUser) user = freshUser;
+      } catch (e) {
+        console.warn('user fresh load 실패, 세션 정보 사용:', e);
+      }
       const filterRaw = (user.transferFilter || '').trim();
       const keywords = filterRaw
         ? filterRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)

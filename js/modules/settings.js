@@ -521,25 +521,45 @@ const SettingsModule = {
   },
 
   async _exportBackup() {
+    // 마지막 사용한 설명 기억 (편의성)
+    const lastDesc = localStorage.getItem('sq_lastBackupDesc') || '';
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+
     // 비밀번호 입력 팝업
     Utils.openModal(`
       <div class="modal-header">
-        <h3>🔒 백업 파일 암호화</h3>
+        <h3>💾 백업 다운로드</h3>
         <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
       </div>
       <div class="modal-body">
-        <p class="mb-4 text-sm">백업 파일을 암호화할 비밀번호를 입력하세요.<br>
-        <span class="text-muted">※ 이 비밀번호는 복원 시 필요합니다. 분실 시 복원 불가!</span></p>
+        <div class="form-group">
+          <label for="backupDesc">백업 설명 <span class="text-xs text-muted">(파일명에 자동 포함)</span></label>
+          <input type="text" id="backupDesc" class="form-control"
+                 placeholder="예: 매입완료_파서버그수정"
+                 value="${Utils.escapeHtml(lastDesc)}"
+                 maxlength="50"
+                 autofocus
+                 oninput="SettingsModule._previewFilename()">
+          <div class="text-xs text-muted" style="margin-top:6px;">
+            📁 파일명 미리보기: <code id="filenamePreview" style="background:#f3f4f6;padding:2px 6px;border-radius:3px;">${today}_${lastDesc || '백업'}.json</code>
+          </div>
+        </div>
+
+        <hr style="margin:var(--sp-4) 0;border:0;border-top:1px solid var(--color-border);">
+
+        <p class="mb-3 text-sm"><strong>🔒 암호화 설정</strong></p>
+        <p class="mb-4 text-sm text-muted">백업 파일을 암호화할 비밀번호를 입력하세요.<br>
+        ※ 이 비밀번호는 복원 시 필요합니다. 분실 시 복원 불가!</p>
         <div class="form-group">
           <label for="backupPw">백업 비밀번호 (8자 이상)</label>
-          <input type="password" id="backupPw" class="form-control" minlength="8" autofocus>
+          <input type="password" id="backupPw" class="form-control" minlength="8">
         </div>
         <div class="form-group">
           <label for="backupPwConfirm">비밀번호 확인</label>
           <input type="password" id="backupPwConfirm" class="form-control" minlength="8">
         </div>
         <div style="display:flex;align-items:center;gap:var(--sp-2);">
-          <input type="checkbox" id="backupNoEncrypt">
+          <input type="checkbox" id="backupNoEncrypt" onchange="SettingsModule._previewFilename()">
           <label for="backupNoEncrypt" class="text-sm text-muted" style="margin:0;cursor:pointer;">암호화 없이 저장 (권장하지 않음)</label>
         </div>
       </div>
@@ -550,10 +570,26 @@ const SettingsModule = {
     `);
   },
 
+  // 파일명 실시간 미리보기
+  _previewFilename() {
+    const descEl = document.getElementById('backupDesc');
+    const noEncryptEl = document.getElementById('backupNoEncrypt');
+    const previewEl = document.getElementById('filenamePreview');
+    if (!descEl || !previewEl) return;
+
+    const desc = descEl.value.trim()
+      .replace(/[\/\\:*?"<>|]/g, '_')  // 파일명 금지 문자 치환
+      .replace(/\s+/g, '_');           // 공백 → 언더스코어
+    const today = new Date().toISOString().split('T')[0].replace(/-/g, '');
+    const ext = (noEncryptEl && noEncryptEl.checked) ? '.json' : '.enc.json';
+    previewEl.textContent = `${today}_${desc || '백업'}${ext}`;
+  },
+
   async _confirmExport() {
     const noEncrypt = document.getElementById('backupNoEncrypt').checked;
     const pw = document.getElementById('backupPw').value;
     const pwConfirm = document.getElementById('backupPwConfirm').value;
+    const descRaw = (document.getElementById('backupDesc')?.value || '').trim();
 
     if (!noEncrypt) {
       if (pw.length < 8) { Utils.showToast('비밀번호는 8자 이상이어야 합니다.', 'error'); return; }
@@ -565,20 +601,28 @@ const SettingsModule = {
       const json = JSON.stringify(backup);
       const date = new Date().toISOString().split('T')[0].replace(/-/g, '');
 
+      // 파일명에 들어갈 설명 정리 (금지 문자 치환)
+      const desc = descRaw
+        .replace(/[\/\\:*?"<>|]/g, '_')
+        .replace(/\s+/g, '_') || '백업';
+
       let output, filename;
       if (noEncrypt) {
         output = json;
-        filename = `sq_backup_${date}.json`;
+        filename = `${date}_${desc}.json`;
       } else {
         const encrypted = await CryptoHelper.encrypt(json, pw);
         output = JSON.stringify({ encrypted: true, data: encrypted, version: 2 });
-        filename = `sq_backup_${date}.enc.json`;
+        filename = `${date}_${desc}.enc.json`;
       }
 
       Utils.downloadFile(output, filename, 'application/json');
       localStorage.setItem('sq_lastBackup', new Date().toISOString());
+      // 설명 기억 (다음 번 미리 채워둠)
+      if (descRaw) localStorage.setItem('sq_lastBackupDesc', descRaw);
+
       Utils.closeModal();
-      Utils.showToast(noEncrypt ? '백업 파일이 다운로드되었습니다.' : '암호화된 백업 파일이 다운로드되었습니다.', 'success');
+      Utils.showToast(`✅ 백업 파일 다운로드: ${filename}`, 'success', 5000);
       await this.render();
     } catch (err) {
       Utils.showToast('백업 실패: ' + err.message, 'error');

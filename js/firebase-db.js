@@ -320,7 +320,7 @@ const FirebaseDB = {
   },
 
   async exportAll() {
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances', 'appSettings', 'outsourcingProjects', 'contracts', 'purchaseInvoices'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances', 'appSettings', 'outsourcingProjects', 'contracts', 'purchaseInvoices', 'settlements'];
     const data = {};
     for (const name of storeNames) {
       data[name] = await this.getAll(name);
@@ -329,7 +329,7 @@ const FirebaseDB = {
   },
 
   async importAll(backup) {
-    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances', 'appSettings', 'outsourcingProjects', 'contracts', 'purchaseInvoices'];
+    const storeNames = ['users', 'taxInvoiceRequests', 'deposits', 'transferRecords', 'matchingLog', 'auditLog', 'documents', 'checklists', 'leaveRequests', 'leaveBalances', 'appSettings', 'outsourcingProjects', 'contracts', 'purchaseInvoices', 'settlements'];
     for (const name of storeNames) {
       await this.clear(name);
       if (backup.data[name]) {

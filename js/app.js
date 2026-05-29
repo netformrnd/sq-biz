@@ -242,6 +242,15 @@ const App = {
           </div>
         `;
       }
+      // 발주-외주 정산표 (이사님 명세서 시스템화)
+      if (hasPerm('settlements')) {
+        html += `
+          <div class="nav-item" data-path="/settlements" onclick="Router.navigate('/settlements')">
+            <span class="nav-icon">📊</span>
+            <span>발주-외주 정산표</span>
+          </div>
+        `;
+      }
       html += `</div>`;
     }
 
@@ -388,6 +397,11 @@ const App = {
     Router.register('/purchase-invoices', {
       module: 'PurchaseInvoiceModule',
       title: '매입 세금계산서',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/settlements', {
+      module: 'SettlementsModule',
+      title: '발주-외주 정산표',
       roles: ['admin', 'employee']
     });
     Router.register('/user-guide', {

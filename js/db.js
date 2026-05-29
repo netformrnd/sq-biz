@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 6;
+const DB_VERSION = 7;
 
 const DB = {
   db: null,
@@ -139,6 +139,15 @@ const DB = {
           store.createIndex('partnerCompanyName', 'partnerCompanyName', { unique: false });
           store.createIndex('issueDate', 'issueDate', { unique: false });
           store.createIndex('hometaxApprovalNo', 'hometaxApprovalNo', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // settlements (발주-외주 정산표 - 이사님 명세서 형식)
+        if (!db.objectStoreNames.contains('settlements')) {
+          const store = db.createObjectStore('settlements', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('clientName', 'clientName', { unique: false });
+          store.createIndex('depositDate', 'depositDate', { unique: false });
+          store.createIndex('withdrawDate', 'withdrawDate', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };

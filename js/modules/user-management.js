@@ -12,6 +12,7 @@ const MENU_PERMISSIONS = [
   { key: 'transfers',    label: '송금내역',     desc: '나의 송금내역 조회' },
   { key: 'outsourcing',  label: '대림프로젝트 정산', desc: '대림프로젝트 정산관리' },
   { key: 'contracts',    label: '아파트 스퀘어 수금', desc: '아파트 스퀘어 수금 관리' },
+  { key: 'settlements',  label: '발주-외주 정산표', desc: '이사님 명세서 형식 (관리자 권장)' },
   { key: 'leave',        label: '연차 신청',    desc: '연차 신청 시스템' },
 ];
 

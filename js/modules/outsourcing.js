@@ -137,14 +137,17 @@ const OutsourcingModule = {
     }
 
     // 4) 입금일자 자동 매칭 — 매출처명(projectName) 키워드로 입금 찾기
+    // ⚠️ projectName에 "여태성 - 2026-04-13" 같은 식별자 형식이면 첫 " - " 이전만 사용
     const projects = await DB.getAll('outsourcingProjects');
     for (const p of projects) {
       const projName = (p.projectName || '').trim();
       if (!projName) continue;
+      // 매출처명만 추출 (첫 " - " 이전)
+      const cleanName = projName.split(' - ')[0].trim();
       // 키워드 추출 (회사 접미사 제거)
-      const keywords = projName
+      const keywords = cleanName
         .replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '')
-        .match(/.{2,}/g) || [projName];
+        .match(/.{2,}/g) || [cleanName];
       const matches = allDeposits.filter(d => {
         const depName = (d.depositorName || '').replace(/\s/g, '');
         return keywords.some(k => depName.includes(k));
@@ -235,9 +238,19 @@ const OutsourcingModule = {
         const depositList = this._depositInfoByProject[projKey] || [];
         const transferList = this._transferDatesByProject[projKey] || [];
         const purchaseList = this._purchaseInfoByProject[projKey] || [];
+
+        // 매출처명 분리: "여태성 - 2026-04-13" → "여태성" + 식별자
+        const fullName = p.projectName || '-';
+        const dashIdx = fullName.indexOf(' - ');
+        const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
+        const identifier = dashIdx > 0 ? fullName.slice(dashIdx + 3).trim() : '';
+
         return `
           <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
-            <td class="fw-medium">${Utils.escapeHtml(p.projectName || '-')}</td>
+            <td>
+              <div class="fw-medium">${Utils.escapeHtml(displayName)}</div>
+              ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
+            </td>
             <td>${this._formatDateList(depositList, 'date')}</td>
             <td class="text-right amount">${Utils.formatCurrency(p.depositAmount || 0)}</td>
             <td>${this._formatDateList(transferList, 'date')}</td>

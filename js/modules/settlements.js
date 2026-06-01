@@ -171,13 +171,10 @@ const SettlementsModule = {
     `;
 
     // 검색 이벤트
-    const searchEl = document.getElementById('settlementSearch');
-    if (searchEl) {
-      searchEl.addEventListener('input', Utils.debounce((e) => {
-        this.searchText = e.target.value;
-        this.render();
-      }, 300));
-    }
+    Utils.bindSearchInput(document.getElementById('settlementSearch'), (value) => {
+      this.searchText = value;
+      this.render();
+    });
   },
 
   _setYearFilter(year) {

@@ -166,10 +166,10 @@ const DocumentsModule = {
       ${groupsHtml}
     `;
 
-    document.getElementById('docSearch').addEventListener('input', Utils.debounce((e) => {
-      this.searchText = e.target.value;
+    Utils.bindSearchInput(document.getElementById('docSearch'), (value) => {
+      this.searchText = value;
       this.render();
-    }, 300));
+    });
   },
 
   _setFilter(cat) {

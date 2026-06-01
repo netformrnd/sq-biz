@@ -254,9 +254,11 @@ const FinanceMatchingModule = {
 
     `;
 
-    // 검색 이벤트
-    const ds = document.getElementById('depositSearchInput');
-    if (ds) ds.addEventListener('input', Utils.debounce((e) => { this.depositSearch = e.target.value; this.render(); }, 300));
+    // 검색 이벤트 (한글 IME 처리)
+    Utils.bindSearchInput(document.getElementById('depositSearchInput'), (value) => {
+      this.depositSearch = value;
+      this.render();
+    });
   },
 
   _setDepositFilter(f) { this.depositFilter = f; this.render(); },

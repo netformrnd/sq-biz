@@ -200,6 +200,26 @@ const Utils = {
     };
   },
 
+  // 검색 입력 바인딩 (한글 IME 조합 처리 + debounce)
+  // 한국어 입력 시 "스"를 치려고 "ㅅ"을 친 순간 검색이 실행되어
+  // 결과가 빈 채로 깜빡거리는 문제 방지.
+  // 사용: Utils.bindSearchInput(document.getElementById('search'), (value) => { ... });
+  bindSearchInput(inputEl, callback, delay = 400) {
+    if (!inputEl) return;
+    let composing = false;
+    const debounced = this.debounce(() => {
+      if (composing) return; // 한글 조합 중이면 검색 건너뜀
+      callback(inputEl.value);
+    }, delay);
+
+    inputEl.addEventListener('compositionstart', () => { composing = true; });
+    inputEl.addEventListener('compositionend', () => {
+      composing = false;
+      debounced();
+    });
+    inputEl.addEventListener('input', debounced);
+  },
+
   // 문자열 유사도 (간단한 포함 검사)
   normalizeCompanyName(name) {
     if (!name) return '';

@@ -229,11 +229,11 @@ const DepositModule = {
       </div>
     `;
 
-    // 검색 이벤트
-    document.getElementById('depositSearch').addEventListener('input', Utils.debounce((e) => {
-      this.searchText = e.target.value;
+    // 검색 이벤트 (한글 IME 조합 처리 + debounce)
+    Utils.bindSearchInput(document.getElementById('depositSearch'), (value) => {
+      this.searchText = value;
       this.render();
-    }, 300));
+    });
   },
 
   _setCategory(v) { this.filterCategory = v; this.render(); },

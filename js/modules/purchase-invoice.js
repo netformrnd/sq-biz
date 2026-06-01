@@ -134,13 +134,10 @@ const PurchaseInvoiceModule = {
     `;
 
     // 검색 이벤트
-    const searchEl = document.getElementById('purchaseSearch');
-    if (searchEl) {
-      searchEl.addEventListener('input', Utils.debounce((e) => {
-        this.searchText = e.target.value;
-        this.render();
-      }, 300));
-    }
+    Utils.bindSearchInput(document.getElementById('purchaseSearch'), (value) => {
+      this.searchText = value;
+      this.render();
+    });
   },
 
   // ===== 붙여넣기 모달 =====

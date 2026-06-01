@@ -288,14 +288,11 @@ const TaxInvoiceAdminModule = {
       </style>
     `;
 
-    // 검색 이벤트 바인딩 (debounce 300ms)
-    const searchEl = document.getElementById('taxAdminSearch');
-    if (searchEl) {
-      searchEl.addEventListener('input', Utils.debounce((e) => {
-        this.searchText = e.target.value;
-        this.render();
-      }, 300));
-    }
+    // 검색 이벤트 바인딩 (한글 IME 처리)
+    Utils.bindSearchInput(document.getElementById('taxAdminSearch'), (value) => {
+      this.searchText = value;
+      this.render();
+    });
   },
 
   // 우클릭 컨텍스트 메뉴

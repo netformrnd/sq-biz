@@ -563,6 +563,8 @@ const DepositModule = {
       updatedAt: new Date().toISOString()
     };
 
+    // 1) 데이터 저장
+    let saved = false;
     try {
       if (editId) {
         const existing = await DB.get('deposits', editId);
@@ -577,10 +579,26 @@ const DepositModule = {
         const id = await DB.add('deposits', data);
         await DB.log('CREATE', 'deposit', id, `입금내역 등록: ${name} ${Utils.formatCurrency(amount)}`);
       }
+      saved = true;
       Utils.closeModal();
-      await this.render();
+      Utils.showToast(editId ? '수정 완료' : '등록 완료', 'success');
     } catch (err) {
       Utils.showToast('저장 실패: ' + err.message, 'error');
+      return;
+    }
+
+    // 2) 화면 갱신은 별도 try (실패해도 저장은 OK)
+    try {
+      // 컨테이너가 살아있고 현재 페이지가 입금내역일 때만 렌더
+      const path = (window.location.hash || '').slice(1).split('?')[0];
+      if (path === '/finance' || path === '/deposits') {
+        if (!this.container || !document.body.contains(this.container)) {
+          this.container = document.getElementById('pageContent') || document.getElementById('contentArea');
+        }
+        if (this.container) await this.render();
+      }
+    } catch (renderErr) {
+      console.warn('화면 갱신 실패 (데이터는 정상 저장됨):', renderErr);
     }
   },
 

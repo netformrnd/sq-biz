@@ -70,15 +70,130 @@ const OutsourcingModule = {
 
   // 송금내역 합계 계산용 캐시
   _transferTotalsByProject: {},
+  _transferDatesByProject: {},     // 프로젝트별 출금일자(들)
+  _purchaseInfoByProject: {},      // 프로젝트별 매입계산서 정보 (묶음 포함)
+  _depositInfoByProject: {},       // 프로젝트별 입금일자(들)
+
   async _loadTransferTotals() {
-    const all = await DB.getAll('transferRecords');
+    const allTransfers = await DB.getAll('transferRecords');
+    const allDeposits = await DB.getAll('deposits');
+    const allPurchases = await DB.getAll('purchaseInvoices');
+
     const totals = {};
-    for (const t of all) {
+    const transferDates = {};        // {projectName: [{date, amount, purchaseId}, ...]}
+    const purchaseInfo = {};         // {projectName: [{purchaseId, issueDate, groupSize, groupNames}, ...]}
+    const depositInfo = {};          // {projectName: [{date, amount, name}, ...]}
+
+    // 1) 송금 데이터 정리
+    for (const t of allTransfers) {
       const key = (t.projectName || '').trim();
       if (!key) continue;
       totals[key] = (totals[key] || 0) + (Number(t.amount) || 0);
+      if (!transferDates[key]) transferDates[key] = [];
+      transferDates[key].push({
+        date: t.transferDate,
+        amount: t.amount,
+        purchaseId: t.matchedPurchaseId
+      });
     }
+
+    // 2) 매입 세금계산서 ↔ 프로젝트 매칭 (묶음 정보 계산)
+    // 매입 세금계산서별로 어떤 프로젝트들이 묶여 있는지 파악
+    const purchaseToProjects = {};   // {purchaseId: [projectName1, projectName2, ...]}
+    for (const t of allTransfers) {
+      if (!t.matchedPurchaseId) continue;
+      const projKey = (t.projectName || '').trim();
+      if (!projKey) continue;
+      const pid = String(t.matchedPurchaseId);
+      if (!purchaseToProjects[pid]) purchaseToProjects[pid] = new Set();
+      purchaseToProjects[pid].add(projKey);
+    }
+
+    // 3) 프로젝트별 매입계산서 정보
+    for (const key of Object.keys(transferDates)) {
+      const purchases = transferDates[key]
+        .filter(t => t.purchaseId)
+        .map(t => {
+          const purchase = allPurchases.find(p => String(p.id) === String(t.purchaseId));
+          if (!purchase) return null;
+          const groupProjects = Array.from(purchaseToProjects[String(t.purchaseId)] || []);
+          return {
+            purchaseId: t.purchaseId,
+            issueDate: purchase.issueDate,
+            totalAmount: purchase.totalAmount,
+            partnerCompanyName: purchase.partnerCompanyName,
+            groupSize: groupProjects.length,
+            groupNames: groupProjects
+          };
+        })
+        .filter(Boolean);
+      // 중복 제거 (같은 purchaseId)
+      const seen = new Set();
+      purchaseInfo[key] = purchases.filter(p => {
+        if (seen.has(p.purchaseId)) return false;
+        seen.add(p.purchaseId);
+        return true;
+      });
+    }
+
+    // 4) 입금일자 자동 매칭 — 매출처명(projectName) 키워드로 입금 찾기
+    const projects = await DB.getAll('outsourcingProjects');
+    for (const p of projects) {
+      const projName = (p.projectName || '').trim();
+      if (!projName) continue;
+      // 키워드 추출 (회사 접미사 제거)
+      const keywords = projName
+        .replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '')
+        .match(/.{2,}/g) || [projName];
+      const matches = allDeposits.filter(d => {
+        const depName = (d.depositorName || '').replace(/\s/g, '');
+        return keywords.some(k => depName.includes(k));
+      });
+      if (matches.length > 0) {
+        depositInfo[projName] = matches.map(d => ({
+          date: d.depositDate,
+          amount: d.amount,
+          name: d.depositorName
+        }));
+      }
+    }
+
     this._transferTotalsByProject = totals;
+    this._transferDatesByProject = transferDates;
+    this._purchaseInfoByProject = purchaseInfo;
+    this._depositInfoByProject = depositInfo;
+  },
+
+  // 날짜 배열을 표시용 문자열로 변환
+  _formatDateList(dates, fieldName = 'date') {
+    if (!dates || dates.length === 0) return '<span class="text-muted">-</span>';
+    const sorted = dates.slice().sort((a, b) => (a[fieldName] || '').localeCompare(b[fieldName] || ''));
+    if (sorted.length === 1) {
+      return Utils.formatDate(sorted[0][fieldName]);
+    }
+    // 여러 건이면 첫번째 + 외 N건, 호버 시 상세
+    const tooltip = sorted.map(d =>
+      `${d[fieldName]} ${Number(d.amount || 0).toLocaleString()}원` + (d.name ? ` (${d.name})` : '')
+    ).join('\n');
+    return `<span title="${Utils.escapeHtml(tooltip)}" style="cursor:help;border-bottom:1px dotted #999;">${Utils.formatDate(sorted[0][fieldName])} <span class="text-xs text-muted">외 ${sorted.length - 1}건</span></span>`;
+  },
+
+  // 매입계산서일 표시 (묶음 정보 호버)
+  _formatPurchaseList(purchases) {
+    if (!purchases || purchases.length === 0) return '<span class="text-muted">-</span>';
+    const sorted = purchases.slice().sort((a, b) => (a.issueDate || '').localeCompare(b.issueDate || ''));
+    return sorted.map(p => {
+      const dateStr = Utils.formatDate(p.issueDate);
+      if (p.groupSize <= 1) {
+        return dateStr;
+      }
+      // 묶음 발행 - 호버 시 상세
+      const tooltip = `📋 묶음 ${p.groupSize}건 (1건의 세금계산서)\n` +
+        `합계: ${Number(p.totalAmount || 0).toLocaleString()}원\n` +
+        `매입처: ${p.partnerCompanyName || ''}\n──────────\n` +
+        p.groupNames.map(n => `• ${n}`).join('\n');
+      return `<span title="${Utils.escapeHtml(tooltip)}" style="cursor:help;border-bottom:1px dotted #999;">${dateStr} <span class="text-xs" style="color:#3b82f6;">(묶음 ${p.groupSize})</span></span>`;
+    }).join('<br>');
   },
 
   async render() {
@@ -110,20 +225,25 @@ const OutsourcingModule = {
       const emptyMsg = this._filter === 'all'
         ? '<div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>'
         : `<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 프로젝트가 없습니다</h3><p>다른 카드를 클릭하거나 [전체 프로젝트]를 누르세요.</p></div>`;
-      tableRows = `<tr><td colspan="6" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
+      tableRows = `<tr><td colspan="7" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
       tableRows = all.map(p => {
-        const outsourcingTotal = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
+        const projKey = (p.projectName || '').trim();
+        const outsourcingTotal = this._transferTotalsByProject[projKey] || 0;
         const balance = (Number(p.depositAmount) || 0) - outsourcingTotal;
-        const balanceColor = balance < 0 ? 'color:var(--color-danger);' : '';
+        const balanceColor = balance < 0 ? 'color:var(--color-danger);' : (balance > 0 ? 'color:var(--color-success);' : '');
+        const depositList = this._depositInfoByProject[projKey] || [];
+        const transferList = this._transferDatesByProject[projKey] || [];
+        const purchaseList = this._purchaseInfoByProject[projKey] || [];
         return `
           <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
             <td class="fw-medium">${Utils.escapeHtml(p.projectName || '-')}</td>
-            <td>${Utils.escapeHtml(p.clientName || '-')}</td>
+            <td>${this._formatDateList(depositList, 'date')}</td>
             <td class="text-right amount">${Utils.formatCurrency(p.depositAmount || 0)}</td>
+            <td>${this._formatDateList(transferList, 'date')}</td>
             <td class="text-right amount">${Utils.formatCurrency(outsourcingTotal)}</td>
-            <td class="text-right amount" style="${balanceColor}">${Utils.formatCurrency(balance)}</td>
-            <td class="text-center">${this._statusBadge(p.status)}</td>
+            <td>${this._formatPurchaseList(purchaseList)}</td>
+            <td class="text-right amount fw-medium" style="${balanceColor}">${Utils.formatCurrency(balance)}</td>
           </tr>
         `;
       }).join('');
@@ -145,8 +265,8 @@ const OutsourcingModule = {
       <div class="summary-cards">
         ${this._renderCard('all',       'cyan',   '📒', '전체 프로젝트',  `${allRaw.length}건`,                                  '클릭: 전체 보기')}
         ${this._renderCard('deposit',   'green',  '💰', '총 매출금액',     Utils.formatCurrency(totalDeposit),                    `${countDeposit}건 (매출 있음)`)}
-        ${this._renderCard('paid',      'orange', '💸', '총 집행금액',     Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (집행 있음)`)}
-        ${this._renderCard('remaining', totalBalance >= 0 ? 'cyan' : 'red', '📊', '총 잔액', Utils.formatCurrency(totalBalance), `${countRemaining}건 (잔액 있음)`)}
+        ${this._renderCard('paid',      'orange', '💸', '총 출금금액',     Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (출금 있음)`)}
+        ${this._renderCard('remaining', totalBalance >= 0 ? 'cyan' : 'red', '📊', '총 순이익', Utils.formatCurrency(totalBalance), `${countRemaining}건 (순이익 있음)`)}
       </div>
 
       ${this._filter !== 'all' ? `
@@ -157,8 +277,12 @@ const OutsourcingModule = {
 
       <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
         <div class="text-sm text-muted">
-          💡 <strong>안내</strong>: <strong>집행금액</strong>은 송금내역의 <strong>프로젝트명이 정확히 일치하는</strong> 건들의 합계로 자동 계산됩니다.
-          송금내역 등록 시 프로젝트명을 본 대장과 동일하게 입력해주세요.
+          💡 <strong>안내</strong>:<br>
+          • <strong>입금일자</strong>: 입금내역에서 매출처명과 일치하는 입금 자동 표시<br>
+          • <strong>출금일자/출금금액</strong>: 송금내역에서 매출처명과 일치하는 송금 자동 합산<br>
+          • <strong>매입계산서일</strong>: 송금에 매칭된 매입 세금계산서의 발행일 표시<br>
+          &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3b82f6;">(묶음 N)</span> 표시: 1건의 매입계산서로 여러 매출처가 묶여 발행됨 — 마우스 올려서 묶음 상세 확인<br>
+          • <strong>순이익</strong>: 매출금액 - 출금금액
         </div>
       </div>
 
@@ -166,12 +290,13 @@ const OutsourcingModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>프로젝트명</th>
-              <th>발주처</th>
+              <th>매출처명</th>
+              <th>입금일자</th>
               <th class="text-right">매출금액</th>
-              <th class="text-right">집행금액</th>
-              <th class="text-right">잔액</th>
-              <th class="text-center">진행상태</th>
+              <th>출금일자</th>
+              <th class="text-right">출금금액</th>
+              <th>매입계산서일</th>
+              <th class="text-right">순이익</th>
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>

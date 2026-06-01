@@ -8,7 +8,16 @@ const DateFilter = {
 
   // 필터 HTML 생성
   render(id, onChange) {
-    const filter = this._filters[id] || { preset: 'all', start: '', end: '' };
+    // 처음 호출 시 기본 필터 '올해' 자동 설정 (매번 새로고침할 때마다)
+    if (!this._filters[id]) {
+      const now = new Date();
+      this._filters[id] = {
+        preset: 'thisYear',
+        start: `${now.getFullYear()}-01-01`,
+        end: `${now.getFullYear()}-12-31`
+      };
+    }
+    const filter = this._filters[id];
     return `
       <div class="filter-bar" style="background:var(--color-surface);padding:var(--sp-3);border-radius:var(--radius-sm);border:1px solid var(--color-border);">
         <div class="d-flex gap-2" style="flex-wrap:wrap;">

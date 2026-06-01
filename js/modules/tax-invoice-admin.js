@@ -16,7 +16,13 @@ const TaxInvoiceAdminModule = {
 
   async render() {
     const all = await DB.getAll('taxInvoiceRequests');
-    let items = all.reverse();
+    // 발행일(issueDate) 기준 내림차순 정렬 (최신 발행이 위)
+    // 발행일 없으면 작성일(createdAt) 사용
+    let items = all.slice().sort((a, b) => {
+      const dateA = (a.issueDate || a.createdAt || '').slice(0, 10);
+      const dateB = (b.issueDate || b.createdAt || '').slice(0, 10);
+      return dateB.localeCompare(dateA); // 내림차순
+    });
 
     // 날짜 필터 — 발행일(issueDate) 우선, 없으면 작성일(createdAt)
     // 외부에서 일괄 등록한 매출(위하고 등)은 issueDate 가 실제 발행일,

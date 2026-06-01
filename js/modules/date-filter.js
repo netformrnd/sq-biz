@@ -8,25 +8,28 @@ const DateFilter = {
 
   // 필터 HTML 생성
   render(id, onChange) {
-    // 처음 호출 시 기본 필터 '올해' 자동 설정 (매번 새로고침할 때마다)
+    // 처음 호출 시 기본 필터 '이번달' 자동 설정
     if (!this._filters[id]) {
       const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const lastDay = new Date(year, now.getMonth() + 1, 0).getDate();
       this._filters[id] = {
-        preset: 'thisYear',
-        start: `${now.getFullYear()}-01-01`,
-        end: `${now.getFullYear()}-12-31`
+        preset: 'thisMonth',
+        start: `${year}-${month}-01`,
+        end: `${year}-${month}-${String(lastDay).padStart(2, '0')}`
       };
     }
     const filter = this._filters[id];
     return `
       <div class="filter-bar" style="background:var(--color-surface);padding:var(--sp-3);border-radius:var(--radius-sm);border:1px solid var(--color-border);">
         <div class="d-flex gap-2" style="flex-wrap:wrap;">
-          <button class="btn btn-sm ${filter.preset === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'all')">전체</button>
           <button class="btn btn-sm ${filter.preset === 'thisMonth' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'thisMonth')">이번달</button>
           <button class="btn btn-sm ${filter.preset === 'lastMonth' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'lastMonth')">지난달</button>
           <button class="btn btn-sm ${filter.preset === 'last3' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'last3')">최근3개월</button>
           <button class="btn btn-sm ${filter.preset === 'thisYear' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'thisYear')">올해</button>
           <button class="btn btn-sm ${filter.preset === 'lastYear' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'lastYear')">작년</button>
+          <button class="btn btn-sm ${filter.preset === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="DateFilter._set('${id}', 'all')">전체</button>
           <span class="text-xs text-muted" style="align-self:center;">|</span>
           <input type="date" id="${id}_start" class="form-control" style="width:140px;padding:var(--sp-1) var(--sp-2);font-size:var(--font-size-xs);" value="${filter.start}" onchange="DateFilter._setCustom('${id}')">
           <span class="text-xs text-muted" style="align-self:center;">~</span>

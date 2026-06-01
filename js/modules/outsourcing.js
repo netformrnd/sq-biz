@@ -73,11 +73,26 @@ const OutsourcingModule = {
   _transferDatesByProject: {},     // 프로젝트별 출금일자(들)
   _purchaseInfoByProject: {},      // 프로젝트별 매입계산서 정보 (묶음 포함)
   _depositInfoByProject: {},       // 프로젝트별 입금일자(들)
+  _settlementsByMatchKey: {},      // 발주-외주 정산표 매칭용 (이사님 명세서)
 
   async _loadTransferTotals() {
     const allTransfers = await DB.getAll('transferRecords');
     const allDeposits = await DB.getAll('deposits');
     const allPurchases = await DB.getAll('purchaseInvoices');
+    const allSettlements = await DB.getAll('settlements');
+
+    // 0) 발주-외주 정산표 인덱싱 (매출처명 키워드로 매칭)
+    const settlementsByKey = {};
+    for (const s of allSettlements) {
+      const name = (s.clientName || '').trim();
+      if (!name) continue;
+      // 키워드 추출 (매출처명 정리)
+      const cleanName = name.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+      if (cleanName.length < 2) continue;
+      if (!settlementsByKey[cleanName]) settlementsByKey[cleanName] = [];
+      settlementsByKey[cleanName].push(s);
+    }
+    this._settlementsByMatchKey = settlementsByKey;
 
     const totals = {};
     const transferDates = {};        // {projectName: [{date, amount, purchaseId}, ...]}
@@ -235,9 +250,6 @@ const OutsourcingModule = {
         const outsourcingTotal = this._transferTotalsByProject[projKey] || 0;
         const balance = (Number(p.depositAmount) || 0) - outsourcingTotal;
         const balanceColor = balance < 0 ? 'color:var(--color-danger);' : (balance > 0 ? 'color:var(--color-success);' : '');
-        const depositList = this._depositInfoByProject[projKey] || [];
-        const transferList = this._transferDatesByProject[projKey] || [];
-        const purchaseList = this._purchaseInfoByProject[projKey] || [];
 
         // 매출처명 분리: "여태성 - 2026-04-13" → "여태성" + 식별자
         const fullName = p.projectName || '-';
@@ -245,10 +257,38 @@ const OutsourcingModule = {
         const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
         const identifier = dashIdx > 0 ? fullName.slice(dashIdx + 3).trim() : '';
 
+        // ⭐ 발주-외주 정산표(이사님 명세서) 우선 사용
+        const cleanName = displayName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+        const matchedSettlements = this._settlementsByMatchKey[cleanName] || [];
+
+        let depositList = [];
+        let transferList = [];
+        let usingSettlement = false;
+
+        if (matchedSettlements.length > 0) {
+          // 정산표 데이터 우선 사용 (이사님 직접 매칭)
+          usingSettlement = true;
+          for (const s of matchedSettlements) {
+            if (s.depositDate && s.depositAmount) {
+              depositList.push({ date: s.depositDate, amount: s.depositAmount, name: s.clientName });
+            }
+            if (s.withdrawDate && s.withdrawAmount) {
+              transferList.push({ date: s.withdrawDate, amount: s.withdrawAmount });
+            }
+          }
+        } else {
+          // 자동 매칭 fallback
+          depositList = this._depositInfoByProject[projKey] || [];
+          transferList = this._transferDatesByProject[projKey] || [];
+        }
+
+        const purchaseList = this._purchaseInfoByProject[projKey] || [];
+        const sourceLabel = usingSettlement ? '<span class="text-xs" style="color:#3b82f6;" title="이사님 정산표 데이터">📋</span> ' : '';
+
         return `
           <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
             <td>
-              <div class="fw-medium">${Utils.escapeHtml(displayName)}</div>
+              <div class="fw-medium">${sourceLabel}${Utils.escapeHtml(displayName)}</div>
               ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
             </td>
             <td>${this._formatDateList(depositList, 'date')}</td>
@@ -291,8 +331,8 @@ const OutsourcingModule = {
       <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
         <div class="text-sm text-muted">
           💡 <strong>안내</strong>:<br>
-          • <strong>입금일자</strong>: 입금내역에서 매출처명과 일치하는 입금 자동 표시<br>
-          • <strong>출금일자/출금금액</strong>: 송금내역에서 매출처명과 일치하는 송금 자동 합산<br>
+          • <strong><span style="color:#3b82f6;">📋</span> 표시</strong>: 발주-외주 정산표(이사님 직접 매칭) 데이터 사용 — 가장 정확한 정보<br>
+          • <strong>입금일자/출금일자</strong>: 정산표 우선, 없으면 입금/송금내역에서 자동 매칭<br>
           • <strong>매입계산서일</strong>: 송금에 매칭된 매입 세금계산서의 발행일 표시<br>
           &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3b82f6;">(묶음 N)</span> 표시: 1건의 매입계산서로 여러 매출처가 묶여 발행됨 — 마우스 올려서 묶음 상세 확인<br>
           • <strong>순이익</strong>: 매출금액 - 출금금액

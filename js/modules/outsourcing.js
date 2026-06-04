@@ -746,19 +746,258 @@ const OutsourcingModule = {
     if (list.length === 0) return `<div class="text-center text-muted" style="padding:var(--sp-6);">대림 관련 외주 송금내역 없음</div>`;
     const total = list.reduce((s, t) => s + (Number(t.amount) || 0), 0);
     return `
-      <div class="text-sm text-muted mb-3">대림 관련 송금내역 (프로젝트 매칭 또는 대림건축 수취) · 총 ${list.length}건 · 합계 ${Utils.formatCurrency(total)}</div>
+      <div class="text-sm text-muted mb-3">대림 관련 송금내역 · 총 ${list.length}건 · 합계 ${Utils.formatCurrency(total)}<br>
+        💡 <strong>분할 매칭</strong>: 1건의 큰 송금이 여러 매출 현장 외주비를 통으로 보낸 경우, [⚙ 분할매칭] 버튼으로 매출별로 쪼개서 매칭하세요.</div>
       <div class="table-wrapper"><table class="data-table">
-        <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>프로젝트</th><th>매입계산서 연결</th><th>비고</th></tr></thead>
-        <tbody>${list.map(t => `<tr>
-          <td>${Utils.formatDate(t.transferDate)}</td>
-          <td class="fw-medium">${Utils.escapeHtml(t.recipientName || '-')}</td>
-          <td class="text-right amount">${Utils.formatCurrency(t.amount)}</td>
-          <td>${Utils.escapeHtml(t.projectName || '-')}</td>
-          <td class="text-center">${t.matchedPurchaseId ? '✅' : '<span class="text-muted">-</span>'}</td>
-          <td class="text-xs">${Utils.escapeHtml(t.memo || '-')}</td>
-        </tr>`).join('')}</tbody>
+        <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>프로젝트</th><th>매칭 상태</th><th>관리</th></tr></thead>
+        <tbody>${list.map(t => {
+          const splits = Array.isArray(t.splits) ? t.splits : [];
+          const splitTotal = splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+          const matchPct = Number(t.amount) > 0 ? Math.round(splitTotal / Number(t.amount) * 100) : 0;
+          const status = splits.length === 0
+            ? (t.matchedPurchaseId ? '<span class="badge badge-review">매입연결</span>' : '<span class="badge badge-request">미매칭</span>')
+            : (matchPct === 100 ? `<span class="badge badge-complete">완전분할 (${splits.length}건)</span>`
+              : `<span class="badge badge-review">부분분할 ${matchPct}% (${splits.length}건)</span>`);
+          return `<tr>
+            <td>${Utils.formatDate(t.transferDate)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(t.recipientName || '-')}</td>
+            <td class="text-right amount">${Utils.formatCurrency(t.amount)}</td>
+            <td>${Utils.escapeHtml(t.projectName || '-')}</td>
+            <td class="text-center">${status}</td>
+            <td><button class="btn btn-secondary btn-sm" onclick="OutsourcingModule._openSplitMatch('${t.id}')">⚙ 분할매칭</button></td>
+          </tr>`;
+        }).join('')}</tbody>
       </table></div>
     `;
+  },
+
+  // ============================================
+  // 송금 분할 매칭 모달 (1송금 → N매출)
+  // ============================================
+  async _openSplitMatch(transferId) {
+    const t = await DB.get('transferRecords', transferId);
+    if (!t) { Utils.showToast('송금 없음', 'error'); return; }
+
+    // 기존 splits 로드 (수정 모드)
+    const existingSplits = Array.isArray(t.splits) ? t.splits.slice() : [];
+
+    // 후보 매출: 대림 관련 deposits + 정산표 데이터
+    // 우선 대림 키워드 일치하는 deposits 만 후보로 (전체는 너무 많음)
+    const allDeposits = this._data.deposits.filter(d => this._isDaerimDeposit(d) || this._isPotentialDeposit(d, t))
+      .sort((a, b) => (b.depositDate || '').localeCompare(a.depositDate || ''))
+      .slice(0, 50);
+
+    // 모달 띄우기
+    this._splitDraft = { transferId, transferAmount: Number(t.amount) || 0, splits: existingSplits };
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>⚙ 송금 분할 매칭</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
+        <div class="card mb-3" style="background:#F0F9FF;border-left:4px solid #2563EB;">
+          <div class="card-body">
+            <div><strong>송금 정보</strong></div>
+            <div class="text-sm">
+              ${Utils.formatDate(t.transferDate)} · <strong>${Utils.escapeHtml(t.recipientName || '-')}</strong> ·
+              <strong style="color:#2563EB;font-size:1.1rem;">${Utils.formatCurrency(t.amount)}</strong>
+              ${t.memo ? `<br>비고: ${Utils.escapeHtml(t.memo)}` : ''}
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top:var(--sp-3);">현재 분할 매칭 (<span id="splitCount">${existingSplits.length}</span>건)</h4>
+        <div id="splitsContainer"></div>
+        <div class="text-center mt-2">
+          <button class="btn btn-secondary btn-sm" onclick="OutsourcingModule._addSplitRow()">+ 분할 행 추가</button>
+        </div>
+
+        <div id="splitSummary" class="card mt-3" style="background:#F8FAFC;">
+          <div class="card-body" style="padding:var(--sp-3);">
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:var(--sp-3);font-size:0.95rem;">
+              <div>송금 총액: <strong>${Utils.formatCurrency(t.amount)}</strong></div>
+              <div>분할 합계: <strong id="splitTotal">₩0</strong></div>
+              <div>잔여: <strong id="splitRemain">${Utils.formatCurrency(t.amount)}</strong></div>
+            </div>
+          </div>
+        </div>
+
+        <h4 style="margin-top:var(--sp-4);">매출(deposits) 후보 — 클릭하여 분할 행 추가</h4>
+        <div class="text-sm text-muted mb-2">대림 키워드 일치 매출 ${allDeposits.length}건. 매출 선택 → 자동 분할 행 추가 → 금액 조정</div>
+        <div style="max-height:240px;overflow-y:auto;border:1px solid #E2E8F0;border-radius:4px;">
+          ${allDeposits.length === 0 ? '<div class="text-muted text-center" style="padding:var(--sp-3);">후보 매출 없음</div>'
+            : allDeposits.map(d => `
+              <div onclick="OutsourcingModule._addSplitFromDeposit('${d.id}')"
+                style="padding:8px 12px;border-bottom:1px solid #F1F5F9;cursor:pointer;display:flex;justify-content:space-between;align-items:center;"
+                onmouseover="this.style.background='#F0F9FF';" onmouseout="this.style.background='#fff';">
+                <div>
+                  <div class="fw-medium text-sm">${Utils.escapeHtml(d.depositorName || '-')}</div>
+                  <div class="text-xs text-muted">${Utils.formatDate(d.depositDate)}</div>
+                </div>
+                <div class="text-right">
+                  <div class="fw-medium">${Utils.formatCurrency(d.amount)}</div>
+                </div>
+              </div>`).join('')}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="OutsourcingModule._saveSplitMatch()">💾 분할 매칭 저장</button>
+      </div>
+    `, { size: 'modal-xl' });
+
+    this._renderSplits();
+  },
+
+  // 잠정적으로 송금 금액과 같은 매출 후보를 찾는 helper (위 _isDaerimDeposit 보강용)
+  _isPotentialDeposit(d, transfer) {
+    // 같은 달 ± 1개월 + 금액이 송금의 90~110% 사이
+    if (!d.depositDate || !transfer.transferDate) return false;
+    const td = new Date(transfer.transferDate);
+    const dd = new Date(d.depositDate);
+    const diffMonths = Math.abs((td - dd) / (1000 * 60 * 60 * 24 * 30));
+    if (diffMonths > 2) return false;
+    return true;
+  },
+
+  _renderSplits() {
+    const container = document.getElementById('splitsContainer');
+    if (!container) return;
+    const draft = this._splitDraft;
+    if (!draft) return;
+
+    if (draft.splits.length === 0) {
+      container.innerHTML = '<div class="text-muted text-center" style="padding:var(--sp-3);background:#F8FAFC;border-radius:4px;">분할 행이 없습니다. 아래 매출 후보를 클릭하거나 [+ 분할 행 추가]를 누르세요.</div>';
+    } else {
+      container.innerHTML = draft.splits.map((s, i) => {
+        // depositId 로 deposit 정보 가져오기
+        const d = this._data.deposits.find(x => String(x.id) === String(s.depositId));
+        const depName = d ? d.depositorName : (s.clientName || '(미지정)');
+        const depDate = d ? d.depositDate : (s.depositDate || '');
+        const depAmt = d ? d.amount : null;
+        return `
+          <div style="display:grid;grid-template-columns:auto 1fr 140px 30px;gap:var(--sp-2);align-items:center;padding:var(--sp-2) var(--sp-3);background:#fff;border:1px solid #E2E8F0;border-radius:4px;margin-bottom:6px;">
+            <div style="font-size:0.85rem;color:#64748B;">#${i + 1}</div>
+            <div>
+              <div class="fw-medium text-sm">${Utils.escapeHtml(depName)}</div>
+              <div class="text-xs text-muted">${depDate ? Utils.formatDate(depDate) : '-'} ${depAmt ? `· 매출 ${Utils.formatCurrency(depAmt)}` : ''}</div>
+            </div>
+            <input type="number" class="form-control" value="${s.amount}" min="0" step="1"
+              oninput="OutsourcingModule._updateSplitAmount(${i}, this.value)"
+              style="text-align:right;">
+            <button class="btn btn-ghost btn-sm text-danger" onclick="OutsourcingModule._removeSplit(${i})" title="삭제">🗑️</button>
+          </div>`;
+      }).join('');
+    }
+    this._updateSplitSummary();
+  },
+
+  _updateSplitSummary() {
+    const draft = this._splitDraft;
+    if (!draft) return;
+    const total = draft.splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const remain = draft.transferAmount - total;
+    const totalEl = document.getElementById('splitTotal');
+    const remainEl = document.getElementById('splitRemain');
+    const countEl = document.getElementById('splitCount');
+    if (totalEl) totalEl.textContent = Utils.formatCurrency(total);
+    if (remainEl) {
+      remainEl.textContent = Utils.formatCurrency(remain);
+      remainEl.style.color = remain === 0 ? '#16A34A' : (remain < 0 ? '#DC2626' : '#F59E0B');
+    }
+    if (countEl) countEl.textContent = draft.splits.length;
+  },
+
+  _addSplitRow() {
+    this._splitDraft.splits.push({ depositId: null, amount: 0 });
+    this._renderSplits();
+  },
+
+  _addSplitFromDeposit(depId) {
+    const d = this._data.deposits.find(x => String(x.id) === String(depId));
+    if (!d) return;
+    // 이미 같은 depositId 추가됐으면 무시
+    if (this._splitDraft.splits.some(s => String(s.depositId) === String(depId))) {
+      Utils.showToast('이미 추가된 매출입니다.', 'warning');
+      return;
+    }
+    // 분할 금액 자동 제안: 송금 잔여 vs 매출 금액 중 작은 값
+    const used = this._splitDraft.splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    const remain = this._splitDraft.transferAmount - used;
+    const suggested = Math.min(remain > 0 ? remain : 0, Number(d.amount) || 0);
+    this._splitDraft.splits.push({
+      depositId: String(d.id),
+      amount: suggested,
+      clientName: d.depositorName,
+      depositDate: d.depositDate
+    });
+    this._renderSplits();
+  },
+
+  _updateSplitAmount(idx, value) {
+    if (!this._splitDraft.splits[idx]) return;
+    this._splitDraft.splits[idx].amount = Number(value) || 0;
+    this._updateSplitSummary();
+  },
+
+  _removeSplit(idx) {
+    this._splitDraft.splits.splice(idx, 1);
+    this._renderSplits();
+  },
+
+  async _saveSplitMatch() {
+    const draft = this._splitDraft;
+    if (!draft) { Utils.showToast('작업 중인 분할 없음', 'error'); return; }
+
+    const splitTotal = draft.splits.reduce((s, x) => s + (Number(x.amount) || 0), 0);
+    if (splitTotal > draft.transferAmount) {
+      const ok = window.confirm(`분할 합계(${Utils.formatCurrency(splitTotal)})가 송금 총액(${Utils.formatCurrency(draft.transferAmount)})을 초과합니다.\n그래도 저장하시겠습니까?`);
+      if (!ok) return;
+    }
+
+    try {
+      const t = await DB.get('transferRecords', draft.transferId);
+      if (!t) throw new Error('송금 레코드 없음');
+
+      // 기존 splits 가 매칭했던 deposits 에서 역참조 해제
+      const oldSplits = Array.isArray(t.splits) ? t.splits : [];
+      for (const os of oldSplits) {
+        if (!os.depositId) continue;
+        try {
+          const d = await DB.get('deposits', os.depositId);
+          if (d) {
+            const updated = (d.matchedTransferSplits || []).filter(x => String(x.transferId) !== String(draft.transferId));
+            await DB.update('deposits', { ...d, id: d.id, matchedTransferSplits: updated });
+          }
+        } catch (e) { console.warn('[Split] 옛 역참조 해제 실패:', e); }
+      }
+
+      // 새 splits 저장
+      const cleanSplits = draft.splits.filter(s => s.depositId && Number(s.amount) > 0);
+      await DB.update('transferRecords', { ...t, id: t.id, splits: cleanSplits });
+
+      // 새 splits 의 deposits 에 역참조 추가
+      for (const s of cleanSplits) {
+        try {
+          const d = await DB.get('deposits', s.depositId);
+          if (d) {
+            const existing = (d.matchedTransferSplits || []).filter(x => String(x.transferId) !== String(draft.transferId));
+            existing.push({ transferId: String(draft.transferId), amount: Number(s.amount) });
+            await DB.update('deposits', { ...d, id: d.id, matchedTransferSplits: existing });
+          }
+        } catch (e) { console.warn('[Split] 역참조 저장 실패:', e); }
+      }
+
+      await DB.log('UPDATE', 'transferRecord', draft.transferId, `송금 분할 매칭 ${cleanSplits.length}건`);
+      Utils.showToast(`분할 매칭 저장 완료 (${cleanSplits.length}건)`, 'success');
+      this._splitDraft = null;
+      Utils.closeModal();
+      await this._reload();
+    } catch (e) {
+      console.error('[Split] 저장 실패:', e);
+      Utils.showToast('저장 실패: ' + e.message, 'error', 6000);
+    }
   },
 
   // ============================================

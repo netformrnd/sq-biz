@@ -28,6 +28,11 @@ const DepositModule = {
   async render() {
     const isAdmin = Auth.isAdmin();
     const deposits = await DB.getAll('deposits');
+    // v2: 정산관리 등록 상태 매핑 — deposit.linkedOutsourcingProjectId 가 있고 실제 프로젝트도 존재해야 등록됨
+    let outsourcingProjects = [];
+    try { outsourcingProjects = await DB.getAll('outsourcingProjects'); } catch (e) {}
+    const projectIdSet = new Set(outsourcingProjects.map(p => String(p.id)));
+    this._outsourcingProjects = outsourcingProjects;
 
     // 날짜 필터
     DateFilter.onChange('deposits', () => this.render());
@@ -85,7 +90,7 @@ const DepositModule = {
 
     let tableRows = '';
     if (filtered.length === 0) {
-      tableRows = `<tr><td colspan="10" class="text-center" style="padding:var(--sp-10);">
+      tableRows = `<tr><td colspan="11" class="text-center" style="padding:var(--sp-10);">
         <div class="empty-state"><div class="empty-icon">💰</div><h3>입금내역이 없습니다</h3></div>
       </td></tr>`;
     } else {
@@ -107,6 +112,14 @@ const DepositModule = {
         }
         const actionDone = actionText.startsWith('처리완료');
 
+        // v2: 정산관리 등록 상태
+        const linkedId = d.linkedOutsourcingProjectId ? String(d.linkedOutsourcingProjectId) : '';
+        const isLinked = linkedId && projectIdSet.has(linkedId);
+        const linkedProj = isLinked ? outsourcingProjects.find(p => String(p.id) === linkedId) : null;
+        const settlementCell = isLinked
+          ? `<button class="btn btn-ghost btn-sm" onclick="Router.navigate('/outsourcing/detail?id=${linkedId}')" title="${Utils.escapeHtml(linkedProj?.projectName || '')}" style="color:#16A34A;font-weight:600;">✓ 등록됨</button>`
+          : (isAdmin ? `<button class="btn btn-secondary btn-sm" onclick="DepositModule._openSettlementPanel('${d.id}')" title="대림프로젝트 정산관리에 등록">+ 정산등록</button>` : '<span class="text-muted text-xs">-</span>');
+
         return `
           <tr oncontextmenu="DepositModule._showContextMenu(event, '${d.id}')" ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''}>
             <td>${Utils.formatDate(d.depositDate)}</td>
@@ -122,6 +135,7 @@ const DepositModule = {
                 ${Utils.escapeHtml(actionText)}
               </span>
             </td>
+            <td class="text-center">${settlementCell}</td>
             <td>
               ${isAdmin ? `
                 <div class="d-flex gap-1">
@@ -221,6 +235,7 @@ const DepositModule = {
               <th class="text-center">상태</th>
               <th>거래처</th>
               <th>처리사항</th>
+              <th class="text-center" title="대림프로젝트 정산관리 등록 여부">정산관리</th>
               <th>관리</th>
             </tr>
           </thead>
@@ -630,6 +645,131 @@ const DepositModule = {
     }
 
     ContextMenu.show(event, items);
+  },
+
+  // ============================================
+  // v2: 정산관리 등록 점검 패널 (이 입금건 → outsourcingProjects 자동 생성)
+  // ============================================
+  async _openSettlementPanel(depositId) {
+    const d = await DB.get('deposits', depositId);
+    if (!d) { Utils.showToast('입금 정보 없음', 'error'); return; }
+
+    // 기본값
+    const defaultProjectName = `${d.depositorName || '입금처미지정'} - ${d.depositDate || Utils.today()}`;
+    const defaultClient = d.depositorName || '';
+    const defaultContractDate = d.depositDate || Utils.today();
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📋 정산관리 등록 점검</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="card mb-3" style="background:#F0F9FF;border-left:4px solid #2563EB;">
+          <div class="card-body">
+            <div class="text-sm">
+              <strong>이 입금건을 대림프로젝트 정산관리에 등록합니다.</strong><br>
+              <span class="text-muted">입금 정보: ${Utils.formatDate(d.depositDate)} · ${Utils.escapeHtml(d.depositorName || '-')} · ${Utils.formatCurrency(d.amount)}</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label>프로젝트명 <span class="required">*</span></label>
+            <input type="text" id="setProjectName" class="form-control" value="${Utils.escapeHtml(defaultProjectName)}" required>
+            <div class="text-xs text-muted mt-1">⚠️ 송금내역의 프로젝트명과 정확히 동일해야 자동 매칭됨. 보통 "매출처명 - 날짜" 형식.</div>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>발주처</label>
+            <input type="text" id="setClientName" class="form-control" value="${Utils.escapeHtml(defaultClient)}">
+          </div>
+          <div class="form-group">
+            <label>외주업체</label>
+            <input type="text" id="setVendorName" class="form-control" value="대림건축ENG">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>매출금액 <span class="required">*</span></label>
+            <input type="number" id="setDepositAmount" class="form-control" value="${d.amount || 0}" min="0" required>
+            <div class="text-xs text-muted mt-1">이 입금액(${Utils.formatCurrency(d.amount)})이 기본값. 수정 가능.</div>
+          </div>
+          <div class="form-group">
+            <label>계약일</label>
+            <input type="date" id="setContractDate" class="form-control" value="${defaultContractDate}">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>진행상태</label>
+            <select id="setStatus" class="form-control">
+              <option value="진행중" selected>진행중</option>
+              <option value="정산예정">정산예정</option>
+              <option value="완료">완료</option>
+              <option value="보류">보류</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>메모</label>
+          <textarea id="setMemo" class="form-control" rows="2" placeholder="추가 메모 (선택)"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="DepositModule._saveSettlement('${depositId}')">💾 정산관리에 등록</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _saveSettlement(depositId) {
+    const projectName = document.getElementById('setProjectName').value.trim();
+    const clientName = document.getElementById('setClientName').value.trim();
+    const vendorName = document.getElementById('setVendorName').value.trim();
+    const depositAmount = Number(document.getElementById('setDepositAmount').value) || 0;
+    const contractDate = document.getElementById('setContractDate').value;
+    const status = document.getElementById('setStatus').value;
+    const memo = document.getElementById('setMemo').value.trim();
+
+    if (!projectName) { Utils.showToast('프로젝트명 필수', 'error'); return; }
+    if (depositAmount <= 0) { Utils.showToast('매출금액 필수', 'error'); return; }
+
+    const user = Auth.currentUser();
+    try {
+      // 1) outsourcingProjects 신규 등록
+      const newProjectId = await DB.add('outsourcingProjects', {
+        projectName,
+        clientName,
+        vendorName,
+        contractDate: contractDate || null,
+        depositAmount,
+        status: status || '진행중',
+        memo,
+        sourceDepositId: depositId, // 어느 입금건에서 등록됐는지 추적
+        registeredBy: user.id,
+        registeredByName: user.displayName,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      });
+
+      // 2) 해당 입금건에 역참조 저장
+      const d = await DB.get('deposits', depositId);
+      if (d) {
+        await DB.update('deposits', { ...d, id: depositId, linkedOutsourcingProjectId: newProjectId });
+      }
+
+      await DB.log('CREATE', 'outsourcingProject', newProjectId, `정산관리 등록 (입금 ${depositId} 기반): ${projectName}`);
+
+      Utils.closeModal();
+      Utils.showToast(`정산관리 등록 완료: ${projectName}`, 'success');
+      await this.render();
+    } catch (e) {
+      console.error('[Settlement] 등록 실패:', e);
+      Utils.showToast('등록 실패: ' + e.message, 'error', 6000);
+    }
   },
 
   destroy() {}

@@ -397,6 +397,24 @@ const App = {
       title: '발주-외주 정산표',
       roles: ['admin', 'employee']
     });
+    // 지출결의서 (v2): PDF 업로드 → 자동 파싱 → 매출/송금 매칭 → 저장
+    Router.register('/expense-reports', {
+      module: 'ExpenseReportsModule',
+      title: '지출결의서 관리',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/expense-reports/new', {
+      module: 'ExpenseReportsModule',
+      title: '신규 지출결의서 업로드',
+      roles: ['admin', 'employee'],
+      action: 'new'
+    });
+    Router.register('/expense-reports/detail', {
+      module: 'ExpenseReportsModule',
+      title: '지출결의서 상세',
+      roles: ['admin', 'employee'],
+      action: 'detail'
+    });
     Router.register('/user-guide', {
       module: 'UserGuideModule',
       title: '사용가이드',

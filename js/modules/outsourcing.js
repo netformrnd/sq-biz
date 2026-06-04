@@ -320,6 +320,7 @@ const OutsourcingModule = {
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
           <button class="btn btn-secondary" onclick="Router.navigate('/purchase-invoices')" title="외주업체 매입 세금계산서 관리">📥 매입 세금계산서</button>
           <button class="btn btn-secondary" onclick="Router.navigate('/settlements')" title="발주-외주 정산표 (이사님 명세서)">💰 발주-외주 정산표</button>
+          <button class="btn btn-secondary" onclick="Router.navigate('/expense-reports')" title="지출결의서 PDF 업로드 + 자동 매칭">📄 지출결의서 관리</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 보고서 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
@@ -438,6 +439,26 @@ const OutsourcingModule = {
       .sort((a, b) => (a.issueDate || '').localeCompare(b.issueDate || ''));
     const purchaseTotal = linkedPurchases.reduce((s, pi) => s + (Number(pi.totalAmount) || 0), 0);
 
+    // 4-b) 지출결의서 — 이 프로젝트의 송금 또는 매출(deposit)이 매칭된 결의서
+    const allExpenseReports = await DB.getAll('expenseReports');
+    const transferIdSet = new Set(transfers.map(t => String(t.id)));
+    const projectDepositIds = new Set(); // 정산표/자동매칭으로 식별된 deposit ID
+    // depositList 에는 settlements/depositInfo 가 들어있어 id 가 없을 수 있음 — 이름·금액·날짜로 deposits 조회
+    const allDeposits = await DB.getAll('deposits');
+    for (const li of depositList) {
+      const match = allDeposits.find(d =>
+        d.depositorName && li.name && d.depositorName.includes(li.name.slice(0, 2)) &&
+        Number(d.amount) === Number(li.amount) &&
+        d.depositDate === li.date
+      );
+      if (match) projectDepositIds.add(String(match.id));
+    }
+    const linkedExpenseReports = allExpenseReports.filter(er => {
+      const trIds = (er.matchedTransferIds || []).map(String);
+      const depIds = (er.matchedDepositIds || []).map(String);
+      return trIds.some(id => transferIdSet.has(id)) || depIds.some(id => projectDepositIds.has(id));
+    }).sort((a, b) => (a.reportDate || '').localeCompare(b.reportDate || ''));
+
     // 5) ④ 순이익
     const profit = depositAmount - outsourcingTotal;
     const profitColor = profit < 0 ? 'color:var(--color-danger);' : (profit > 0 ? 'color:var(--color-success);' : '');
@@ -473,6 +494,17 @@ const OutsourcingModule = {
           <td>${Utils.escapeHtml(t.recipientName || '-')}</td>
           <td class="text-right amount">${Utils.formatCurrency(t.amount || 0)}</td>
           <td>${Utils.escapeHtml(t.memo || '-')}</td>
+        </tr>`).join('');
+
+    const expenseReportRows = linkedExpenseReports.length === 0
+      ? `<tr><td colspan="5" class="text-center text-muted" style="padding:var(--sp-4);">연결된 지출결의서 없음 — [📄 지출결의서 관리]에서 PDF 업로드 후 매칭하면 표시됩니다</td></tr>`
+      : linkedExpenseReports.map(er => `
+        <tr style="cursor:pointer;" onclick="Router.navigate('/expense-reports/detail?id=${er.id}')">
+          <td>${Utils.formatDate(er.reportDate)}</td>
+          <td>${Utils.escapeHtml(er.title || er.fileName || '-')}</td>
+          <td>${Utils.escapeHtml(er.authorName || '-')}</td>
+          <td class="text-center">${(er.lineItems || []).length}건</td>
+          <td class="text-right amount">${Utils.formatCurrency(er.totalAmount || 0)}</td>
         </tr>`).join('');
 
     this.container.innerHTML = `
@@ -559,6 +591,14 @@ const OutsourcingModule = {
         <table class="data-table">
           <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>비고</th></tr></thead>
           <tbody>${transferRows}</tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:var(--sp-5);">📄 지출결의서 (이 프로젝트 송금/매출이 매칭된 결의서)</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>지출일자</th><th>지출건명</th><th>작성자</th><th class="text-center">라인수</th><th class="text-right">총금액</th></tr></thead>
+          <tbody>${expenseReportRows}</tbody>
         </table>
       </div>
 

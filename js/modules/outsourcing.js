@@ -10,25 +10,141 @@ const OutsourcingModule = {
 
   STATUS_OPTIONS: ['진행중', '정산예정', '완료', '보류'],
 
-  // 카드 클릭 필터 상태
-  // 'all' | 'deposit' | 'paid' | 'remaining' | 'overpaid'
-  _filter: 'all',
+  // v2 재설계: 4단계 흐름 탭 구조
+  // 탭: overview(종합) / sales(매출) / purchase(매입) / transfer(송금) / profit(이익+결의서)
+  _activeTab: 'overview',
+  _expandedProjectId: null, // 종합 탭에서 펼친 프로젝트
+
+  // 종합 데이터 캐시 (한 번에 로드해서 모든 탭이 공유)
+  _data: { projects: [], deposits: [], transfers: [], purchases: [], settlements: [], expenses: [] },
+
+  // 지출결의서 작업 중 (탭 5 내 업로드 화면)
+  _expenseDraft: null,
+
+  // pdf.js 로드 캐시
+  _pdfjsLoaded: false,
+  _pdfjsLoadPromise: null,
 
   async init(container, action) {
     this.container = container;
-    // 라우트 분기: action === 'detail' 이면 상세 페이지, 아니면 목록
+    // 레거시 라우트 호환: /outsourcing/detail?id=xxx → 종합 탭에서 해당 프로젝트 펼치기
     if (action === 'detail') {
       const { id } = Router.getQuery();
-      if (!id) {
-        Utils.showToast('프로젝트 ID가 없습니다. 목록으로 이동합니다.', 'warning');
-        Router.navigate('/outsourcing');
-        return;
-      }
-      await this._renderDetailPage(id);
-      return;
+      this._expandedProjectId = id || null;
+      this._activeTab = 'overview';
+    } else {
+      this._activeTab = 'overview';
+      this._expandedProjectId = null;
     }
-    this._filter = 'all';
-    await this.render();
+    await this._loadAllData();
+    this._render();
+  },
+
+  // 모든 컬렉션 한 번에 로드 (탭 전환 시 재로드 X — 상태 변경 액션 후만 재로드)
+  async _loadAllData() {
+    const [projects, deposits, transfers, purchases, settlements, expenses] = await Promise.all([
+      DB.getAll('outsourcingProjects'),
+      DB.getAll('deposits'),
+      DB.getAll('transferRecords'),
+      DB.getAll('purchaseInvoices'),
+      DB.getAll('settlements'),
+      DB.getAll('expenseReports')
+    ]);
+    this._data = { projects, deposits, transfers, purchases, settlements, expenses };
+    // 기존 캐시도 같이 채워 줘서 기존 메서드들이 동작하도록
+    this._buildLegacyCaches();
+  },
+
+  // 기존 _loadTransferTotals 가 채우던 캐시들을 새 _data 로부터 채움
+  _buildLegacyCaches() {
+    const { projects, deposits, transfers, purchases, settlements } = this._data;
+    const settlementsByKey = {};
+    for (const s of settlements) {
+      const name = (s.clientName || '').trim();
+      if (!name) continue;
+      const cleanName = name.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+      if (cleanName.length < 2) continue;
+      if (!settlementsByKey[cleanName]) settlementsByKey[cleanName] = [];
+      settlementsByKey[cleanName].push(s);
+    }
+    this._settlementsByMatchKey = settlementsByKey;
+
+    const totals = {};
+    const transferDates = {};
+    const purchaseInfo = {};
+    const depositInfo = {};
+
+    for (const t of transfers) {
+      const key = (t.projectName || '').trim();
+      if (!key) continue;
+      totals[key] = (totals[key] || 0) + (Number(t.amount) || 0);
+      if (!transferDates[key]) transferDates[key] = [];
+      transferDates[key].push({ date: t.transferDate, amount: t.amount, purchaseId: t.matchedPurchaseId });
+    }
+
+    const purchaseToProjects = {};
+    for (const t of transfers) {
+      if (!t.matchedPurchaseId) continue;
+      const projKey = (t.projectName || '').trim();
+      if (!projKey) continue;
+      const pid = String(t.matchedPurchaseId);
+      if (!purchaseToProjects[pid]) purchaseToProjects[pid] = new Set();
+      purchaseToProjects[pid].add(projKey);
+    }
+
+    for (const key of Object.keys(transferDates)) {
+      const items = transferDates[key]
+        .filter(t => t.purchaseId)
+        .map(t => {
+          const purchase = purchases.find(p => String(p.id) === String(t.purchaseId));
+          if (!purchase) return null;
+          const groupProjects = Array.from(purchaseToProjects[String(t.purchaseId)] || []);
+          return {
+            purchaseId: t.purchaseId, issueDate: purchase.issueDate, totalAmount: purchase.totalAmount,
+            partnerCompanyName: purchase.partnerCompanyName, groupSize: groupProjects.length, groupNames: groupProjects
+          };
+        }).filter(Boolean);
+      const seen = new Set();
+      purchaseInfo[key] = items.filter(p => { if (seen.has(p.purchaseId)) return false; seen.add(p.purchaseId); return true; });
+    }
+
+    for (const p of projects) {
+      const projName = (p.projectName || '').trim();
+      if (!projName) continue;
+      const cleanName = projName.split(' - ')[0].trim();
+      const keywords = cleanName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '').match(/.{2,}/g) || [cleanName];
+      const matches = deposits.filter(d => {
+        const depName = (d.depositorName || '').replace(/\s/g, '');
+        return keywords.some(k => depName.includes(k));
+      });
+      if (matches.length > 0) {
+        depositInfo[projName] = matches.map(d => ({ date: d.depositDate, amount: d.amount, name: d.depositorName }));
+      }
+    }
+
+    this._transferTotalsByProject = totals;
+    this._transferDatesByProject = transferDates;
+    this._purchaseInfoByProject = purchaseInfo;
+    this._depositInfoByProject = depositInfo;
+  },
+
+  // 탭 전환
+  async _setTab(tab) {
+    this._activeTab = tab;
+    this._expandedProjectId = null;
+    this._render();
+  },
+
+  // 프로젝트 카드 펼침/접힘
+  _toggleExpand(id) {
+    this._expandedProjectId = (String(this._expandedProjectId) === String(id)) ? null : id;
+    this._render();
+  },
+
+  // 액션 후 데이터 갱신 (CRUD/업로드 성공 시 호출)
+  async _reload() {
+    await this._loadAllData();
+    this._render();
   },
 
   _setFilter(mode) {
@@ -225,150 +341,486 @@ const OutsourcingModule = {
     }).join('<br>');
   },
 
-  async render() {
+  // ============================================
+  // 메인 렌더: 헤더 + 4단계 합계카드 + 탭 + 탭 컨텐츠
+  // ============================================
+  // 호환: 외부/내부에서 OutsourcingModule.render() 호출 시 데이터 재로드 후 렌더
+  // (기존 _save / _delete / _bulkSave 등 다수 메서드가 this.render() 호출함)
+  async render() { return this._reload(); },
+
+  _render() {
     const isAdmin = Auth.isAdmin();
-    await this._loadTransferTotals();
-    const allRaw = (await DB.getAll('outsourcingProjects')).reverse();
-
-    // 합계는 전체 기준
-    const totalDeposit = allRaw.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
-    const totalOutsourcing = allRaw.reduce((s, p) => s + (this._transferTotalsByProject[(p.projectName || '').trim()] || 0), 0);
-    const totalBalance = totalDeposit - totalOutsourcing;
-
-    // 필터별 건수 계산 (카드 표시용)
-    const countDeposit = allRaw.filter(p => (Number(p.depositAmount) || 0) > 0).length;
-    const countPaid = allRaw.filter(p => (this._transferTotalsByProject[(p.projectName || '').trim()] || 0) > 0).length;
-    const countRemaining = allRaw.filter(p => {
-      const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
-      return (Number(p.depositAmount) || 0) - out > 0;
-    }).length;
-
-    // 필터 적용
-    const all = allRaw.filter(p => {
-      const out = this._transferTotalsByProject[(p.projectName || '').trim()] || 0;
-      return this._matchFilter(p, out);
-    });
-
-    let tableRows = '';
-    if (all.length === 0) {
-      const emptyMsg = this._filter === 'all'
-        ? '<div class="empty-state"><div class="empty-icon">📒</div><h3>등록된 프로젝트가 없습니다</h3><p>+ 프로젝트 등록 버튼으로 추가하세요.</p></div>'
-        : `<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 프로젝트가 없습니다</h3><p>다른 카드를 클릭하거나 [전체 프로젝트]를 누르세요.</p></div>`;
-      tableRows = `<tr><td colspan="7" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
-    } else {
-      tableRows = all.map(p => {
-        const projKey = (p.projectName || '').trim();
-        const outsourcingTotal = this._transferTotalsByProject[projKey] || 0;
-        const balance = (Number(p.depositAmount) || 0) - outsourcingTotal;
-        const balanceColor = balance < 0 ? 'color:var(--color-danger);' : (balance > 0 ? 'color:var(--color-success);' : '');
-
-        // 매출처명 분리: "여태성 - 2026-04-13" → "여태성" + 식별자
-        const fullName = p.projectName || '-';
-        const dashIdx = fullName.indexOf(' - ');
-        const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
-        const identifier = dashIdx > 0 ? fullName.slice(dashIdx + 3).trim() : '';
-
-        // ⭐ 발주-외주 정산표(이사님 명세서) 우선 사용
-        const cleanName = displayName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
-        const matchedSettlements = this._settlementsByMatchKey[cleanName] || [];
-
-        let depositList = [];
-        let transferList = [];
-        let usingSettlement = false;
-
-        if (matchedSettlements.length > 0) {
-          // 정산표 데이터 우선 사용 (이사님 직접 매칭)
-          usingSettlement = true;
-          for (const s of matchedSettlements) {
-            if (s.depositDate && s.depositAmount) {
-              depositList.push({ date: s.depositDate, amount: s.depositAmount, name: s.clientName });
-            }
-            if (s.withdrawDate && s.withdrawAmount) {
-              transferList.push({ date: s.withdrawDate, amount: s.withdrawAmount });
-            }
-          }
-        } else {
-          // 자동 매칭 fallback
-          depositList = this._depositInfoByProject[projKey] || [];
-          transferList = this._transferDatesByProject[projKey] || [];
-        }
-
-        const purchaseList = this._purchaseInfoByProject[projKey] || [];
-        const sourceLabel = usingSettlement ? '<span class="text-xs" style="color:#3b82f6;" title="이사님 정산표 데이터">📋</span> ' : '';
-
-        return `
-          <tr style="cursor:pointer;" onclick="Router.navigate('/outsourcing/detail?id=${p.id}')" title="클릭하면 상세 페이지로 이동 (흐름·수정·삭제·PDF)">
-            <td>
-              <div class="fw-medium">${sourceLabel}${Utils.escapeHtml(displayName)}</div>
-              ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
-            </td>
-            <td>${this._formatDateList(depositList, 'date')}</td>
-            <td class="text-right amount">${Utils.formatCurrency(p.depositAmount || 0)}</td>
-            <td>${this._formatDateList(transferList, 'date')}</td>
-            <td class="text-right amount">${Utils.formatCurrency(outsourcingTotal)}</td>
-            <td>${this._formatPurchaseList(purchaseList)}</td>
-            <td class="text-right amount fw-medium" style="${balanceColor}">${Utils.formatCurrency(balance)}</td>
-          </tr>
-        `;
-      }).join('');
-    }
-
+    const s = this._computeSummary();
     this.container.innerHTML = `
       <div class="page-header">
-        <h2>대림프로젝트 정산관리</h2>
+        <h2>📒 대림프로젝트 정산관리</h2>
         <div class="page-actions">
-          <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
-          <button class="btn btn-secondary" onclick="Router.navigate('/purchase-invoices')" title="외주업체 매입 세금계산서 관리">📥 매입 세금계산서</button>
-          <button class="btn btn-secondary" onclick="Router.navigate('/settlements')" title="발주-외주 정산표 (이사님 명세서)">💰 발주-외주 정산표</button>
-          <button class="btn btn-secondary" onclick="Router.navigate('/expense-reports')" title="지출결의서 PDF 업로드 + 자동 매칭">📄 지출결의서 관리</button>
-          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 보고서 PDF</button>
+          <button class="btn btn-ghost" onclick="UserGuideModule && UserGuideModule.showModal && UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
-          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
-          ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 양식</button>
+          ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 일괄 업로드</button>` : ''}
           ${isAdmin ? `<button class="btn btn-primary" onclick="OutsourcingModule._openAddModal()">+ 프로젝트 등록</button>` : ''}
         </div>
       </div>
 
+      <!-- 4단계 흐름 합계 카드 -->
       <div class="summary-cards">
-        ${this._renderCard('all',       'cyan',   '📒', '전체 프로젝트',  `${allRaw.length}건`,                                  '클릭: 전체 보기')}
-        ${this._renderCard('deposit',   'green',  '💰', '총 매출금액',     Utils.formatCurrency(totalDeposit),                    `${countDeposit}건 (매출 있음)`)}
-        ${this._renderCard('paid',      'orange', '💸', '총 출금금액',     Utils.formatCurrency(totalOutsourcing),                `${countPaid}건 (출금 있음)`)}
-        ${this._renderCard('remaining', totalBalance >= 0 ? 'cyan' : 'red', '📊', '총 순이익', Utils.formatCurrency(totalBalance), `${countRemaining}건 (순이익 있음)`)}
-      </div>
-
-      ${this._filter !== 'all' ? `
-        <div style="padding:var(--sp-2) var(--sp-3);background:var(--color-warning-light);border-radius:var(--radius-sm);margin-top:var(--sp-3);font-size:var(--font-size-sm);">
-          🔍 <strong>${this._filterLabel()}</strong> 필터 적용 중 — 카드를 다시 클릭하거나 [전체 프로젝트]를 누르면 해제됩니다.
+        <div class="summary-card" style="border-left:4px solid #16A34A;">
+          <div class="card-icon green">💰</div>
+          <div class="card-info">
+            <div class="card-label">① 매출 발생</div>
+            <div class="card-value">${Utils.formatCurrency(s.totalSales)}</div>
+            <div class="text-xs text-muted">${s.projectCount}개 프로젝트</div>
+          </div>
         </div>
-      ` : ''}
-
-      <div class="card mt-4" style="padding:var(--sp-3);background:var(--color-bg-light);">
-        <div class="text-sm text-muted">
-          💡 <strong>안내</strong>:<br>
-          • <strong><span style="color:#3b82f6;">📋</span> 표시</strong>: 발주-외주 정산표(이사님 직접 매칭) 데이터 사용 — 가장 정확한 정보<br>
-          • <strong>입금일자/출금일자</strong>: 정산표 우선, 없으면 입금/송금내역에서 자동 매칭<br>
-          • <strong>매입계산서일</strong>: 송금에 매칭된 매입 세금계산서의 발행일 표시<br>
-          &nbsp;&nbsp;&nbsp;&nbsp;<span style="color:#3b82f6;">(묶음 N)</span> 표시: 1건의 매입계산서로 여러 매출처가 묶여 발행됨 — 마우스 올려서 묶음 상세 확인<br>
-          • <strong>순이익</strong>: 매출금액 - 출금금액
+        <div class="summary-card" style="border-left:4px solid #2563EB;">
+          <div class="card-icon cyan">📥</div>
+          <div class="card-info">
+            <div class="card-label">② 매입 세금계산서</div>
+            <div class="card-value">${Utils.formatCurrency(s.totalPurchases)}</div>
+            <div class="text-xs text-muted">${s.purchaseCount}건</div>
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid #F97316;">
+          <div class="card-icon orange">💸</div>
+          <div class="card-info">
+            <div class="card-label">③ 외주 송금</div>
+            <div class="card-value">${Utils.formatCurrency(s.totalTransfers)}</div>
+            <div class="text-xs text-muted">${s.transferCount}건</div>
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid ${s.totalProfit < 0 ? '#DC2626' : '#16A34A'};">
+          <div class="card-icon ${s.totalProfit < 0 ? 'red' : 'green'}">📊</div>
+          <div class="card-info">
+            <div class="card-label">④ 순이익 (① − ③)</div>
+            <div class="card-value" style="${s.totalProfit < 0 ? 'color:var(--color-danger);' : 'color:var(--color-success);'}">${Utils.formatCurrency(s.totalProfit)}</div>
+            <div class="text-xs text-muted">${s.totalProfit >= 0 ? '흑자' : '적자'}</div>
+          </div>
         </div>
       </div>
 
-      <div class="table-wrapper mt-4">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>매출처명</th>
-              <th>입금일자</th>
-              <th class="text-right">매출금액</th>
-              <th>출금일자</th>
-              <th class="text-right">출금금액</th>
-              <th>매입계산서일</th>
-              <th class="text-right">순이익</th>
-            </tr>
-          </thead>
-          <tbody>${tableRows}</tbody>
-        </table>
+      <!-- 탭 네비게이션 -->
+      <div class="card mt-4" style="padding:0;overflow:hidden;">
+        <div style="display:flex;border-bottom:1px solid var(--color-border);background:#F8FAFC;">
+          ${this._renderTabButton('overview', '📋 종합', '프로젝트별 4단계 진행 현황')}
+          ${this._renderTabButton('sales', '💰 ① 매출', '대림 관련 입금내역')}
+          ${this._renderTabButton('purchase', '📥 ② 매입세금', '외주업체 매입 세금계산서')}
+          ${this._renderTabButton('transfer', '💸 ③ 송금', '외주 송금내역')}
+          ${this._renderTabButton('profit', '📊 ④ 이익+결의서', '순이익 및 지출결의서')}
+        </div>
+        <div style="padding:var(--sp-4);">
+          ${this._renderTabContent()}
+        </div>
       </div>
+    `;
+  },
+
+  _renderTabButton(tab, label, tooltip) {
+    const active = this._activeTab === tab;
+    return `<button onclick="OutsourcingModule._setTab('${tab}')" title="${Utils.escapeHtml(tooltip)}"
+      style="flex:1;padding:var(--sp-3) var(--sp-2);border:0;background:${active ? '#fff' : 'transparent'};
+      cursor:pointer;font-weight:${active ? '700' : '500'};color:${active ? '#2563EB' : '#64748B'};
+      border-bottom:3px solid ${active ? '#2563EB' : 'transparent'};font-size:0.92rem;">${label}</button>`;
+  },
+
+  _renderTabContent() {
+    switch (this._activeTab) {
+      case 'sales':    return this._renderTabSales();
+      case 'purchase': return this._renderTabPurchase();
+      case 'transfer': return this._renderTabTransfer();
+      case 'profit':   return this._renderTabProfit();
+      case 'overview':
+      default:         return this._renderTabOverview();
+    }
+  },
+
+  // ============================================
+  // 합계 계산
+  // ============================================
+  _computeSummary() {
+    const { projects, deposits, transfers, purchases, expenses } = this._data;
+    const totalSales = projects.reduce((s, p) => s + (Number(p.depositAmount) || 0), 0);
+    const daerimTransfers = transfers.filter(t => this._isDaerimTransfer(t));
+    const totalTransfers = daerimTransfers.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    const daerimPurchases = purchases.filter(p => this._isDaerimPurchase(p));
+    const totalPurchases = daerimPurchases.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+    const daerimDeposits = deposits.filter(d => this._isDaerimDeposit(d));
+    return {
+      totalSales, totalPurchases, totalTransfers,
+      totalProfit: totalSales - totalTransfers,
+      projectCount: projects.length,
+      depositCount: daerimDeposits.length,
+      transferCount: daerimTransfers.length,
+      purchaseCount: daerimPurchases.length,
+      expenseCount: expenses.length
+    };
+  },
+
+  // ============================================
+  // 대림 관련 레코드 판별
+  // ============================================
+  _isDaerimTransfer(t) {
+    const projectKeys = new Set(this._data.projects.map(p => (p.projectName || '').trim()).filter(Boolean));
+    if (projectKeys.has((t.projectName || '').trim())) return true;
+    const recipient = (t.recipientName || '').replace(/\s/g, '');
+    return /대림건축|대림ENG|홍정란/.test(recipient);
+  },
+  _isDaerimPurchase(p) {
+    const partner = (p.partnerCompanyName || '').replace(/\s/g, '');
+    return /대림건축|대림ENG/.test(partner);
+  },
+  _isDaerimDeposit(d) {
+    const depName = (d.depositorName || '').replace(/\s/g, '');
+    for (const p of this._data.projects) {
+      const cleanProj = (p.projectName || '').split(' - ')[0].replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+      if (cleanProj.length >= 2 && depName.includes(cleanProj.slice(0, 2))) return true;
+    }
+    return false;
+  },
+
+  // ============================================
+  // 탭 1: 종합 — 프로젝트 카드 + 인라인 펼침
+  // ============================================
+  _renderTabOverview() {
+    const projects = this._data.projects.slice().reverse();
+    if (projects.length === 0) {
+      return `<div class="empty-state"><div class="empty-icon">📒</div>
+        <h3>등록된 프로젝트가 없습니다</h3>
+        <p>상단 [+ 프로젝트 등록] 버튼으로 시작하세요.</p></div>`;
+    }
+    return projects.map(p => this._renderProjectCard(p)).join('');
+  },
+
+  _renderProjectCard(p) {
+    const isAdmin = Auth.isAdmin();
+    const stats = this._computeProjectStats(p);
+    const isExpanded = String(this._expandedProjectId) === String(p.id);
+    const fullName = p.projectName || '-';
+    const dashIdx = fullName.indexOf(' - ');
+    const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
+    const identifier = dashIdx > 0 ? fullName.slice(dashIdx + 3).trim() : '';
+
+    // 4단계 진행 도트
+    const dot = (filled, color) => `<span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${filled ? color : '#E2E8F0'};margin-right:3px;"></span>`;
+    const progress = `${dot(stats.hasStage1, '#16A34A')}${dot(stats.hasStage2, '#2563EB')}${dot(stats.hasStage3, '#F97316')}${dot(stats.hasStage4, '#8B5CF6')}`;
+    const profitColor = stats.profit < 0 ? '#DC2626' : (stats.profit > 0 ? '#16A34A' : '#64748B');
+
+    return `
+      <div class="card mb-3" style="border-left:4px solid ${profitColor};">
+        <div onclick="OutsourcingModule._toggleExpand('${p.id}')"
+          style="cursor:pointer;padding:var(--sp-3) var(--sp-4);display:flex;justify-content:space-between;align-items:center;gap:var(--sp-3);">
+          <div style="flex:1;">
+            <div style="display:flex;align-items:center;gap:var(--sp-2);">
+              <span style="font-size:1.1rem;">${isExpanded ? '▼' : '▶'}</span>
+              <div>
+                <div class="fw-medium" style="font-size:1.05rem;">${Utils.escapeHtml(displayName)}</div>
+                ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:var(--sp-3);font-size:0.85rem;color:#64748B;">
+            <div title="① 매출 / ② 매입 / ③ 송금 / ④ 결의서">${progress}</div>
+            <div style="text-align:right;min-width:140px;">
+              <div>매출 ${Utils.formatCurrency(stats.depositAmount)}</div>
+              <div>송금 ${Utils.formatCurrency(stats.transferTotal)}</div>
+            </div>
+            <div style="text-align:right;min-width:120px;color:${profitColor};font-weight:700;font-size:1rem;">
+              ${Utils.formatCurrency(stats.profit)}
+            </div>
+            <div>${this._statusBadge(p.status)}</div>
+          </div>
+        </div>
+        ${isExpanded ? this._renderProjectExpanded(p, stats, isAdmin) : ''}
+      </div>
+    `;
+  },
+
+  _renderProjectExpanded(p, stats, isAdmin) {
+    const profitColor = stats.profit < 0 ? '#DC2626' : '#16A34A';
+    const depositRows = stats.depositList.length === 0
+      ? `<tr><td colspan="3" class="text-center text-muted" style="padding:var(--sp-3);">매칭된 입금내역 없음</td></tr>`
+      : stats.depositList.map(d => `<tr>
+          <td>${Utils.formatDate(d.date)}</td>
+          <td>${Utils.escapeHtml(d.name || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(d.amount || 0)}</td>
+        </tr>`).join('');
+
+    const purchaseRows = stats.linkedPurchases.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-3);">연결된 매입 세금계산서 없음</td></tr>`
+      : stats.linkedPurchases.map(pi => `<tr>
+          <td>${Utils.formatDate(pi.issueDate)}</td>
+          <td>${Utils.escapeHtml(pi.partnerCompanyName || '-')}</td>
+          <td class="text-xs">${Utils.escapeHtml(pi.hometaxApprovalNo || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(pi.totalAmount || 0)}</td>
+        </tr>`).join('');
+
+    const transferRows = stats.transfers.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-3);">매칭된 송금내역 없음</td></tr>`
+      : stats.transfers.map(t => `<tr>
+          <td>${Utils.formatDate(t.transferDate)}</td>
+          <td>${Utils.escapeHtml(t.recipientName || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(t.amount || 0)}</td>
+          <td>${Utils.escapeHtml(t.memo || '-')}</td>
+        </tr>`).join('');
+
+    const expenseRows = stats.linkedExpenses.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-3);">연결된 지출결의서 없음 — [📊 ④ 이익+결의서] 탭에서 업로드</td></tr>`
+      : stats.linkedExpenses.map(er => `<tr>
+          <td>${Utils.formatDate(er.reportDate)}</td>
+          <td>${Utils.escapeHtml(er.title || er.fileName || '-')}</td>
+          <td>${Utils.escapeHtml(er.authorName || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(er.totalAmount || 0)}</td>
+        </tr>`).join('');
+
+    return `
+      <div style="border-top:1px solid var(--color-border);padding:var(--sp-4);background:#F8FAFC;">
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);margin-bottom:var(--sp-4);">
+          <div><strong>발주처:</strong> ${Utils.escapeHtml(p.clientName || '-')}</div>
+          <div><strong>외주업체:</strong> ${Utils.escapeHtml(p.vendorName || '-')}</div>
+          <div><strong>계약일:</strong> ${p.contractDate ? Utils.formatDate(p.contractDate) : '-'}</div>
+          <div><strong>등록일:</strong> ${p.createdAt ? new Date(p.createdAt).toLocaleDateString('ko-KR') : '-'}</div>
+        </div>
+        ${p.memo ? `<div style="padding:var(--sp-3);background:#FEF3C7;border-left:3px solid #F59E0B;border-radius:4px;margin-bottom:var(--sp-3);white-space:pre-wrap;"><strong>📝 비고:</strong> ${Utils.escapeHtml(p.memo)}</div>` : ''}
+
+        <h4 style="margin-top:var(--sp-3);color:#16A34A;">① 매출 발생 (입금)</h4>
+        <div class="table-wrapper"><table class="data-table">
+          <thead><tr><th>입금일</th><th>입금처</th><th class="text-right">금액</th></tr></thead>
+          <tbody>${depositRows}</tbody>
+        </table></div>
+
+        <h4 style="margin-top:var(--sp-4);color:#2563EB;">② 매입 세금계산서</h4>
+        <div class="table-wrapper"><table class="data-table">
+          <thead><tr><th>발행일</th><th>매입처</th><th>승인번호</th><th class="text-right">금액</th></tr></thead>
+          <tbody>${purchaseRows}</tbody>
+        </table></div>
+
+        <h4 style="margin-top:var(--sp-4);color:#F97316;">③ 외주 송금</h4>
+        <div class="table-wrapper"><table class="data-table">
+          <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>비고</th></tr></thead>
+          <tbody>${transferRows}</tbody>
+        </table></div>
+
+        <h4 style="margin-top:var(--sp-4);color:#8B5CF6;">📄 지출결의서</h4>
+        <div class="table-wrapper"><table class="data-table">
+          <thead><tr><th>지출일자</th><th>지출건명</th><th>작성자</th><th class="text-right">총금액</th></tr></thead>
+          <tbody>${expenseRows}</tbody>
+        </table></div>
+
+        <div style="margin-top:var(--sp-4);padding:var(--sp-4);border-radius:8px;background:linear-gradient(135deg, ${stats.profit >= 0 ? '#10B981' : '#DC2626'} 0%, ${stats.profit >= 0 ? '#059669' : '#991B1B'} 100%);color:white;">
+          <div style="font-size:1rem;">
+            ④ 순이익: 매출 <strong>${Utils.formatCurrency(stats.depositAmount)}</strong> − 송금 <strong>${Utils.formatCurrency(stats.transferTotal)}</strong> = <strong style="font-size:1.4rem;">${Utils.formatCurrency(stats.profit)}</strong>
+          </div>
+        </div>
+
+        <div style="margin-top:var(--sp-3);display:flex;gap:var(--sp-2);justify-content:flex-end;">
+          <button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();OutsourcingModule._downloadSinglePDF('${p.id}')">📄 이 프로젝트 PDF</button>
+          ${isAdmin ? `<button class="btn btn-primary btn-sm" onclick="event.stopPropagation();OutsourcingModule._edit('${p.id}')">✏️ 수정</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-ghost btn-sm text-danger" onclick="event.stopPropagation();OutsourcingModule._delete('${p.id}')">🗑️ 삭제</button>` : ''}
+        </div>
+      </div>
+    `;
+  },
+
+  // 한 프로젝트의 4단계 통계 계산
+  _computeProjectStats(p) {
+    const projectKey = (p.projectName || '').trim();
+    const { transfers, purchases, deposits, settlements, expenses } = this._data;
+
+    const projTransfers = transfers.filter(t => (t.projectName || '').trim() === projectKey)
+      .sort((a, b) => (a.transferDate || '').localeCompare(b.transferDate || ''));
+    const transferTotal = projTransfers.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+    const linkedPurchaseIds = new Set(projTransfers.map(t => t.matchedPurchaseId).filter(Boolean).map(String));
+    const linkedPurchases = purchases.filter(pi => linkedPurchaseIds.has(String(pi.id)))
+      .sort((a, b) => (a.issueDate || '').localeCompare(b.issueDate || ''));
+    const purchaseTotal = linkedPurchases.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+
+    // 매출 입금 (정산표 우선)
+    const fullName = projectKey;
+    const dashIdx = fullName.indexOf(' - ');
+    const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
+    const cleanName = displayName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+    const matchedSettlements = this._settlementsByMatchKey[cleanName] || [];
+
+    let depositList = [];
+    if (matchedSettlements.length > 0) {
+      for (const s of matchedSettlements) {
+        if (s.depositDate && s.depositAmount) depositList.push({ date: s.depositDate, amount: s.depositAmount, name: s.clientName });
+      }
+    } else {
+      depositList = (this._depositInfoByProject[projectKey] || []);
+    }
+    const depositAmount = Number(p.depositAmount) || 0;
+    const profit = depositAmount - transferTotal;
+
+    // 결의서
+    const transferIdSet = new Set(projTransfers.map(t => String(t.id)));
+    const projectDepositIds = new Set();
+    for (const li of depositList) {
+      const m = deposits.find(d => d.depositorName && li.name &&
+        d.depositorName.includes(li.name.slice(0, 2)) &&
+        Number(d.amount) === Number(li.amount) && d.depositDate === li.date);
+      if (m) projectDepositIds.add(String(m.id));
+    }
+    const linkedExpenses = expenses.filter(er => {
+      const trIds = (er.matchedTransferIds || []).map(String);
+      const depIds = (er.matchedDepositIds || []).map(String);
+      return trIds.some(id => transferIdSet.has(id)) || depIds.some(id => projectDepositIds.has(id));
+    }).sort((a, b) => (a.reportDate || '').localeCompare(b.reportDate || ''));
+
+    return {
+      depositList, depositAmount,
+      transfers: projTransfers, transferTotal,
+      linkedPurchases, purchaseTotal,
+      linkedExpenses,
+      profit,
+      hasStage1: depositList.length > 0 || depositAmount > 0,
+      hasStage2: linkedPurchases.length > 0,
+      hasStage3: projTransfers.length > 0,
+      hasStage4: linkedExpenses.length > 0
+    };
+  },
+
+  // ============================================
+  // 탭 2: ① 매출 (대림 관련 입금)
+  // ============================================
+  _renderTabSales() {
+    const list = this._data.deposits.filter(d => this._isDaerimDeposit(d))
+      .sort((a, b) => (b.depositDate || '').localeCompare(a.depositDate || ''));
+    if (list.length === 0) return `<div class="text-center text-muted" style="padding:var(--sp-6);">대림 관련 입금내역 없음 (프로젝트명 키워드 매칭 기준)</div>`;
+    const total = list.reduce((s, d) => s + (Number(d.amount) || 0), 0);
+    return `
+      <div class="text-sm text-muted mb-3">대림 프로젝트 매출처 키워드와 일치하는 입금내역만 표시됨 · 총 ${list.length}건 · 합계 ${Utils.formatCurrency(total)}</div>
+      <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>입금일</th><th>입금처</th><th class="text-right">금액</th><th>주문번호</th><th>결제방법</th><th>처리사항</th></tr></thead>
+        <tbody>${list.map(d => `<tr>
+          <td>${Utils.formatDate(d.depositDate)}</td>
+          <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
+          <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
+          <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
+          <td class="text-xs">${Utils.escapeHtml(d.actionRequired || '-')}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  },
+
+  // ============================================
+  // 탭 3: ② 매입 세금계산서 (대림 관련)
+  // ============================================
+  _renderTabPurchase() {
+    const list = this._data.purchases.filter(p => this._isDaerimPurchase(p))
+      .sort((a, b) => (b.issueDate || '').localeCompare(a.issueDate || ''));
+    if (list.length === 0) return `
+      <div class="text-center text-muted" style="padding:var(--sp-6);">
+        대림 관련 매입 세금계산서 없음<br>
+        <button class="btn btn-primary mt-3" onclick="Router.navigate('/purchase-invoices')">매입 세금계산서 페이지로 이동 →</button>
+      </div>`;
+    const total = list.reduce((s, p) => s + (Number(p.totalAmount) || 0), 0);
+    return `
+      <div class="d-flex" style="justify-content:space-between;align-items:center;margin-bottom:var(--sp-3);">
+        <div class="text-sm text-muted">대림건축 매입 세금계산서 · 총 ${list.length}건 · 합계 ${Utils.formatCurrency(total)}</div>
+        <button class="btn btn-secondary btn-sm" onclick="Router.navigate('/purchase-invoices')">매입 세금계산서 전체 페이지 →</button>
+      </div>
+      <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>발행일</th><th>매입처</th><th>승인번호</th><th class="text-right">공급가</th><th class="text-right">세액</th><th class="text-right">합계</th></tr></thead>
+        <tbody>${list.map(p => `<tr>
+          <td>${Utils.formatDate(p.issueDate)}</td>
+          <td class="fw-medium">${Utils.escapeHtml(p.partnerCompanyName || '-')}</td>
+          <td class="text-xs">${Utils.escapeHtml(p.hometaxApprovalNo || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(p.supplyAmount)}</td>
+          <td class="text-right amount">${Utils.formatCurrency(p.taxAmount)}</td>
+          <td class="text-right amount fw-medium">${Utils.formatCurrency(p.totalAmount)}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  },
+
+  // ============================================
+  // 탭 4: ③ 외주 송금 (대림 관련)
+  // ============================================
+  _renderTabTransfer() {
+    const list = this._data.transfers.filter(t => this._isDaerimTransfer(t))
+      .sort((a, b) => (b.transferDate || '').localeCompare(a.transferDate || ''));
+    if (list.length === 0) return `<div class="text-center text-muted" style="padding:var(--sp-6);">대림 관련 외주 송금내역 없음</div>`;
+    const total = list.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+    return `
+      <div class="text-sm text-muted mb-3">대림 관련 송금내역 (프로젝트 매칭 또는 대림건축 수취) · 총 ${list.length}건 · 합계 ${Utils.formatCurrency(total)}</div>
+      <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>프로젝트</th><th>매입계산서 연결</th><th>비고</th></tr></thead>
+        <tbody>${list.map(t => `<tr>
+          <td>${Utils.formatDate(t.transferDate)}</td>
+          <td class="fw-medium">${Utils.escapeHtml(t.recipientName || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(t.amount)}</td>
+          <td>${Utils.escapeHtml(t.projectName || '-')}</td>
+          <td class="text-center">${t.matchedPurchaseId ? '✅' : '<span class="text-muted">-</span>'}</td>
+          <td class="text-xs">${Utils.escapeHtml(t.memo || '-')}</td>
+        </tr>`).join('')}</tbody>
+      </table></div>
+    `;
+  },
+
+  // ============================================
+  // 탭 5: ④ 순이익 + 지출결의서 (expense-reports 흡수)
+  // ============================================
+  _renderTabProfit() {
+    const projects = this._data.projects.slice().reverse();
+    const summary = this._computeSummary();
+
+    const profitRows = projects.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-4);">등록된 프로젝트 없음</td></tr>`
+      : projects.map(p => {
+          const stats = this._computeProjectStats(p);
+          const color = stats.profit < 0 ? 'color:var(--color-danger);' : (stats.profit > 0 ? 'color:var(--color-success);' : '');
+          return `<tr>
+            <td class="fw-medium">${Utils.escapeHtml(p.projectName || '-')}</td>
+            <td class="text-right amount">${Utils.formatCurrency(stats.depositAmount)}</td>
+            <td class="text-right amount">${Utils.formatCurrency(stats.transferTotal)}</td>
+            <td class="text-right amount fw-medium" style="${color}">${Utils.formatCurrency(stats.profit)}</td>
+          </tr>`;
+        }).join('');
+
+    const expenses = this._data.expenses.slice().reverse();
+    const exRows = expenses.length === 0
+      ? `<tr><td colspan="6" class="text-center text-muted" style="padding:var(--sp-4);">등록된 지출결의서 없음 — 우측 [+ PDF 업로드] 버튼으로 시작</td></tr>`
+      : expenses.map(r => {
+          const status = { completed: '<span class="badge badge-complete">완료</span>', partial: '<span class="badge badge-review">부분</span>', pending: '<span class="badge badge-request">미매칭</span>' }[r.matchStatus || 'pending'];
+          return `<tr style="cursor:pointer;" onclick="OutsourcingModule._openExpenseDetail('${r.id}')">
+            <td>${Utils.formatDate(r.reportDate)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(r.title || r.fileName || '-')}</td>
+            <td>${Utils.escapeHtml(r.vendorName || '-')}</td>
+            <td class="text-center">${(r.lineItems || []).length}건</td>
+            <td class="text-right amount">${Utils.formatCurrency(r.totalAmount || 0)}</td>
+            <td class="text-center">${status}</td>
+          </tr>`;
+        }).join('');
+
+    return `
+      <!-- 순이익 요약 -->
+      <div style="padding:var(--sp-4);background:linear-gradient(135deg, ${summary.totalProfit >= 0 ? '#10B981' : '#DC2626'} 0%, ${summary.totalProfit >= 0 ? '#059669' : '#991B1B'} 100%);color:white;border-radius:8px;margin-bottom:var(--sp-4);">
+        <h3 style="margin:0 0 var(--sp-2) 0;color:white;">④ 전체 순이익</h3>
+        <div style="font-size:1.1rem;">
+          매출 <strong>${Utils.formatCurrency(summary.totalSales)}</strong> − 외주 송금 <strong>${Utils.formatCurrency(summary.totalTransfers)}</strong> = <strong style="font-size:1.6rem;">${Utils.formatCurrency(summary.totalProfit)}</strong>
+        </div>
+      </div>
+
+      <h4 style="margin-top:var(--sp-4);">프로젝트별 순이익</h4>
+      <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>프로젝트</th><th class="text-right">매출</th><th class="text-right">송금</th><th class="text-right">순이익</th></tr></thead>
+        <tbody>${profitRows}</tbody>
+      </table></div>
+
+      <!-- 지출결의서 -->
+      <div class="d-flex" style="justify-content:space-between;align-items:center;margin-top:var(--sp-5);margin-bottom:var(--sp-2);">
+        <h4 style="margin:0;">📄 지출결의서 (대림 외주 비용 결의)</h4>
+        <button class="btn btn-primary btn-sm" onclick="OutsourcingModule._openExpenseUpload()">+ PDF 업로드 + 자동 매칭</button>
+      </div>
+      <div class="text-sm text-muted mb-2">PDF 업로드 시 시스템이 자동 파싱 → 매출/송금 후보 제시 → 확인 → 저장</div>
+      <div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>지출일자</th><th>지출건명</th><th>외주업체</th><th class="text-center">라인</th><th class="text-right">총금액</th><th class="text-center">매칭</th></tr></thead>
+        <tbody>${exRows}</tbody>
+      </table></div>
     `;
   },
 
@@ -1695,7 +2147,336 @@ const OutsourcingModule = {
     if (skipped > 0) parts.push(`중복 스킵 ${skipped}건`);
     if (failed > 0) parts.push(`실패 ${failed}건`);
     Utils.showToast(parts.join(' / '), 'success');
-    await this.render();
+    await this._reload();
+  },
+
+  // ============================================
+  // 지출결의서 (탭 5 통합) — 옛 ExpenseReportsModule 흡수
+  // ============================================
+  EXPENSE_COLLECTION: 'expenseReports',
+
+  _openExpenseUpload() {
+    this._expenseDraft = null;
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📄 지출결의서 PDF 업로드</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
+        <div id="erDropZone" style="border:2px dashed #94A3B8;border-radius:8px;padding:var(--sp-5);text-align:center;background:#F8FAFC;margin-bottom:var(--sp-3);">
+          <div style="font-size:48px;margin-bottom:8px;">📄</div>
+          <p style="margin:0 0 12px 0;">PDF를 선택하거나 드래그</p>
+          <input type="file" id="erFileInput" accept="application/pdf" style="display:none;" onchange="OutsourcingModule._onExpenseFileSelected(this.files[0])">
+          <button class="btn btn-primary" onclick="document.getElementById('erFileInput').click()">파일 선택</button>
+          <div id="erFileName" class="text-sm text-muted mt-2"></div>
+        </div>
+        <div id="erParseSection" class="hidden"><h4>2️⃣ 파싱 결과</h4><div id="erParseContent"></div></div>
+        <div id="erMatchSection" class="hidden"><h4>3️⃣ 매출/송금 매칭 후보</h4><div id="erMatchContent"></div></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary hidden" id="erSaveBtn" onclick="OutsourcingModule._saveExpense()">💾 결의서 + 매칭 저장</button>
+      </div>
+    `, { size: 'modal-xl' });
+
+    setTimeout(() => {
+      const dz = document.getElementById('erDropZone');
+      if (!dz) return;
+      ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.style.background = '#DBEAFE'; }));
+      ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.style.background = '#F8FAFC'; }));
+      dz.addEventListener('drop', (e) => {
+        const f = e.dataTransfer?.files?.[0];
+        if (f) this._onExpenseFileSelected(f);
+      });
+    }, 0);
+  },
+
+  async _onExpenseFileSelected(file) {
+    if (!file) return;
+    if (!file.type.includes('pdf') && !file.name.toLowerCase().endsWith('.pdf')) {
+      Utils.showToast('PDF 파일만 업로드 가능합니다.', 'error'); return;
+    }
+    const nameEl = document.getElementById('erFileName');
+    if (nameEl) nameEl.textContent = `⏳ "${file.name}" 파싱 중...`;
+    try {
+      await this._ensurePdfJs();
+      const text = await this._extractPdfText(file);
+      const parsed = this._parseExpenseReport(text);
+      this._expenseDraft = { file, fileName: file.name, fileSize: file.size, rawText: text, ...parsed };
+      if (nameEl) nameEl.textContent = `✅ "${file.name}" 파싱 완료 (${parsed.lineItems.length} 라인)`;
+      this._renderExpenseParseSection();
+      await this._renderExpenseMatchSection();
+      document.getElementById('erSaveBtn').classList.remove('hidden');
+    } catch (e) {
+      console.error('[ExpenseReports] PDF 파싱 실패:', e);
+      if (nameEl) nameEl.textContent = `❌ 파싱 실패: ${e.message}`;
+      Utils.showToast('PDF 파싱 실패: ' + e.message, 'error', 6000);
+    }
+  },
+
+  async _ensurePdfJs() {
+    if (this._pdfjsLoaded && window.pdfjsLib) return;
+    if (this._pdfjsLoadPromise) return this._pdfjsLoadPromise;
+    this._pdfjsLoadPromise = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+      s.onload = () => {
+        if (window.pdfjsLib) {
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+          this._pdfjsLoaded = true;
+          resolve();
+        } else reject(new Error('pdfjsLib 글로벌 없음'));
+      };
+      s.onerror = () => reject(new Error('pdf.js CDN 로드 실패'));
+      document.head.appendChild(s);
+    });
+    return this._pdfjsLoadPromise;
+  },
+
+  async _extractPdfText(file) {
+    const arrayBuffer = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+    let allText = '';
+    for (let i = 1; i <= pdf.numPages; i++) {
+      const page = await pdf.getPage(i);
+      const content = await page.getTextContent();
+      allText += content.items.map(it => it.str).join(' ') + '\n';
+    }
+    return allText;
+  },
+
+  _parseExpenseReport(text) {
+    const result = { reportDate: '', reportNumber: '', authorName: '', title: '', vendorName: '', vendorRepName: '', vendorAccount: '', totalAmount: 0, lineItems: [] };
+    const norm = text.replace(/\s+/g, ' ').replace(/\u00A0/g, ' ');
+
+    const dateM = norm.match(/지출일자[:\s]*(\d{4})[년\-./\s]*(\d{1,2})[월\-./\s]*(\d{1,2})/);
+    if (dateM) result.reportDate = `${dateM[1]}-${dateM[2].padStart(2,'0')}-${dateM[3].padStart(2,'0')}`;
+    const authorM = norm.match(/작성자[:\s]*([가-힣]{2,5})/);
+    if (authorM) result.authorName = authorM[1];
+    const titleM = norm.match(/지출건명[:\s]*([^\n합계계좌]+?)(?=\s+합계|\s+계좌|\s+적요|$)/);
+    if (titleM) result.title = titleM[1].trim().slice(0,100);
+    const sumM = norm.match(/합계[:\s]*([\d,]+)\s*원?/);
+    if (sumM) result.totalAmount = Number(sumM[1].replace(/,/g,'')) || 0;
+    const vendorM = norm.match(/(?:외주\s*업체|외부\s*업체|업체명?)[:\s]*([가-힣A-Za-z0-9㈜()ENGIInc.,\s]+?)(?=\s+(?:홍|박|김|이|최|정|조|윤|강|장|임|한|오|서|신|권|황|안|송|류|전|홍정란|대표|계좌)|$)/);
+    if (vendorM) result.vendorName = vendorM[1].trim().slice(0,40);
+    else {
+      const v2 = norm.match(/(대림건축\s*ENG|[가-힣]+건축\s*ENG|[가-힣A-Za-z]+(?:Inc|건축|설계|엔지니어링|건설))/);
+      if (v2) result.vendorName = v2[1].trim();
+    }
+    const repM = norm.match(/(?:대표자?|담당자?)[:\s]*([가-힣]{2,5})/);
+    if (repM) result.vendorRepName = repM[1];
+    const acctM = norm.match(/(?:계좌\s*번?호?|계좌)[:\s]*([가-힣]+\s*[\d\-\s]{8,})/);
+    if (acctM) result.vendorAccount = acctM[1].trim();
+
+    const lineRe = /([가-힣A-Za-z()㈜\s]+?)\s+([\d,]+)\s*원?\s*입금\s*\(?\s*(\d{4}[-./]\d{1,2}[-./]\d{1,2})\s*\)?\s+([\d,]+)/g;
+    let m;
+    while ((m = lineRe.exec(norm)) !== null) {
+      const clientName = m[1].trim().replace(/\s+/g, ' ').slice(0, 50);
+      const depositAmount = Number(m[2].replace(/,/g,'')) || 0;
+      const depDateStr = m[3].replace(/[./]/g, '-').split('-');
+      const depositDate = `${depDateStr[0]}-${depDateStr[1].padStart(2,'0')}-${depDateStr[2].padStart(2,'0')}`;
+      const transferAmount = Number(m[4].replace(/,/g,'')) || 0;
+      if (depositAmount > 0 && transferAmount > 0 && clientName.length >= 2) {
+        result.lineItems.push({ clientName, depositAmount, depositDate, transferAmount, matchedDepositId: null, matchedTransferId: null });
+      }
+    }
+    return result;
+  },
+
+  _renderExpenseParseSection() {
+    const d = this._expenseDraft;
+    if (!d) return;
+    document.getElementById('erParseSection').classList.remove('hidden');
+    const body = document.getElementById('erParseContent');
+    body.innerHTML = `
+      <div class="form-row">
+        <div class="form-group"><label>지출일자</label><input type="date" class="form-control" value="${d.reportDate}" oninput="OutsourcingModule._expenseDraft.reportDate = this.value"></div>
+        <div class="form-group"><label>작성자</label><input type="text" class="form-control" value="${Utils.escapeHtml(d.authorName)}" oninput="OutsourcingModule._expenseDraft.authorName = this.value"></div>
+      </div>
+      <div class="form-row"><div class="form-group" style="grid-column:span 2;"><label>지출건명</label><input type="text" class="form-control" value="${Utils.escapeHtml(d.title)}" oninput="OutsourcingModule._expenseDraft.title = this.value"></div></div>
+      <div class="form-row">
+        <div class="form-group"><label>외주업체</label><input type="text" class="form-control" value="${Utils.escapeHtml(d.vendorName)}" oninput="OutsourcingModule._expenseDraft.vendorName = this.value"></div>
+        <div class="form-group"><label>합계</label><input type="text" class="form-control" value="${Utils.formatCurrency(d.totalAmount)}" readonly style="background:#F1F5F9;"></div>
+      </div>
+      <h5 style="margin-top:var(--sp-3);">라인 ${d.lineItems.length}건</h5>
+      ${d.lineItems.length === 0 ? '<div class="text-muted">⚠️ 라인 추출 실패</div>' : `<div class="table-wrapper"><table class="data-table">
+        <thead><tr><th>#</th><th>매출처</th><th class="text-right">매출</th><th>입금일</th><th class="text-right">외주송금</th></tr></thead>
+        <tbody>${d.lineItems.map((li,i) => `<tr><td>${i+1}</td><td>${Utils.escapeHtml(li.clientName)}</td><td class="text-right amount">${Utils.formatCurrency(li.depositAmount)}</td><td>${li.depositDate}</td><td class="text-right amount">${Utils.formatCurrency(li.transferAmount)}</td></tr>`).join('')}</tbody>
+      </table></div>`}
+    `;
+  },
+
+  async _renderExpenseMatchSection() {
+    const d = this._expenseDraft;
+    if (!d || d.lineItems.length === 0) return;
+    document.getElementById('erMatchSection').classList.remove('hidden');
+    const body = document.getElementById('erMatchContent');
+
+    const [allDeposits, allTransfers] = await Promise.all([DB.getAll('deposits'), DB.getAll('transferRecords')]);
+
+    body.innerHTML = d.lineItems.map((li, idx) => {
+      const depCand = this._findExpenseDepositCandidates(li, allDeposits);
+      const trCand = this._findExpenseTransferCandidates(li, allTransfers, d.vendorName);
+      if (depCand.length === 1 && !li.matchedDepositId) li.matchedDepositId = depCand[0].id;
+      if (trCand.length === 1 && !li.matchedTransferId) li.matchedTransferId = trCand[0].id;
+
+      return `<div class="card mb-2" style="border-left:3px solid #2563EB;"><div class="card-body">
+        <strong>라인 ${idx + 1}: ${Utils.escapeHtml(li.clientName)} → ${Utils.formatCurrency(li.transferAmount)}</strong>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:var(--sp-2);margin-top:var(--sp-2);">
+          <div><div class="text-xs fw-medium">💰 매출 매칭</div>
+            ${depCand.length === 0 ? '<div class="text-xs text-muted mt-1">일치 없음</div>' : depCand.map(c => `<div onclick="OutsourcingModule._toggleExpenseMatch(${idx},'deposit','${c.id}')" style="cursor:pointer;padding:6px;margin-top:3px;border-radius:4px;background:${li.matchedDepositId === c.id ? '#DBEAFE' : '#F8FAFC'};border:1px solid ${li.matchedDepositId === c.id ? '#2563EB' : '#E2E8F0'};font-size:0.85rem;"><div>${li.matchedDepositId === c.id ? '✓ ' : ''}${Utils.escapeHtml(c.depositorName)}</div><div class="text-xs text-muted">${Utils.formatDate(c.depositDate)} · ${Utils.formatCurrency(c.amount)}</div></div>`).join('')}
+          </div>
+          <div><div class="text-xs fw-medium">💸 송금 매칭</div>
+            ${trCand.length === 0 ? '<div class="text-xs text-muted mt-1">일치 없음</div>' : trCand.map(c => `<div onclick="OutsourcingModule._toggleExpenseMatch(${idx},'transfer','${c.id}')" style="cursor:pointer;padding:6px;margin-top:3px;border-radius:4px;background:${li.matchedTransferId === c.id ? '#DBEAFE' : '#F8FAFC'};border:1px solid ${li.matchedTransferId === c.id ? '#2563EB' : '#E2E8F0'};font-size:0.85rem;"><div>${li.matchedTransferId === c.id ? '✓ ' : ''}${Utils.escapeHtml(c.recipientName)}</div><div class="text-xs text-muted">${Utils.formatDate(c.transferDate)} · ${Utils.formatCurrency(c.amount)}</div></div>`).join('')}
+          </div>
+        </div>
+      </div></div>`;
+    }).join('');
+  },
+
+  _toggleExpenseMatch(idx, type, candId) {
+    const li = this._expenseDraft.lineItems[idx];
+    if (!li) return;
+    const k = type === 'deposit' ? 'matchedDepositId' : 'matchedTransferId';
+    li[k] = (li[k] === candId) ? null : candId;
+    this._renderExpenseMatchSection();
+  },
+
+  _findExpenseDepositCandidates(line, allDeposits) {
+    const lineDate = new Date(line.depositDate);
+    const cleanName = line.clientName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s|\(|\)/g, '');
+    return allDeposits.filter(d => {
+      if (Number(d.amount) !== line.depositAmount) return false;
+      if (d.depositDate) {
+        const diff = Math.abs((new Date(d.depositDate) - lineDate) / 86400000);
+        if (diff > 3) return false;
+      }
+      return true;
+    }).slice(0, 5);
+  },
+
+  _findExpenseTransferCandidates(line, allTransfers, vendorName) {
+    return allTransfers.filter(t => Number(t.amount) === line.transferAmount).slice(0, 5);
+  },
+
+  async _saveExpense() {
+    const d = this._expenseDraft;
+    if (!d) { Utils.showToast('업로드된 결의서 없음', 'error'); return; }
+    if (!d.reportDate) { Utils.showToast('지출일자 확인 필요', 'error'); return; }
+
+    const user = Auth.currentUser();
+    const matchedDepIds = d.lineItems.map(li => li.matchedDepositId).filter(Boolean);
+    const matchedTrIds = d.lineItems.map(li => li.matchedTransferId).filter(Boolean);
+    const totalMatched = d.lineItems.filter(li => li.matchedDepositId && li.matchedTransferId).length;
+    const matchStatus = totalMatched === d.lineItems.length && d.lineItems.length > 0 ? 'completed' : (totalMatched > 0 ? 'partial' : 'pending');
+
+    try {
+      const reportId = await DB.add(this.EXPENSE_COLLECTION, {
+        fileName: d.fileName, fileSize: d.fileSize, fileData: d.file, fileType: 'application/pdf',
+        reportDate: d.reportDate, reportNumber: d.reportNumber || '', authorName: d.authorName,
+        title: d.title, vendorName: d.vendorName, vendorRepName: d.vendorRepName, vendorAccount: d.vendorAccount,
+        totalAmount: d.totalAmount, lineItems: d.lineItems,
+        matchedDepositIds: matchedDepIds, matchedTransferIds: matchedTrIds, matchStatus,
+        rawText: (d.rawText || '').slice(0, 5000),
+        registeredBy: user.id, registeredByName: user.displayName,
+        createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+      });
+
+      for (const depId of matchedDepIds) {
+        try {
+          const ex = await DB.get('deposits', depId);
+          if (ex) await DB.update('deposits', { ...ex, id: depId, matchedExpenseReportId: reportId });
+        } catch (e) { console.warn('[ER] deposit 역참조 실패:', depId, e); }
+      }
+      for (const trId of matchedTrIds) {
+        try {
+          const ex = await DB.get('transferRecords', trId);
+          if (ex) await DB.update('transferRecords', { ...ex, id: trId, matchedExpenseReportId: reportId });
+        } catch (e) { console.warn('[ER] transfer 역참조 실패:', trId, e); }
+      }
+
+      await DB.log('CREATE', 'expenseReport', reportId, `지출결의서: ${d.title || d.fileName}`);
+      Utils.showToast(`저장 완료 (${matchStatus === 'completed' ? '완료' : matchStatus === 'partial' ? '부분' : '미매칭'})`, 'success');
+      this._expenseDraft = null;
+      Utils.closeModal();
+      this._activeTab = 'profit';
+      await this._reload();
+    } catch (e) {
+      console.error('[ER] 저장 실패:', e);
+      Utils.showToast('저장 실패: ' + e.message, 'error', 6000);
+    }
+  },
+
+  async _openExpenseDetail(id) {
+    const r = await DB.get(this.EXPENSE_COLLECTION, id);
+    if (!r) { Utils.showToast('결의서 없음', 'error'); return; }
+    const status = { completed: '<span class="badge badge-complete">완료</span>', partial: '<span class="badge badge-review">부분</span>', pending: '<span class="badge badge-request">미매칭</span>' }[r.matchStatus || 'pending'];
+    const lines = (r.lineItems || []).length === 0
+      ? '<div class="text-muted">라인 없음</div>'
+      : `<div class="table-wrapper"><table class="data-table">
+          <thead><tr><th>#</th><th>매출처</th><th class="text-right">매출</th><th>입금일</th><th class="text-right">송금</th><th class="text-center">매출매칭</th><th class="text-center">송금매칭</th></tr></thead>
+          <tbody>${(r.lineItems||[]).map((li,i) => `<tr><td>${i+1}</td><td>${Utils.escapeHtml(li.clientName)}</td><td class="text-right amount">${Utils.formatCurrency(li.depositAmount)}</td><td>${li.depositDate}</td><td class="text-right amount">${Utils.formatCurrency(li.transferAmount)}</td><td class="text-center">${li.matchedDepositId ? '✅' : '❌'}</td><td class="text-center">${li.matchedTransferId ? '✅' : '❌'}</td></tr>`).join('')}</tbody>
+        </table></div>`;
+
+    Utils.openModal(`
+      <div class="modal-header"><h3>📄 ${Utils.escapeHtml(r.title || r.fileName)} ${status}</h3><button class="modal-close" onclick="Utils.closeModal()">&times;</button></div>
+      <div class="modal-body" style="max-height:75vh;overflow-y:auto;">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-3);margin-bottom:var(--sp-3);">
+          <div><strong>지출일자:</strong> ${r.reportDate}</div>
+          <div><strong>작성자:</strong> ${Utils.escapeHtml(r.authorName || '-')}</div>
+          <div><strong>총금액:</strong> ${Utils.formatCurrency(r.totalAmount)}</div>
+          <div><strong>외주업체:</strong> ${Utils.escapeHtml(r.vendorName || '-')}</div>
+          <div><strong>대표자:</strong> ${Utils.escapeHtml(r.vendorRepName || '-')}</div>
+          <div><strong>계좌:</strong> ${Utils.escapeHtml(r.vendorAccount || '-')}</div>
+        </div>
+        <h4>라인 ${(r.lineItems||[]).length}건</h4>
+        ${lines}
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="OutsourcingModule._downloadExpensePdf('${id}')">📥 원본 PDF 다운로드</button>
+        ${Auth.isAdmin() ? `<button class="btn btn-ghost text-danger" onclick="OutsourcingModule._deleteExpense('${id}')">🗑️ 삭제</button>` : ''}
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _downloadExpensePdf(id) {
+    try {
+      const r = await DB.get(this.EXPENSE_COLLECTION, id);
+      if (!r) return;
+      const blob = await FirebaseDB.resolveBlob(r.fileData, 'application/pdf');
+      if (!blob) { Utils.showToast('파일 데이터 없음', 'error'); return; }
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = r.fileName || `expense-${id}.pdf`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+    } catch (e) { Utils.showToast('다운로드 실패: ' + e.message, 'error'); }
+  },
+
+  async _deleteExpense(id) {
+    if (!window.confirm('이 결의서를 삭제하시겠습니까? 매칭된 입금/송금의 역참조도 함께 해제됩니다.')) return;
+    try {
+      const r = await DB.get(this.EXPENSE_COLLECTION, id);
+      if (r) {
+        for (const depId of (r.matchedDepositIds || [])) {
+          try { const ex = await DB.get('deposits', depId); if (ex && ex.matchedExpenseReportId === id) await DB.update('deposits', { ...ex, id: depId, matchedExpenseReportId: null }); } catch {}
+        }
+        for (const trId of (r.matchedTransferIds || [])) {
+          try { const ex = await DB.get('transferRecords', trId); if (ex && ex.matchedExpenseReportId === id) await DB.update('transferRecords', { ...ex, id: trId, matchedExpenseReportId: null }); } catch {}
+        }
+      }
+      await DB.delete(this.EXPENSE_COLLECTION, id);
+      await DB.log('DELETE', 'expenseReport', id, '지출결의서 삭제');
+      Utils.showToast('삭제 완료', 'success');
+      Utils.closeModal();
+      await this._reload();
+    } catch (e) { Utils.showToast('삭제 실패: ' + e.message, 'error'); }
+  },
+
+  destroy() {
+    this._expenseDraft = null;
+    this._expandedProjectId = null;
   }
 };
 

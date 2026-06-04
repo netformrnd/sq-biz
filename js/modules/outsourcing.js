@@ -14,8 +14,19 @@ const OutsourcingModule = {
   // 'all' | 'deposit' | 'paid' | 'remaining' | 'overpaid'
   _filter: 'all',
 
-  async init(container) {
+  async init(container, action) {
     this.container = container;
+    // 라우트 분기: action === 'detail' 이면 상세 페이지, 아니면 목록
+    if (action === 'detail') {
+      const { id } = Router.getQuery();
+      if (!id) {
+        Utils.showToast('프로젝트 ID가 없습니다. 목록으로 이동합니다.', 'warning');
+        Router.navigate('/outsourcing');
+        return;
+      }
+      await this._renderDetailPage(id);
+      return;
+    }
     this._filter = 'all';
     await this.render();
   },
@@ -286,7 +297,7 @@ const OutsourcingModule = {
         const sourceLabel = usingSettlement ? '<span class="text-xs" style="color:#3b82f6;" title="이사님 정산표 데이터">📋</span> ' : '';
 
         return `
-          <tr style="cursor:pointer;" onclick="OutsourcingModule._showDetail('${p.id}')" title="클릭하면 상세보기 (상세에서 수정·삭제 가능)">
+          <tr style="cursor:pointer;" onclick="Router.navigate('/outsourcing/detail?id=${p.id}')" title="클릭하면 상세 페이지로 이동 (흐름·수정·삭제·PDF)">
             <td>
               <div class="fw-medium">${sourceLabel}${Utils.escapeHtml(displayName)}</div>
               ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
@@ -307,7 +318,9 @@ const OutsourcingModule = {
         <h2>대림프로젝트 정산관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
-          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 보고서 PDF</button>
+          <button class="btn btn-secondary" onclick="Router.navigate('/purchase-invoices')" title="외주업체 매입 세금계산서 관리">📥 매입 세금계산서</button>
+          <button class="btn btn-secondary" onclick="Router.navigate('/settlements')" title="발주-외주 정산표 (이사님 명세서)">💰 발주-외주 정산표</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 보고서 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 엑셀 양식 다운로드</button>
           ${isAdmin ? `<button class="btn btn-secondary" onclick="OutsourcingModule._openUploadModal()">📤 엑셀 일괄 업로드</button>` : ''}
@@ -369,7 +382,216 @@ const OutsourcingModule = {
     return `<span class="badge ${cls}">${Utils.escapeHtml(status || '진행중')}</span>`;
   },
 
-  // ===== 상세보기 =====
+  // ===== v2: 상세 페이지 (별도 라우트 /outsourcing/detail?id=xxx) =====
+  // 매출 → 매입세금계산서 → 송금 → 순이익 4단계 흐름을 한 페이지로
+  async _renderDetailPage(id) {
+    const p = await DB.get('outsourcingProjects', id);
+    if (!p) {
+      this.container.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-icon">⚠️</div>
+          <h3>프로젝트를 찾을 수 없습니다</h3>
+          <button class="btn btn-primary mt-3" onclick="Router.navigate('/outsourcing')">목록으로</button>
+        </div>`;
+      return;
+    }
+
+    const isAdmin = Auth.isAdmin();
+    const projectKey = (p.projectName || '').trim();
+
+    // 1) 종합 데이터 로드 (정산표 매칭 캐시 갱신)
+    await this._loadTransferTotals();
+
+    // 2) 매출 흐름 (① 매출) — 정산표 우선, 없으면 자동 매칭된 deposits
+    const fullName = projectKey;
+    const dashIdx = fullName.indexOf(' - ');
+    const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
+    const cleanName = displayName.replace(/주식회사|\(주\)|㈜|입주자대표회의|아파트|회사|시청|\s/g, '');
+    const matchedSettlements = this._settlementsByMatchKey[cleanName] || [];
+
+    let depositList = [];
+    let usingSettlement = false;
+    if (matchedSettlements.length > 0) {
+      usingSettlement = true;
+      for (const s of matchedSettlements) {
+        if (s.depositDate && s.depositAmount) {
+          depositList.push({ date: s.depositDate, amount: s.depositAmount, name: s.clientName });
+        }
+      }
+    } else {
+      depositList = (this._depositInfoByProject[projectKey] || []);
+    }
+    const depositAmount = Number(p.depositAmount) || 0; // 프로젝트 등록 매출액 (기준)
+
+    // 3) 외주 송금 (③)
+    const allTransfersAll = await DB.getAll('transferRecords');
+    const transfers = allTransfersAll
+      .filter(t => (t.projectName || '').trim() === projectKey)
+      .sort((a, b) => (a.transferDate || '').localeCompare(b.transferDate || ''));
+    const outsourcingTotal = transfers.reduce((s, t) => s + (Number(t.amount) || 0), 0);
+
+    // 4) 외주 세금계산서 (②) — 송금에 연결된 purchaseInvoices
+    const allPurchases = await DB.getAll('purchaseInvoices');
+    const linkedPurchaseIds = new Set(transfers.map(t => t.matchedPurchaseId).filter(Boolean).map(String));
+    const linkedPurchases = allPurchases
+      .filter(pi => linkedPurchaseIds.has(String(pi.id)))
+      .sort((a, b) => (a.issueDate || '').localeCompare(b.issueDate || ''));
+    const purchaseTotal = linkedPurchases.reduce((s, pi) => s + (Number(pi.totalAmount) || 0), 0);
+
+    // 5) ④ 순이익
+    const profit = depositAmount - outsourcingTotal;
+    const profitColor = profit < 0 ? 'color:var(--color-danger);' : (profit > 0 ? 'color:var(--color-success);' : '');
+
+    const sourceBadge = usingSettlement
+      ? '<span style="display:inline-flex;align-items:center;padding:4px 10px;background:#DBEAFE;color:#1E40AF;border-radius:12px;font-size:0.8rem;font-weight:600;">📋 정산표 데이터 사용</span>'
+      : '';
+
+    const depositRows = depositList.length === 0
+      ? `<tr><td colspan="3" class="text-center text-muted" style="padding:var(--sp-4);">매칭된 입금내역 없음 (프로젝트 매출액만 표시)</td></tr>`
+      : depositList.map(d => `
+        <tr>
+          <td>${Utils.formatDate(d.date)}</td>
+          <td>${Utils.escapeHtml(d.name || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(d.amount || 0)}</td>
+        </tr>`).join('');
+
+    const purchaseRows = linkedPurchases.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-4);">연결된 매입 세금계산서 없음 — 송금내역에 매입계산서를 연결하면 표시됩니다</td></tr>`
+      : linkedPurchases.map(pi => `
+        <tr>
+          <td>${Utils.formatDate(pi.issueDate)}</td>
+          <td>${Utils.escapeHtml(pi.partnerCompanyName || '-')}</td>
+          <td class="text-xs">${Utils.escapeHtml(pi.hometaxApprovalNo || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(pi.totalAmount || 0)}</td>
+        </tr>`).join('');
+
+    const transferRows = transfers.length === 0
+      ? `<tr><td colspan="4" class="text-center text-muted" style="padding:var(--sp-4);">매칭된 송금내역 없음</td></tr>`
+      : transfers.map(t => `
+        <tr>
+          <td>${Utils.formatDate(t.transferDate)}</td>
+          <td>${Utils.escapeHtml(t.recipientName || '-')}</td>
+          <td class="text-right amount">${Utils.formatCurrency(t.amount || 0)}</td>
+          <td>${Utils.escapeHtml(t.memo || '-')}</td>
+        </tr>`).join('');
+
+    this.container.innerHTML = `
+      <div class="page-header" style="align-items:flex-start;">
+        <div>
+          <button class="btn btn-ghost" onclick="Router.navigate('/outsourcing')" style="margin-bottom:var(--sp-2);">← 목록으로</button>
+          <h2 style="margin:0;">${Utils.escapeHtml(displayName)}</h2>
+          ${dashIdx > 0 ? `<div class="text-sm text-muted">${Utils.escapeHtml(fullName.slice(dashIdx + 3).trim())}</div>` : ''}
+        </div>
+        <div class="page-actions" style="flex-wrap:wrap;">
+          ${sourceBadge}
+          <button class="btn btn-secondary" onclick="OutsourcingModule._downloadSinglePDF('${p.id}')">📄 이 프로젝트 PDF</button>
+          ${isAdmin ? `<button class="btn btn-primary" onclick="OutsourcingModule._edit('${p.id}')">✏️ 수정</button>` : ''}
+          ${isAdmin ? `<button class="btn btn-ghost text-danger" onclick="OutsourcingModule._deleteFromDetailPage('${p.id}')">🗑️ 삭제</button>` : ''}
+        </div>
+      </div>
+
+      <div class="card mb-4">
+        <div class="card-body">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:var(--sp-3);">
+            <div><strong>발주처:</strong> ${Utils.escapeHtml(p.clientName || '-')}</div>
+            <div><strong>외주업체:</strong> ${Utils.escapeHtml(p.vendorName || '-')}</div>
+            <div><strong>계약일:</strong> ${p.contractDate ? Utils.formatDate(p.contractDate) : '-'}</div>
+            <div><strong>진행상태:</strong> ${this._statusBadge(p.status)}</div>
+          </div>
+          ${p.memo ? `<div style="margin-top:var(--sp-3);padding:var(--sp-3);background:#FEF3C7;border-left:3px solid #F59E0B;border-radius:var(--radius-sm);white-space:pre-wrap;"><strong>📝 비고:</strong> ${Utils.escapeHtml(p.memo)}</div>` : ''}
+        </div>
+      </div>
+
+      <!-- 4단계 흐름 카드 -->
+      <div class="summary-cards" style="margin-bottom:var(--sp-4);">
+        <div class="summary-card" style="border-left:4px solid #16A34A;">
+          <div class="card-icon green">💰</div>
+          <div class="card-info">
+            <div class="card-label">① 매출 발생</div>
+            <div class="card-value">${Utils.formatCurrency(depositAmount)}</div>
+            ${depositList.length > 0 ? `<div class="text-xs text-muted">입금 ${depositList.length}건</div>` : ''}
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid #2563EB;">
+          <div class="card-icon cyan">📥</div>
+          <div class="card-info">
+            <div class="card-label">② 매입 세금계산서</div>
+            <div class="card-value">${Utils.formatCurrency(purchaseTotal)}</div>
+            <div class="text-xs text-muted">${linkedPurchases.length}건 연결</div>
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid #F97316;">
+          <div class="card-icon orange">💸</div>
+          <div class="card-info">
+            <div class="card-label">③ 외주 송금</div>
+            <div class="card-value">${Utils.formatCurrency(outsourcingTotal)}</div>
+            <div class="text-xs text-muted">${transfers.length}건 집행</div>
+          </div>
+        </div>
+        <div class="summary-card" style="border-left:4px solid ${profit < 0 ? '#DC2626' : '#16A34A'};">
+          <div class="card-icon ${profit < 0 ? 'red' : 'green'}">📊</div>
+          <div class="card-info">
+            <div class="card-label">④ 순이익 (① − ③)</div>
+            <div class="card-value" style="${profitColor}">${Utils.formatCurrency(profit)}</div>
+            <div class="text-xs text-muted">${profit >= 0 ? '흑자' : '적자'}</div>
+          </div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:var(--sp-5);">① 매출 (입금 내역)</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>입금일</th><th>입금처</th><th class="text-right">금액</th></tr></thead>
+          <tbody>${depositRows}</tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:var(--sp-5);">② 매입 세금계산서 (외주업체 발행)</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>발행일</th><th>매입처(외주업체)</th><th>홈택스 승인번호</th><th class="text-right">금액</th></tr></thead>
+          <tbody>${purchaseRows}</tbody>
+        </table>
+      </div>
+
+      <h3 style="margin-top:var(--sp-5);">③ 외주 송금 내역</h3>
+      <div class="table-wrapper">
+        <table class="data-table">
+          <thead><tr><th>송금일</th><th>수취인</th><th class="text-right">금액</th><th>비고</th></tr></thead>
+          <tbody>${transferRows}</tbody>
+        </table>
+      </div>
+
+      <div class="card mt-5" style="background:linear-gradient(135deg, ${profit >= 0 ? '#10B981' : '#DC2626'} 0%, ${profit >= 0 ? '#059669' : '#991B1B'} 100%); color:white;">
+        <div class="card-body" style="padding:var(--sp-5);">
+          <h3 style="margin:0 0 var(--sp-3) 0; color:white;">④ 순이익 요약</h3>
+          <div style="font-size:1.1rem;line-height:1.8;">
+            매출 <strong>${Utils.formatCurrency(depositAmount)}</strong>
+            − 외주 송금 <strong>${Utils.formatCurrency(outsourcingTotal)}</strong>
+            = <strong style="font-size:1.6rem;">${Utils.formatCurrency(profit)}</strong>
+          </div>
+          ${linkedPurchases.length > 0 ? `<div style="margin-top:var(--sp-2);opacity:0.92;font-size:0.9rem;">※ 외주업체로부터 매입 세금계산서 ${linkedPurchases.length}건 (총 ${Utils.formatCurrency(purchaseTotal)}) 수령 완료</div>` : `<div style="margin-top:var(--sp-2);opacity:0.92;font-size:0.9rem;">※ 외주 매입 세금계산서 미연결 — 송금에 매입계산서를 연결하여 흐름을 완성하세요</div>`}
+        </div>
+      </div>
+    `;
+  },
+
+  // 상세 페이지에서 삭제 → 목록 복귀
+  async _deleteFromDetailPage(id) {
+    const ok = window.confirm('정말 이 프로젝트를 삭제하시겠습니까? (되돌릴 수 없음)');
+    if (!ok) return;
+    try {
+      await DB.delete('outsourcingProjects', id);
+      await DB.log('DELETE', 'outsourcingProjects', id, '프로젝트 삭제 (상세페이지)');
+      Utils.showToast('프로젝트가 삭제되었습니다.', 'success');
+      Router.navigate('/outsourcing');
+    } catch (e) {
+      console.error('[외주설계] 삭제 실패:', e);
+      Utils.showToast('삭제 실패: ' + e.message, 'error');
+    }
+  },
+
+  // ===== (legacy) 모달 상세보기 — v2부터 _renderDetailPage 로 대체. 호환용 보존 =====
   async _showDetail(id) {
     const p = await DB.get('outsourcingProjects', id);
     if (!p) return;
@@ -939,6 +1161,14 @@ const OutsourcingModule = {
       const depositAmount = Number(p.depositAmount) || 0;
       const balance = depositAmount - outsourcingTotal;
 
+      // v2: 매입 세금계산서 (외주업체 발행) — 송금에 연결된 것들
+      const allPurchases = await DB.getAll('purchaseInvoices');
+      const linkedPurchaseIds = new Set(allTransfers.map(t => t.matchedPurchaseId).filter(Boolean).map(String));
+      const linkedPurchases = allPurchases
+        .filter(pi => linkedPurchaseIds.has(String(pi.id)))
+        .sort((a, b) => (a.issueDate || '').localeCompare(b.issueDate || ''));
+      const purchaseTotal = linkedPurchases.reduce((s, pi) => s + (Number(pi.totalAmount) || 0), 0);
+
       const today = new Date();
       const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
       const user = Auth.currentUser();
@@ -953,6 +1183,15 @@ const OutsourcingModule = {
             <td>${esc(t.recipientName || '-')}</td>
             <td class="num">${fmt(t.amount)}</td>
             <td>${esc(t.memo || '-')}</td>
+          </tr>`).join('');
+
+      const purchaseRowsHtml = linkedPurchases.length === 0
+        ? `<tr><td colspan="4" style="text-align:center;padding:16px;color:#94A3B8;">연결된 매입 세금계산서 없음 (송금내역에 매입계산서를 연결하면 표시됨)</td></tr>`
+        : linkedPurchases.map(pi => `<tr>
+            <td>${pi.issueDate || '-'}</td>
+            <td>${esc(pi.partnerCompanyName || '-')}</td>
+            <td>${esc(pi.hometaxApprovalNo || '-')}</td>
+            <td class="num">${fmt(pi.totalAmount)}</td>
           </tr>`).join('');
 
       const html = `<!DOCTYPE html>
@@ -974,12 +1213,17 @@ const OutsourcingModule = {
   .info { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
   .info td { padding: 8px 12px; border: 1px solid #E2E8F0; }
   .info td:nth-child(odd) { background: #F8FAFC; font-weight: 600; width: 25%; }
-  .summary { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; margin: 10px 0 20px; }
-  .summary .card { background: #F8FAFC; border-left: 4px solid #2563EB; padding: 12px 16px; border-radius: 4px; }
-  .summary .card .lbl { font-size: 9pt; color: #64748B; margin-bottom: 4px; }
-  .summary .card .val { font-size: 14pt; font-weight: 700; color: #0F172A; }
+  .summary { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 10px; margin: 10px 0 20px; }
+  .summary .card { background: #F8FAFC; border-left: 4px solid #2563EB; padding: 10px 12px; border-radius: 4px; }
+  .summary .card .lbl { font-size: 8.5pt; color: #64748B; margin-bottom: 4px; }
+  .summary .card .val { font-size: 12pt; font-weight: 700; color: #0F172A; }
+  .summary .card.s1 { border-color: #16A34A; }
+  .summary .card.s2 { border-color: #2563EB; }
+  .summary .card.s3 { border-color: #F97316; }
   .summary .card.balance { border-color: ${balance < 0 ? '#DC2626' : '#16A34A'}; }
   .summary .card.balance .val { color: ${balance < 0 ? '#DC2626' : '#16A34A'}; }
+  .flow-summary { background: linear-gradient(135deg, ${balance >= 0 ? '#10B981' : '#DC2626'} 0%, ${balance >= 0 ? '#059669' : '#991B1B'} 100%); color: #fff; padding: 14px 18px; border-radius: 8px; margin: 12px 0 18px; font-size: 11pt; line-height: 1.7; }
+  .flow-summary .calc { font-size: 14pt; font-weight: 700; }
   table.list { width: 100%; border-collapse: collapse; font-size: 9.5pt; margin-top: 6px; }
   table.list th { background: #0F172A; color: #fff; padding: 7px; text-align: left; font-weight: 600; }
   table.list td { padding: 6px 7px; border-bottom: 1px solid #E2E8F0; }
@@ -1030,14 +1274,33 @@ const OutsourcingModule = {
     </tr>
   </table>
 
-  <h3>💰 정산 요약</h3>
+  <h3>💰 정산 흐름 요약 (4단계)</h3>
   <div class="summary">
-    <div class="card"><div class="lbl">매출금액</div><div class="val">${fmt(depositAmount)}</div></div>
-    <div class="card"><div class="lbl">집행금액 (외주지급)</div><div class="val">${fmt(outsourcingTotal)}</div></div>
-    <div class="card balance"><div class="lbl">잔액</div><div class="val">${fmt(balance)}</div></div>
+    <div class="card s1"><div class="lbl">① 매출 발생</div><div class="val">${fmt(depositAmount)}</div></div>
+    <div class="card s2"><div class="lbl">② 매입 세금계산서 (${linkedPurchases.length}건)</div><div class="val">${fmt(purchaseTotal)}</div></div>
+    <div class="card s3"><div class="lbl">③ 외주 송금 (${allTransfers.length}건)</div><div class="val">${fmt(outsourcingTotal)}</div></div>
+    <div class="card balance"><div class="lbl">④ 순이익 (① − ③)</div><div class="val">${fmt(balance)}</div></div>
   </div>
 
-  <h3>💸 외주지급 내역 (${allTransfers.length}건)</h3>
+  <div class="flow-summary">
+    <div>매출 발생 → 외주업체 세금계산서 → 외주 비용 송금 → 순이익 확인</div>
+    <div class="calc" style="margin-top:6px;">
+      ${fmt(depositAmount)} − ${fmt(outsourcingTotal)} = ${fmt(balance)} (${balance >= 0 ? '흑자' : '적자'})
+    </div>
+  </div>
+
+  <h3>② 외주업체 매입 세금계산서 (${linkedPurchases.length}건)</h3>
+  <table class="list">
+    <thead><tr>
+      <th style="width:16%;">발행일</th>
+      <th style="width:30%;">매입처(외주업체)</th>
+      <th style="width:24%;">홈택스 승인번호</th>
+      <th class="num">금액</th>
+    </tr></thead>
+    <tbody>${purchaseRowsHtml}</tbody>
+  </table>
+
+  <h3>③ 외주 송금 내역 (${allTransfers.length}건)</h3>
   <table class="list">
     <thead><tr>
       <th style="width:16%;">송금일</th>

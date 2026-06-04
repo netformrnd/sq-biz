@@ -180,15 +180,8 @@ const App = {
           ${isAdmin ? '<span class="nav-badge hidden" id="badgePending">0</span>' : ''}
         </div>
       `;
-      // 매입 세금계산서 (외주업체 수령) — 관리자 + purchaseInvoices 권한
-      if (hasPerm('purchaseInvoices')) {
-        html += `
-          <div class="nav-item" data-path="/purchase-invoices" onclick="Router.navigate('/purchase-invoices')">
-            <span class="nav-icon">📥</span>
-            <span>매입 세금계산서</span>
-          </div>
-        `;
-      }
+      // 매입 세금계산서: v2부터 사이드바 숨김 — 대림프로젝트 정산관리 페이지 내부에서 접근
+      // (라우트/모듈/권한 모두 그대로 유지)
       html += `</div>`;
     }
 
@@ -242,15 +235,8 @@ const App = {
           </div>
         `;
       }
-      // 발주-외주 정산표 (이사님 명세서 시스템화)
-      if (hasPerm('settlements')) {
-        html += `
-          <div class="nav-item" data-path="/settlements" onclick="Router.navigate('/settlements')">
-            <span class="nav-icon">📊</span>
-            <span>발주-외주 정산표</span>
-          </div>
-        `;
-      }
+      // 발주-외주 정산표: v2부터 사이드바 숨김 — 대림프로젝트 정산관리 페이지 내부에서 접근
+      // (라우트/모듈/권한 모두 그대로 유지)
       html += `</div>`;
     }
 
@@ -388,6 +374,13 @@ const App = {
       module: 'OutsourcingModule',
       title: '대림프로젝트 정산관리',
       roles: ['admin', 'employee']
+    });
+    // 프로젝트 상세 (v2): /outsourcing/detail?id=xxx — 흐름(매출/매입/송금/순이익) 단일 페이지
+    Router.register('/outsourcing/detail', {
+      module: 'OutsourcingModule',
+      title: '프로젝트 정산 상세',
+      roles: ['admin', 'employee'],
+      action: 'detail'
     });
     Router.register('/contracts', {
       module: 'ContractsModule',

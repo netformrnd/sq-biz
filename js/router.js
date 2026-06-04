@@ -100,6 +100,19 @@ const Router = {
   // 뒤로가기
   back() {
     window.history.back();
+  },
+
+  // 현재 hash 의 쿼리스트링 파싱 (예: #/outsourcing/detail?id=abc → { id: 'abc' })
+  getQuery() {
+    const h = window.location.hash || '';
+    const qIdx = h.indexOf('?');
+    if (qIdx < 0) return {};
+    const params = {};
+    h.slice(qIdx + 1).split('&').forEach(kv => {
+      const [k, v] = kv.split('=');
+      if (k) params[decodeURIComponent(k)] = decodeURIComponent(v || '');
+    });
+    return params;
   }
 };
 

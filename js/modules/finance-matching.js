@@ -1019,6 +1019,7 @@ const FinanceMatchingModule = {
                     <th>날짜</th>
                     <th>수취인</th>
                     <th class="text-right">금액</th>
+                    <th style="width:120px;" class="text-center" title="대림프로젝트 정산관리에 자동 등록">대림 정산</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -1346,15 +1347,28 @@ const FinanceMatchingModule = {
 
     const wdTbody = document.querySelector('#bankWithdrawTable tbody');
     wdTbody.innerHTML = withdrawals.length === 0
-      ? '<tr><td colspan="4" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">송금 내역 없음</td></tr>'
-      : withdrawals.map((r, i) => `
-          <tr>
-            <td><input type="checkbox" data-type="wd" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('wd', ${i}, this.checked)"></td>
-            <td>${Utils.escapeHtml(r.date)}</td>
-            <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
-            <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
-          </tr>
-        `).join('');
+      ? '<tr><td colspan="5" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">송금 내역 없음</td></tr>'
+      : withdrawals.map((r, i) => {
+          // v2: 수취인이 대림건축이면 daerimLink 기본 체크
+          if (r.daerimLink === undefined) {
+            const recipient = (r.name || '').replace(/\s/g, '');
+            r.daerimLink = /대림건축|대림ENG|홍정란/.test(recipient);
+          }
+          return `
+            <tr>
+              <td><input type="checkbox" data-type="wd" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('wd', ${i}, this.checked)"></td>
+              <td>${Utils.escapeHtml(r.date)}</td>
+              <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
+              <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
+              <td class="text-center">
+                <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer;font-size:0.85rem;color:#8b5cf6;font-weight:600;">
+                  <input type="checkbox" data-daerim-idx="${i}" ${r.daerimLink ? 'checked' : ''} onchange="FinanceMatchingModule._toggleDaerimLink(${i}, this.checked)">
+                  📒 등록
+                </label>
+              </td>
+            </tr>
+          `;
+        }).join('');
 
     this._updateBankSummary();
     document.getElementById('bankSaveBtn').disabled = false;
@@ -1364,6 +1378,13 @@ const FinanceMatchingModule = {
     const arr = type === 'dep' ? this._bankParsed.deposits : this._bankParsed.withdrawals;
     arr[idx].selected = checked;
     this._updateBankSummary();
+  },
+
+  // v2: 대림 정산관리 자동 등록 체크 토글
+  _toggleDaerimLink(idx, checked) {
+    if (this._bankParsed.withdrawals[idx]) {
+      this._bankParsed.withdrawals[idx].daerimLink = checked;
+    }
   },
 
   _toggleAllDeposits(checked) {
@@ -1478,30 +1499,65 @@ const FinanceMatchingModule = {
       depCount++;
     }
 
+    let daerimAutoCount = 0;
     for (const row of wdSel) {
-      await DB.add('transferRecords', {
+      // v2: daerimLink 체크된 송금은 projectName 자동 채움 + outsourcingProjects 등록
+      const isDaerim = !!row.daerimLink;
+      const autoProjectName = isDaerim ? `대림 - ${row.name} - ${row.date}` : '';
+
+      const transferId = await DB.add('transferRecords', {
         transferDate: row.date,
         recipientName: row.name,
         amount: row.amount,
         balanceAfter: row.balanceAfter ?? null,
         purpose,
-        projectName: '',
+        projectName: autoProjectName,
         memo: row.memo || '',
+        daerimLink: isDaerim,
         registeredBy: user.id,
         registeredByName: user.displayName,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
       wdCount++;
+
+      // v2: 대림 자동 등록 체크된 경우 outsourcingProjects 신규 생성
+      if (isDaerim) {
+        try {
+          const newProjectId = await DB.add('outsourcingProjects', {
+            projectName: autoProjectName,
+            clientName: '',
+            vendorName: row.name || '대림건축ENG',
+            contractDate: row.date,
+            depositAmount: 0, // 매출 매칭은 추후 사용자 입력
+            status: '진행중',
+            memo: '통장 일괄 업로드에서 자동 등록 (대림 정산관리 체크)',
+            sourceTransferId: transferId,
+            registeredBy: user.id,
+            registeredByName: user.displayName,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          // 송금 → 프로젝트 역참조
+          try {
+            const t = await DB.get('transferRecords', transferId);
+            if (t) await DB.update('transferRecords', { ...t, id: transferId, linkedOutsourcingProjectId: newProjectId });
+          } catch {}
+          daerimAutoCount++;
+        } catch (e) {
+          console.warn('[Daerim] 자동 등록 실패:', e);
+        }
+      }
     }
 
-    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건 (초기화: 입금${delDep}/송금${delWd})`);
+    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건 (대림자동 ${daerimAutoCount}건, 초기화: 입금${delDep}/송금${delWd})`);
     this._bankParsed = { deposits: [], withdrawals: [] };
 
     Utils.closeModal();
     const parts = [`입금 ${depCount}건`, `송금 ${wdCount}건 등록`];
+    if (daerimAutoCount > 0) parts.push(`📒 대림 정산관리 ${daerimAutoCount}건 자동 등록`);
     if (clearFirst) parts.unshift(`기존 입금${delDep}/송금${delWd} 삭제`);
-    Utils.showToast(parts.join(' · '), 'success');
+    Utils.showToast(parts.join(' · '), 'success', 6000);
     await this.render();
   },
 

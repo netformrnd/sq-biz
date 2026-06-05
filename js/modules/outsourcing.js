@@ -356,7 +356,7 @@ const OutsourcingModule = {
         <h2>📒 대림프로젝트 정산관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule && UserGuideModule.showModal && UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
-          <button class="btn btn-secondary" onclick="OutsourcingModule._openExpenseUpload()" title="지출결의서 PDF 업로드 + 자동 매칭">📄 지출결의서</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._openCombinedUpload()" title="매입 세금계산서(위하고 엑셀) + 지출결의서(PDF) 함께 업로드 → 자동 매칭">📥 매입세금+결의서 등록</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 양식</button>
@@ -2440,6 +2440,336 @@ const OutsourcingModule = {
   // ============================================
   EXPENSE_COLLECTION: 'expenseReports',
 
+  // ============================================
+  // v2 4단계: 매입세금계산서(위하고 엑셀) + 지출결의서(PDF) 통합 업로드
+  // - 위하고 매입세금 양식: 일자|Code|거래처|유형|품명|공급가액|부가세|합계|차변계정|대변계정
+  // - 매입 식별: 대변계정에 '미지급금' 또는 차변계정에 '지급수수료/외주비/용역비'
+  // - 대림 식별: 거래처에 '대림건축' 또는 '대림ENG' 포함
+  // ============================================
+  _openCombinedUpload() {
+    this._expenseDraft = null;
+    this._purchaseDraft = null;
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📥 매입세금계산서 + 지출결의서 통합 업로드</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:80vh;overflow-y:auto;">
+        <div class="text-sm text-muted mb-3">
+          💡 둘 중 하나만 올려도 OK. 매입세금 엑셀(위하고)이면 자동으로 대림건축 매입만 식별 / 결의서 PDF면 라인별 매출·송금 매칭 후보 제시.
+        </div>
+
+        <!-- ① 위하고 매입세금 엑셀 -->
+        <div class="card mb-3">
+          <div class="card-body">
+            <h4 style="margin-top:0;color:#2563EB;">① 매입세금계산서 (위하고 엑셀)</h4>
+            <div id="pxDropZone" style="border:2px dashed #94A3B8;border-radius:8px;padding:var(--sp-4);text-align:center;background:#F8FAFC;">
+              <div style="font-size:36px;">📊</div>
+              <p style="margin:6px 0;">위하고에서 다운로드한 매입세금계산서 .xlsx 선택/드래그</p>
+              <input type="file" id="pxFileInput" accept=".xlsx,.xls" style="display:none;" onchange="OutsourcingModule._onPurchaseExcelSelected(this.files[0])">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('pxFileInput').click()">엑셀 파일 선택</button>
+              <div id="pxFileName" class="text-sm text-muted mt-2"></div>
+            </div>
+            <div id="pxParseSection" class="hidden mt-3"></div>
+          </div>
+        </div>
+
+        <!-- ② 지출결의서 PDF -->
+        <div class="card mb-3">
+          <div class="card-body">
+            <h4 style="margin-top:0;color:#8B5CF6;">② 지출결의서 (PDF)</h4>
+            <div id="erDropZone" style="border:2px dashed #94A3B8;border-radius:8px;padding:var(--sp-4);text-align:center;background:#F8FAFC;">
+              <div style="font-size:36px;">📄</div>
+              <p style="margin:6px 0;">지출결의서 PDF 선택/드래그</p>
+              <input type="file" id="erFileInput" accept="application/pdf" style="display:none;" onchange="OutsourcingModule._onExpenseFileSelected(this.files[0])">
+              <button class="btn btn-secondary btn-sm" onclick="document.getElementById('erFileInput').click()">PDF 파일 선택</button>
+              <div id="erFileName" class="text-sm text-muted mt-2"></div>
+            </div>
+            <div id="erParseSection" class="hidden mt-3"><h5>파싱 결과</h5><div id="erParseContent"></div></div>
+          </div>
+        </div>
+
+        <!-- ③ 매출/송금 매칭 후보 (결의서가 있을 때만) -->
+        <div id="erMatchSection" class="card mb-3 hidden">
+          <div class="card-body">
+            <h4 style="margin-top:0;color:#16A34A;">③ 매출 / 송금 자동 매칭 후보</h4>
+            <div id="erMatchContent"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary hidden" id="combinedSaveBtn" onclick="OutsourcingModule._saveCombined()">💾 통합 저장 (매입세금 + 결의서 + 매칭)</button>
+      </div>
+    `, { size: 'modal-xl' });
+
+    // 드래그앤드롭 바인딩
+    setTimeout(() => {
+      const bind = (zoneId, handler) => {
+        const dz = document.getElementById(zoneId);
+        if (!dz) return;
+        ['dragenter', 'dragover'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.style.background = '#DBEAFE'; }));
+        ['dragleave', 'drop'].forEach(ev => dz.addEventListener(ev, (e) => { e.preventDefault(); dz.style.background = '#F8FAFC'; }));
+        dz.addEventListener('drop', (e) => {
+          const f = e.dataTransfer?.files?.[0];
+          if (f) handler(f);
+        });
+      };
+      bind('pxDropZone', (f) => this._onPurchaseExcelSelected(f));
+      bind('erDropZone', (f) => this._onExpenseFileSelected(f));
+    }, 0);
+  },
+
+  // 위하고 매입세금 엑셀 처리
+  async _onPurchaseExcelSelected(file) {
+    if (!file) return;
+    const nameEl = document.getElementById('pxFileName');
+    if (nameEl) nameEl.textContent = `⏳ "${file.name}" 파싱 중...`;
+    try {
+      await this._ensureXlsx();
+      const ab = await file.arrayBuffer();
+      const wb = XLSX.read(ab, { type: 'array', cellDates: false });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, defval: '', raw: false });
+      const parsed = this._parseWehagoPurchaseExcel(rows);
+      this._purchaseDraft = { file, fileName: file.name, items: parsed.items, allCount: parsed.allCount, daerimCount: parsed.items.length };
+      if (nameEl) nameEl.textContent = `✅ "${file.name}" — 전체 ${parsed.allCount}건 / 대림 매입 ${parsed.items.length}건 식별`;
+      this._renderPurchaseExcelPreview();
+      document.getElementById('combinedSaveBtn').classList.remove('hidden');
+    } catch (e) {
+      console.error('[Purchase] 엑셀 파싱 실패:', e);
+      if (nameEl) nameEl.textContent = `❌ 파싱 실패: ${e.message}`;
+      Utils.showToast('엑셀 파싱 실패: ' + e.message, 'error', 6000);
+    }
+  },
+
+  // 위하고 매입세금 엑셀 파서
+  // 헤더: 일자 | Code | 거래처 | 유형 | 품명 | 공급가액 | 부가세 | 합계 | 차변계정 | 대변계정 | 관리 | 전표상태
+  // 대림 식별: 거래처에 '대림건축'|'대림ENG' 포함
+  _parseWehagoPurchaseExcel(rows) {
+    const items = [];
+    if (!rows || rows.length < 2) return { items, allCount: 0 };
+
+    // 헤더 행 찾기 (보통 0번)
+    let headerIdx = -1;
+    let dateCol = -1, codeCol = -1, partnerCol = -1, typeCol = -1, itemCol = -1, supplyCol = -1, taxCol = -1, totalCol = -1, debitCol = -1, creditCol = -1, stateCol = -1;
+    for (let r = 0; r < Math.min(3, rows.length); r++) {
+      const row = rows[r];
+      for (let c = 0; c < row.length; c++) {
+        const v = String(row[c] || '').trim();
+        if (v === '일자') dateCol = c;
+        else if (v === 'Code') codeCol = c;
+        else if (v === '거래처') partnerCol = c;
+        else if (v === '유형') typeCol = c;
+        else if (v === '품명') itemCol = c;
+        else if (v === '공급가액') supplyCol = c;
+        else if (v === '부가세') taxCol = c;
+        else if (v === '합계') totalCol = c;
+        else if (v === '차변계정') debitCol = c;
+        else if (v === '대변계정') creditCol = c;
+        else if (v === '전표상태') stateCol = c;
+      }
+      if (dateCol >= 0 && partnerCol >= 0 && totalCol >= 0) { headerIdx = r; break; }
+    }
+    if (headerIdx < 0) throw new Error('헤더 행을 찾을 수 없음 (일자/거래처/합계 컬럼 필요)');
+
+    const year = new Date().getFullYear();
+    let allCount = 0;
+    for (let r = headerIdx + 1; r < rows.length; r++) {
+      const row = rows[r];
+      const dateStr = String(row[dateCol] || '').trim();
+      const partner = String(row[partnerCol] || '').trim();
+      const total = Number(String(row[totalCol] || '').replace(/[,\s]/g, '')) || 0;
+      // 합계 행 / 빈 행 / 일자 없는 행 스킵
+      if (!dateStr || !partner || total <= 0) continue;
+      if (/합계|총계/.test(partner)) continue;
+
+      allCount++;
+
+      // 대림 식별
+      const partnerNorm = partner.replace(/\s/g, '');
+      const isDaerim = /대림건축|대림ENG/.test(partnerNorm);
+      if (!isDaerim) continue;
+
+      // 날짜 정규화: '05-13' 또는 '2026-05-13'
+      let issueDate = '';
+      const dm = dateStr.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/);
+      const dm2 = dateStr.match(/^(\d{1,2})[-./](\d{1,2})$/);
+      if (dm) {
+        issueDate = `${dm[1]}-${dm[2].padStart(2, '0')}-${dm[3].padStart(2, '0')}`;
+      } else if (dm2) {
+        issueDate = `${year}-${dm2[1].padStart(2, '0')}-${dm2[2].padStart(2, '0')}`;
+      } else {
+        issueDate = dateStr;
+      }
+
+      items.push({
+        issueDate,
+        partnerCompanyName: partner,
+        partnerCode: codeCol >= 0 ? String(row[codeCol] || '').trim() : '',
+        type: typeCol >= 0 ? String(row[typeCol] || '').trim() : '',
+        itemName: itemCol >= 0 ? String(row[itemCol] || '').trim() : '',
+        supplyAmount: Number(String(row[supplyCol] || '').replace(/[,\s]/g, '')) || 0,
+        taxAmount: Number(String(row[taxCol] || '').replace(/[,\s]/g, '')) || 0,
+        totalAmount: total,
+        debitAccount: debitCol >= 0 ? String(row[debitCol] || '').trim() : '',
+        creditAccount: creditCol >= 0 ? String(row[creditCol] || '').trim() : '',
+        state: stateCol >= 0 ? String(row[stateCol] || '').trim() : '',
+        selected: true
+      });
+    }
+    return { items, allCount };
+  },
+
+  // _ensureXlsx 는 1598줄에 이미 정의되어 있어 그대로 재사용
+
+  _renderPurchaseExcelPreview() {
+    const sec = document.getElementById('pxParseSection');
+    if (!sec || !this._purchaseDraft) return;
+    sec.classList.remove('hidden');
+    const items = this._purchaseDraft.items;
+    if (items.length === 0) {
+      sec.innerHTML = `<div class="text-muted text-center" style="padding:var(--sp-3);">대림 매입세금계산서가 식별되지 않음 (전체 ${this._purchaseDraft.allCount}건 중)</div>`;
+      return;
+    }
+    const total = items.filter(i => i.selected).reduce((s, i) => s + i.totalAmount, 0);
+    sec.innerHTML = `
+      <div class="text-sm mb-2">대림 매입 <strong>${items.length}건</strong> · 합계 <strong>${Utils.formatCurrency(total)}</strong></div>
+      <div class="table-wrapper" style="max-height:200px;overflow-y:auto;">
+        <table class="data-table">
+          <thead><tr><th style="width:40px;"></th><th>일자</th><th>거래처</th><th>품명</th><th class="text-right">합계</th></tr></thead>
+          <tbody>${items.map((it, i) => `<tr>
+            <td><input type="checkbox" ${it.selected ? 'checked' : ''} onchange="OutsourcingModule._togglePurchaseItem(${i}, this.checked)"></td>
+            <td>${it.issueDate}</td>
+            <td class="fw-medium">${Utils.escapeHtml(it.partnerCompanyName)}</td>
+            <td class="text-xs">${Utils.escapeHtml(it.itemName || '-')}</td>
+            <td class="text-right amount">${Utils.formatCurrency(it.totalAmount)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+    `;
+  },
+
+  _togglePurchaseItem(idx, checked) {
+    if (this._purchaseDraft && this._purchaseDraft.items[idx]) {
+      this._purchaseDraft.items[idx].selected = checked;
+      this._renderPurchaseExcelPreview();
+    }
+  },
+
+  // 통합 저장: 매입세금 등록 + 결의서 등록 + 매칭
+  async _saveCombined() {
+    const hasPurchases = this._purchaseDraft && this._purchaseDraft.items.some(i => i.selected);
+    const hasExpense = !!this._expenseDraft;
+    if (!hasPurchases && !hasExpense) {
+      Utils.showToast('매입세금계산서 또는 결의서 중 하나는 업로드해야 합니다.', 'error');
+      return;
+    }
+
+    const user = Auth.currentUser();
+    const savedPurchaseIds = [];
+    let savedExpenseId = null;
+    let purchaseSavedCount = 0;
+    let purchaseDupCount = 0;
+
+    try {
+      // 1) 매입세금계산서 저장 (선택된 것만)
+      if (hasPurchases) {
+        // 중복 체크용 기존 purchaseInvoices
+        const existingPurchases = await DB.getAll('purchaseInvoices');
+        const isDup = (it) => existingPurchases.some(e =>
+          e.partnerCompanyName === it.partnerCompanyName &&
+          Number(e.totalAmount) === it.totalAmount &&
+          e.issueDate === it.issueDate
+        );
+        for (const it of this._purchaseDraft.items) {
+          if (!it.selected) continue;
+          if (isDup(it)) { purchaseDupCount++; continue; }
+          const id = await DB.add('purchaseInvoices', {
+            issueDate: it.issueDate,
+            partnerCompanyName: it.partnerCompanyName,
+            partnerCode: it.partnerCode || '',
+            itemName: it.itemName || '',
+            supplyAmount: it.supplyAmount || 0,
+            taxAmount: it.taxAmount || 0,
+            totalAmount: it.totalAmount || 0,
+            hometaxApprovalNo: '',
+            memo: `위하고 매입세금 일괄 등록 (대림 자동 식별)`,
+            registeredBy: user.id,
+            registeredByName: user.displayName,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          savedPurchaseIds.push(id);
+          purchaseSavedCount++;
+        }
+      }
+
+      // 2) 결의서 저장 + 매입세금 연결
+      if (hasExpense) {
+        const d = this._expenseDraft;
+        const matchedDepIds = d.lineItems.map(li => li.matchedDepositId).filter(Boolean);
+        const matchedTrIds = d.lineItems.map(li => li.matchedTransferId).filter(Boolean);
+        const totalMatched = d.lineItems.filter(li => li.matchedDepositId && li.matchedTransferId).length;
+        const matchStatus = totalMatched === d.lineItems.length && d.lineItems.length > 0 ? 'completed' : (totalMatched > 0 ? 'partial' : 'pending');
+
+        savedExpenseId = await DB.add(this.EXPENSE_COLLECTION, {
+          fileName: d.fileName, fileSize: d.fileSize, fileData: d.file, fileType: 'application/pdf',
+          reportDate: d.reportDate, reportNumber: d.reportNumber || '', authorName: d.authorName,
+          title: d.title, vendorName: d.vendorName, vendorRepName: d.vendorRepName, vendorAccount: d.vendorAccount,
+          totalAmount: d.totalAmount, lineItems: d.lineItems,
+          matchedDepositIds: matchedDepIds, matchedTransferIds: matchedTrIds,
+          linkedPurchaseInvoiceIds: savedPurchaseIds, // v2 4단계: 매입세금 연결
+          matchStatus,
+          rawText: (d.rawText || '').slice(0, 5000),
+          registeredBy: user.id, registeredByName: user.displayName,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        });
+
+        // deposits / transferRecords 역참조
+        for (const depId of matchedDepIds) {
+          try {
+            const ex = await DB.get('deposits', depId);
+            if (ex) await DB.update('deposits', { ...ex, id: depId, matchedExpenseReportId: savedExpenseId });
+          } catch (e) { console.warn('[Combined] deposit 역참조 실패:', depId, e); }
+        }
+        for (const trId of matchedTrIds) {
+          try {
+            const ex = await DB.get('transferRecords', trId);
+            if (ex) await DB.update('transferRecords', { ...ex, id: trId, matchedExpenseReportId: savedExpenseId });
+          } catch (e) { console.warn('[Combined] transfer 역참조 실패:', trId, e); }
+        }
+
+        // 매입세금 → 결의서 역참조
+        for (const pid of savedPurchaseIds) {
+          try {
+            const ex = await DB.get('purchaseInvoices', pid);
+            if (ex) await DB.update('purchaseInvoices', { ...ex, id: pid, linkedExpenseReportId: savedExpenseId });
+          } catch (e) { console.warn('[Combined] purchase 역참조 실패:', pid, e); }
+        }
+      }
+
+      // 3) 감사 로그
+      await DB.log('CREATE', 'combined', null, `통합 등록: 매입세금 ${purchaseSavedCount}건${purchaseDupCount > 0 ? ` (중복스킵 ${purchaseDupCount})` : ''}${savedExpenseId ? `, 결의서 1건` : ''}`);
+
+      // 4) 결과 토스트
+      const parts = [];
+      if (purchaseSavedCount > 0) parts.push(`매입세금 ${purchaseSavedCount}건 등록`);
+      if (purchaseDupCount > 0) parts.push(`중복 ${purchaseDupCount}건 스킵`);
+      if (savedExpenseId) parts.push(`결의서 1건 + 매입연결 ${savedPurchaseIds.length}건`);
+      Utils.showToast(parts.join(' · '), 'success', 6000);
+
+      this._expenseDraft = null;
+      this._purchaseDraft = null;
+      Utils.closeModal();
+      await this._reload();
+    } catch (e) {
+      console.error('[Combined] 저장 실패:', e);
+      Utils.showToast('저장 실패: ' + e.message, 'error', 6000);
+    }
+  },
+
+  // 기존 _openExpenseUpload (PDF 단독 업로드 — 호환용 보존)
   _openExpenseUpload() {
     this._expenseDraft = null;
     Utils.openModal(`
@@ -2491,7 +2821,11 @@ const OutsourcingModule = {
       if (nameEl) nameEl.textContent = `✅ "${file.name}" 파싱 완료 (${parsed.lineItems.length} 라인)`;
       this._renderExpenseParseSection();
       await this._renderExpenseMatchSection();
-      document.getElementById('erSaveBtn').classList.remove('hidden');
+      // 단독 모달과 통합 모달 모두 호환
+      const erBtn = document.getElementById('erSaveBtn');
+      if (erBtn) erBtn.classList.remove('hidden');
+      const cBtn = document.getElementById('combinedSaveBtn');
+      if (cBtn) cBtn.classList.remove('hidden');
     } catch (e) {
       console.error('[ExpenseReports] PDF 파싱 실패:', e);
       if (nameEl) nameEl.textContent = `❌ 파싱 실패: ${e.message}`;

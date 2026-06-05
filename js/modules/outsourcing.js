@@ -486,17 +486,14 @@ const OutsourcingModule = {
       const displayName = dashIdx > 0 ? fullName.slice(0, dashIdx) : fullName;
       const identifier = dashIdx > 0 ? fullName.slice(dashIdx + 3).trim() : '';
       const profitColor = st.profit < 0 ? 'color:#DC2626;' : (st.profit > 0 ? 'color:#16A34A;' : 'color:#64748B;');
-      // 매출일: depositList 첫 입금일 또는 contractDate
-      const salesDate = (st.depositList[0]?.date) || p.contractDate || '';
 
       return `
         <tr style="cursor:pointer;" onclick="OutsourcingModule._openProjectModal('${p.id}')"
             onmouseover="this.style.background='#F0F9FF';" onmouseout="this.style.background='';">
           <td>
             <div class="fw-medium">${Utils.escapeHtml(displayName)}</div>
-            ${identifier ? `<div class="text-xs text-muted">${Utils.escapeHtml(identifier)}</div>` : ''}
+            ${identifier ? `<div class="text-xs text-muted" title="프로젝트 식별자 (같은 매출처 중복 구분용)">${Utils.escapeHtml(identifier)}</div>` : ''}
           </td>
-          <td class="text-xs text-muted">${salesDate ? Utils.formatDate(salesDate) : '-'}</td>
           <td class="text-right amount fw-medium">${Utils.formatCurrency(st.depositAmount)}</td>
           <td class="text-right amount" style="color:#64748B;">${Utils.formatCurrency(st.transferTotal)}</td>
           <td class="text-right amount fw-medium" style="${profitColor}font-size:1rem;">${Utils.formatCurrency(st.profit)}</td>
@@ -505,23 +502,22 @@ const OutsourcingModule = {
     }).join('');
 
     return `
-      <div class="text-sm text-muted mb-3">💡 행 클릭 시 매출→매입→송금→순이익 흐름을 팝업으로 확인할 수 있습니다.</div>
+      <div class="text-sm text-muted mb-3">💡 행 클릭 시 매출→매입→송금→순이익 흐름(날짜 포함)을 팝업으로 확인할 수 있습니다.</div>
       <div class="table-wrapper">
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width:30%;">매출처</th>
-              <th style="width:10%;">매출일</th>
-              <th class="text-right" style="width:16%;">💰 매출액</th>
-              <th class="text-right" style="width:16%;">💸 용역비 (외주송금)</th>
-              <th class="text-right" style="width:16%;">📊 순이익</th>
-              <th class="text-center" style="width:12%;">진행상태</th>
+              <th style="width:36%;">매출처</th>
+              <th class="text-right" style="width:18%;">💰 매출액</th>
+              <th class="text-right" style="width:18%;">💸 용역비 (외주송금)</th>
+              <th class="text-right" style="width:18%;">📊 순이익</th>
+              <th class="text-center" style="width:10%;">진행상태</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>
           <tfoot>
             <tr style="background:#F8FAFC;font-weight:700;">
-              <td colspan="2" class="text-right">합계 (${projects.length}건)</td>
+              <td class="text-right">합계 (${projects.length}건)</td>
               <td class="text-right amount">${Utils.formatCurrency(totals.sales)}</td>
               <td class="text-right amount" style="color:#64748B;">${Utils.formatCurrency(totals.outsource)}</td>
               <td class="text-right amount" style="color:${totals.profit >= 0 ? '#16A34A' : '#DC2626'};font-size:1.05rem;">${Utils.formatCurrency(totals.profit)}</td>

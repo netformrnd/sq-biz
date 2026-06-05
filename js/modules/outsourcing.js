@@ -507,11 +507,11 @@ const OutsourcingModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th style="width:36%;">매출처</th>
-              <th class="text-right" style="width:18%;">💰 매출액</th>
-              <th class="text-right" style="width:18%;">💸 용역비 (외주송금)</th>
-              <th class="text-right" style="width:18%;">📊 순이익</th>
-              <th class="text-center" style="width:10%;">진행상태</th>
+              <th style="width:24%;">매출처</th>
+              <th class="text-right" style="width:20%;">💰 매출액</th>
+              <th class="text-right" style="width:22%;">💸 용역비 (외주송금)</th>
+              <th class="text-right" style="width:20%;">📊 순이익</th>
+              <th class="text-center" style="width:14%;">진행상태</th>
             </tr>
           </thead>
           <tbody>${rows}</tbody>

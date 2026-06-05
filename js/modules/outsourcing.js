@@ -356,6 +356,7 @@ const OutsourcingModule = {
         <h2>📒 대림프로젝트 정산관리</h2>
         <div class="page-actions">
           <button class="btn btn-ghost" onclick="UserGuideModule && UserGuideModule.showModal && UserGuideModule.showModal('outsourcing')" title="사용가이드">📖 도움말</button>
+          <button class="btn btn-secondary" onclick="OutsourcingModule._openExpenseUpload()" title="지출결의서 PDF 업로드 + 자동 매칭">📄 지출결의서</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadReportPDF()">📄 전체 PDF</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadListExcel()">📊 리스트 엑셀</button>
           <button class="btn btn-secondary" onclick="OutsourcingModule._downloadTemplate()">📥 양식</button>
@@ -400,40 +401,16 @@ const OutsourcingModule = {
         </div>
       </div>
 
-      <!-- 탭 네비게이션 -->
-      <div class="card mt-4" style="padding:0;overflow:hidden;">
-        <div style="display:flex;border-bottom:1px solid var(--color-border);background:#F8FAFC;">
-          ${this._renderTabButton('overview', '📋 종합', '프로젝트별 4단계 진행 현황')}
-          ${this._renderTabButton('sales', '💰 ① 매출', '대림 관련 입금내역')}
-          ${this._renderTabButton('purchase', '📥 ② 매입세금', '외주업체 매입 세금계산서')}
-          ${this._renderTabButton('transfer', '💸 ③ 송금', '외주 송금내역')}
-          ${this._renderTabButton('profit', '📊 ④ 이익+결의서', '순이익 및 지출결의서')}
-        </div>
-        <div style="padding:var(--sp-4);">
-          ${this._renderTabContent()}
-        </div>
+      <!-- 종합 테이블 (탭 제거 — 행 클릭 시 흐름 모달로 상세 확인) -->
+      <div class="card mt-4" style="padding:var(--sp-4);">
+        ${this._renderTabOverview()}
       </div>
     `;
   },
 
-  _renderTabButton(tab, label, tooltip) {
-    const active = this._activeTab === tab;
-    return `<button onclick="OutsourcingModule._setTab('${tab}')" title="${Utils.escapeHtml(tooltip)}"
-      style="flex:1;padding:var(--sp-3) var(--sp-2);border:0;background:${active ? '#fff' : 'transparent'};
-      cursor:pointer;font-weight:${active ? '700' : '500'};color:${active ? '#2563EB' : '#64748B'};
-      border-bottom:3px solid ${active ? '#2563EB' : 'transparent'};font-size:0.92rem;">${label}</button>`;
-  },
-
-  _renderTabContent() {
-    switch (this._activeTab) {
-      case 'sales':    return this._renderTabSales();
-      case 'purchase': return this._renderTabPurchase();
-      case 'transfer': return this._renderTabTransfer();
-      case 'profit':   return this._renderTabProfit();
-      case 'overview':
-      default:         return this._renderTabOverview();
-    }
-  },
+  // (v2 g 이후 사용 안 함 — 호환용 보존) 탭 전환 호출이 남아있어도 안전
+  _renderTabButton(tab, label, tooltip) { return ''; },
+  _renderTabContent() { return this._renderTabOverview(); },
 
   // ============================================
   // 합계 계산

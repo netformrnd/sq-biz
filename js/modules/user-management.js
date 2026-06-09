@@ -211,13 +211,24 @@ const UserManagementModule = {
             </div>
           </div>
           <div class="form-group">
-            <label for="uDepositFilter">입금내역 필터 <span class="text-xs text-muted">(직원 전용)</span></label>
+            <label for="uDepositFilter">입금내역 포함 키워드 <span class="text-xs text-muted">(직원 전용)</span></label>
             <input type="text" id="uDepositFilter" class="form-control"
-                   placeholder="예: 장찬현, 청은, 한성숙 (콤마로 여러 키워드 가능)"
+                   placeholder="예: 장찬현, 청은, 한성숙 (이 키워드 포함된 입금만 보임)"
                    value="${editData ? Utils.escapeHtml(editData.depositFilter || '') : ''}">
             <div class="text-xs text-muted" style="margin-top:4px;">
-              직원은 입금내역에서 <strong>본인 등록건</strong> + <strong>이 키워드가 입금자명에 포함된 입금만</strong> 보입니다.<br>
-              관리자는 이 설정과 무관하게 전체 입금이 보입니다. 비워두면 본인 등록건만 보임.
+              이 키워드가 입금자명에 <strong>포함되어야</strong> 보입니다. 비워두면 모두 통과.
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="uDepositExcludeFilter">입금내역 제외 키워드 <span class="text-xs text-muted">(직원 전용, 잡수입 숨기기)</span></label>
+            <input type="text" id="uDepositExcludeFilter" class="form-control"
+                   placeholder="예: 환급, 정부, 수수료, 인증, 보험, 코스콤 (이 키워드 포함된 입금 숨김)"
+                   value="${editData ? Utils.escapeHtml(editData.depositExcludeFilter || '') : ''}">
+            <div class="text-xs text-muted" style="margin-top:4px;">
+              이 키워드가 입금자명에 <strong>포함되면 숨김</strong> (잡수입 제외용).<br>
+              <strong>활용 팁</strong>: "포함 키워드" 비우고 "제외 키워드"만 사용하면<br>
+              → 환급/수수료/잡수입만 빼고 나머지 모두 보임 (가장 간편)<br>
+              관리자는 이 설정과 무관하게 전체 입금이 보입니다.
             </div>
           </div>
         </form>
@@ -244,6 +255,8 @@ const UserManagementModule = {
       const transferFilter = transferFilterEl ? transferFilterEl.value.trim() : '';
       const depositFilterEl = document.getElementById('uDepositFilter');
       const depositFilter = depositFilterEl ? depositFilterEl.value.trim() : '';
+      const depositExcludeFilterEl = document.getElementById('uDepositExcludeFilter');
+      const depositExcludeFilter = depositExcludeFilterEl ? depositExcludeFilterEl.value.trim() : '';
 
       if (editId) {
         const user = await DB.get('users', editId);
@@ -252,10 +265,11 @@ const UserManagementModule = {
         user.department = department;
         user.transferFilter = transferFilter;
         user.depositFilter = depositFilter;
+        user.depositExcludeFilter = depositExcludeFilter;
         // 관리자 전환 시 권한 초기화
         if (role === 'admin') user.menuPermissions = [];
         await DB.update('users', user);
-        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}${transferFilter ? ` (송금필터: ${transferFilter})` : ''}${depositFilter ? ` (입금필터: ${depositFilter})` : ''}`);
+        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}${transferFilter ? ` (송금필터: ${transferFilter})` : ''}${depositFilter ? ` (입금포함: ${depositFilter})` : ''}${depositExcludeFilter ? ` (입금제외: ${depositExcludeFilter})` : ''}`);
       } else {
         const username = document.getElementById('uUsername').value.trim();
         const password = document.getElementById('uPassword').value;

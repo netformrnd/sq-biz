@@ -42,23 +42,37 @@ const DepositModule = {
       } catch (e) {
         console.warn('user fresh load 실패, 세션 정보 사용:', e);
       }
-      const filterRaw = (user.depositFilter || '').trim();
-      const keywords = filterRaw
-        ? filterRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+      const includeRaw = (user.depositFilter || '').trim();
+      const excludeRaw = (user.depositExcludeFilter || '').trim();
+      const includeKeywords = includeRaw
+        ? includeRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const excludeKeywords = excludeRaw
+        ? excludeRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
         : [];
       const beforeCount = deposits.length;
       deposits = deposits.filter(d => {
-        // 1) 본인 등록건
+        // 1) 본인 등록건은 항상 보임
         if (d.registeredBy === user.id) return true;
-        // 2) 입금필터 키워드가 입금자명에 포함되면 보임
-        if (keywords.length > 0) {
-          const depName = (d.depositorName || '').toLowerCase();
-          return keywords.some(k => depName.includes(k));
+
+        const depName = (d.depositorName || '').toLowerCase();
+
+        // 2) 제외 키워드가 입금자명에 포함되면 숨김 (잡수입 제외)
+        if (excludeKeywords.length > 0 && excludeKeywords.some(k => depName.includes(k))) {
+          return false;
         }
-        return false;
+
+        // 3) 포함 키워드 설정된 경우 → 그 키워드 있어야 보임
+        if (includeKeywords.length > 0) {
+          return includeKeywords.some(k => depName.includes(k));
+        }
+
+        // 4) 포함 키워드 없으면 제외 키워드 통과한 모든 입금 보임
+        return excludeKeywords.length > 0;
       });
       restrictionInfo = {
-        filter: filterRaw,
+        include: includeRaw,
+        exclude: excludeRaw,
         before: beforeCount,
         after: deposits.length
       };
@@ -171,12 +185,21 @@ const DepositModule = {
     }
 
     // 직원 권한 안내 배너
+    let restrictionMsg = '';
+    if (restrictionInfo) {
+      const parts = [];
+      if (restrictionInfo.include) parts.push(`포함 키워드 <strong>"${Utils.escapeHtml(restrictionInfo.include)}"</strong>`);
+      if (restrictionInfo.exclude) parts.push(`제외 키워드 <strong>"${Utils.escapeHtml(restrictionInfo.exclude)}"</strong>`);
+      if (parts.length > 0) {
+        restrictionMsg = `본인 등록건 + ${parts.join(' / ')} 적용`;
+      } else {
+        restrictionMsg = '본인이 직접 등록한 입금만 보입니다. (필터 미설정)';
+      }
+    }
     const restrictionBanner = (!isAdmin && restrictionInfo) ? `
       <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
         ℹ️ <strong>제한된 화면입니다.</strong>
-        ${restrictionInfo.filter
-          ? `본인 등록건 + 입금자명에 <strong>"${Utils.escapeHtml(restrictionInfo.filter)}"</strong> 포함된 입금만 보입니다.`
-          : `본인이 직접 등록한 입금만 보입니다. (입금필터 미설정)`}
+        ${restrictionMsg}
         <span class="text-muted">(전체 ${restrictionInfo.before}건 중 ${restrictionInfo.after}건 표시)</span>
       </div>
     ` : '';

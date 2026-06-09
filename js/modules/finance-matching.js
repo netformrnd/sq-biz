@@ -194,20 +194,16 @@ const FinanceMatchingModule = {
       }).join('');
     }
 
-    // 직원 권한 안내 배너
+    // 직원 권한 안내 배너 (보안: 키워드/건수 노출 안 함)
     let restrictionBanner = '';
     if (!isAdmin && restrictionInfo) {
-      const parts = [];
-      if (restrictionInfo.include) parts.push(`포함 키워드 <strong>"${Utils.escapeHtml(restrictionInfo.include)}"</strong>`);
-      if (restrictionInfo.exclude) parts.push(`제외 키워드 <strong>"${Utils.escapeHtml(restrictionInfo.exclude)}"</strong>`);
-      const msg = parts.length > 0
-        ? `본인 등록건 + ${parts.join(' / ')} 적용`
-        : '본인이 직접 등록한 입금만 보입니다. (필터 미설정)';
+      const hasFilter = restrictionInfo.include || restrictionInfo.exclude;
+      const msg = hasFilter
+        ? '본인 업무에 필요한 입금만 표시됩니다.'
+        : '본인이 직접 등록한 입금만 표시됩니다.';
       restrictionBanner = `
         <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
-          ℹ️ <strong>제한된 화면입니다.</strong>
-          ${msg}
-          <span class="text-muted">(전체 ${restrictionInfo.before}건 중 ${restrictionInfo.after}건 표시)</span>
+          ℹ️ ${msg}
         </div>
       `;
     }

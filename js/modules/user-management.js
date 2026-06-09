@@ -210,6 +210,16 @@ const UserManagementModule = {
               관리자는 이 설정과 무관하게 전체 송금이 보입니다. 비워두면 본인 등록건만 보임.
             </div>
           </div>
+          <div class="form-group">
+            <label for="uDepositFilter">입금내역 필터 <span class="text-xs text-muted">(직원 전용)</span></label>
+            <input type="text" id="uDepositFilter" class="form-control"
+                   placeholder="예: 장찬현, 청은, 한성숙 (콤마로 여러 키워드 가능)"
+                   value="${editData ? Utils.escapeHtml(editData.depositFilter || '') : ''}">
+            <div class="text-xs text-muted" style="margin-top:4px;">
+              직원은 입금내역에서 <strong>본인 등록건</strong> + <strong>이 키워드가 입금자명에 포함된 입금만</strong> 보입니다.<br>
+              관리자는 이 설정과 무관하게 전체 입금이 보입니다. 비워두면 본인 등록건만 보임.
+            </div>
+          </div>
         </form>
       </div>
       <div class="modal-footer">
@@ -232,6 +242,8 @@ const UserManagementModule = {
     try {
       const transferFilterEl = document.getElementById('uTransferFilter');
       const transferFilter = transferFilterEl ? transferFilterEl.value.trim() : '';
+      const depositFilterEl = document.getElementById('uDepositFilter');
+      const depositFilter = depositFilterEl ? depositFilterEl.value.trim() : '';
 
       if (editId) {
         const user = await DB.get('users', editId);
@@ -239,10 +251,11 @@ const UserManagementModule = {
         user.role = role;
         user.department = department;
         user.transferFilter = transferFilter;
+        user.depositFilter = depositFilter;
         // 관리자 전환 시 권한 초기화
         if (role === 'admin') user.menuPermissions = [];
         await DB.update('users', user);
-        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}${transferFilter ? ` (송금필터: ${transferFilter})` : ''}`);
+        await DB.log('UPDATE', 'user', editId, `사용자 수정: ${user.username}${transferFilter ? ` (송금필터: ${transferFilter})` : ''}${depositFilter ? ` (입금필터: ${depositFilter})` : ''}`);
       } else {
         const username = document.getElementById('uUsername').value.trim();
         const password = document.getElementById('uPassword').value;

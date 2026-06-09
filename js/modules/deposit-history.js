@@ -27,7 +27,42 @@ const DepositModule = {
 
   async render() {
     const isAdmin = Auth.isAdmin();
-    const deposits = await DB.getAll('deposits');
+    const sessionUser = Auth.currentUser();
+    let deposits = await DB.getAll('deposits');
+
+    // ===== 직원 권한: 본인 등록건 + 입금필터 키워드 일치만 보이게 =====
+    // (관리자는 전체 보임)
+    let restrictionInfo = null;
+    if (!isAdmin && sessionUser) {
+      // DB에서 최신 user 정보 (관리자가 depositFilter 변경 즉시 반영)
+      let user = sessionUser;
+      try {
+        const freshUser = await DB.get('users', sessionUser.id);
+        if (freshUser) user = freshUser;
+      } catch (e) {
+        console.warn('user fresh load 실패, 세션 정보 사용:', e);
+      }
+      const filterRaw = (user.depositFilter || '').trim();
+      const keywords = filterRaw
+        ? filterRaw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean)
+        : [];
+      const beforeCount = deposits.length;
+      deposits = deposits.filter(d => {
+        // 1) 본인 등록건
+        if (d.registeredBy === user.id) return true;
+        // 2) 입금필터 키워드가 입금자명에 포함되면 보임
+        if (keywords.length > 0) {
+          const depName = (d.depositorName || '').toLowerCase();
+          return keywords.some(k => depName.includes(k));
+        }
+        return false;
+      });
+      restrictionInfo = {
+        filter: filterRaw,
+        before: beforeCount,
+        after: deposits.length
+      };
+    }
 
     // 날짜 필터
     DateFilter.onChange('deposits', () => this.render());
@@ -135,6 +170,17 @@ const DepositModule = {
       }).join('');
     }
 
+    // 직원 권한 안내 배너
+    const restrictionBanner = (!isAdmin && restrictionInfo) ? `
+      <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
+        ℹ️ <strong>제한된 화면입니다.</strong>
+        ${restrictionInfo.filter
+          ? `본인 등록건 + 입금자명에 <strong>"${Utils.escapeHtml(restrictionInfo.filter)}"</strong> 포함된 입금만 보입니다.`
+          : `본인이 직접 등록한 입금만 보입니다. (입금필터 미설정)`}
+        <span class="text-muted">(전체 ${restrictionInfo.before}건 중 ${restrictionInfo.after}건 표시)</span>
+      </div>
+    ` : '';
+
     this.container.innerHTML = `
       <div class="page-header">
         <h2>입금내역</h2>
@@ -145,6 +191,7 @@ const DepositModule = {
           </div>
         ` : ''}
       </div>
+      ${restrictionBanner}
 
       <div class="summary-cards">
         <div class="summary-card">

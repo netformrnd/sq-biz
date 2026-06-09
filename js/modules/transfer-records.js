@@ -83,14 +83,10 @@ const TransferModule = {
       `).join('');
     }
 
-    // 직원 권한 안내 배너
+    // 직원 권한 안내 배너 (보안: 키워드/건수 노출 안 함)
     const restrictionBanner = (!isAdmin && restrictionInfo) ? `
       <div style="background:#fef3c7;border-left:4px solid #f59e0b;padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
-        ℹ️ <strong>제한된 화면입니다.</strong>
-        ${restrictionInfo.filter
-          ? `본인 등록건 + 수신자명에 <strong>"${Utils.escapeHtml(restrictionInfo.filter)}"</strong> 포함된 송금만 보입니다.`
-          : `본인이 직접 등록한 송금만 보입니다. (송금필터 미설정)`}
-        <span class="text-muted">(전체 ${restrictionInfo.before}건 중 ${restrictionInfo.after}건 표시)</span>
+        ℹ️ ${restrictionInfo.filter ? '본인 업무에 필요한 송금만 표시됩니다.' : '본인이 직접 등록한 송금만 표시됩니다.'}
       </div>
     ` : '';
 

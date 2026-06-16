@@ -17,6 +17,12 @@ const SettlementsModule = {
     await this.render();
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const all = await DB.getAll('settlements');
     let items = all.slice().reverse();
@@ -68,7 +74,7 @@ const SettlementsModule = {
         <p class="text-muted">우측 상단 [+ 신규 등록] 또는 [📥 일괄 등록]으로 추가하세요.</p>
         </div></td></tr>`;
     } else {
-      tableRows = filtered.map(s => {
+      tableRows = Utils.Sort.apply(filtered, this.sortField, this.sortDir).map(s => {
         const diff = (s.depositAmount || 0) - (s.withdrawAmount || 0);
         const diffColor = diff > 0 ? '#10b981' : (diff < 0 ? '#ef4444' : '#6b7280');
         const rowBg = (s.depositAmount > 0 && s.withdrawAmount > 0) ? 'background:rgba(16,185,129,.04);' : '';
@@ -154,14 +160,14 @@ const SettlementsModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>건축주(발주처)</th>
-              <th>입금일</th>
-              <th class="text-right">입금금액</th>
-              <th>출금일</th>
-              <th class="text-right">출금금액</th>
+              ${Utils.Sort.th('건축주(발주처)', 'clientName', this.sortField, this.sortDir, 'SettlementsModule')}
+              ${Utils.Sort.th('입금일', 'depositDate', this.sortField, this.sortDir, 'SettlementsModule')}
+              ${Utils.Sort.th('입금금액', 'depositAmount', this.sortField, this.sortDir, 'SettlementsModule', 'text-right')}
+              ${Utils.Sort.th('출금일', 'withdrawDate', this.sortField, this.sortDir, 'SettlementsModule')}
+              ${Utils.Sort.th('출금금액', 'withdrawAmount', this.sortField, this.sortDir, 'SettlementsModule', 'text-right')}
               <th class="text-right">차액</th>
-              <th>외주업체</th>
-              <th>메모</th>
+              ${Utils.Sort.th('외주업체', 'outsourceName', this.sortField, this.sortDir, 'SettlementsModule')}
+              ${Utils.Sort.th('메모', 'memo', this.sortField, this.sortDir, 'SettlementsModule')}
               <th style="width:90px;">관리</th>
             </tr>
           </thead>

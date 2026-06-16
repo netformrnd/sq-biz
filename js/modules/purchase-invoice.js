@@ -16,6 +16,12 @@ const PurchaseInvoiceModule = {
     await this.render();
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const all = await DB.getAll('purchaseInvoices');
     let items = all.slice().reverse();
@@ -52,7 +58,7 @@ const PurchaseInvoiceModule = {
         <p class="text-muted">우측 상단 [매입 붙여넣기] 또는 [+ 개별 등록] 버튼으로 추가하세요.</p>
         </div></td></tr>`;
     } else {
-      tableRows = filtered.map(item => `
+      tableRows = Utils.Sort.apply(filtered, this.sortField, this.sortDir).map(item => `
         <tr>
           <td>${Utils.formatDate(item.issueDate)}</td>
           <td class="fw-medium" title="${Utils.escapeHtml(item.partnerCompanyName || '')}">${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
@@ -118,13 +124,13 @@ const PurchaseInvoiceModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>작성일</th>
-              <th>매입처(공급자)</th>
-              <th>사업자번호</th>
-              <th class="text-right">공급가액</th>
-              <th class="text-right">부가세</th>
-              <th class="text-right">합계금액</th>
-              <th>품목/비고</th>
+              ${Utils.Sort.th('작성일', 'issueDate', this.sortField, this.sortDir, 'PurchaseInvoiceModule')}
+              ${Utils.Sort.th('매입처(공급자)', 'partnerCompanyName', this.sortField, this.sortDir, 'PurchaseInvoiceModule')}
+              ${Utils.Sort.th('사업자번호', 'partnerRegNumber', this.sortField, this.sortDir, 'PurchaseInvoiceModule')}
+              ${Utils.Sort.th('공급가액', 'supplyAmount', this.sortField, this.sortDir, 'PurchaseInvoiceModule', 'text-right')}
+              ${Utils.Sort.th('부가세', 'taxAmount', this.sortField, this.sortDir, 'PurchaseInvoiceModule', 'text-right')}
+              ${Utils.Sort.th('합계금액', 'totalAmount', this.sortField, this.sortDir, 'PurchaseInvoiceModule', 'text-right')}
+              ${Utils.Sort.th('품목/비고', 'memo', this.sortField, this.sortDir, 'PurchaseInvoiceModule')}
               <th style="width:90px;">관리</th>
             </tr>
           </thead>

@@ -230,6 +230,38 @@ const Utils = {
       .replace(/유한회사/g, '')
       .replace(/\s+/g, '')
       .trim();
+  },
+
+  // ===== 공통 컬럼 정렬 도구 =====
+  // 목록 표의 컬럼 제목 클릭으로 오름/내림차순 정렬 (입금내역과 동일한 사용감)
+  Sort: {
+    // 헤더에 붙일 정렬 표시 (현재 정렬중인 컬럼은 ↑/↓, 나머지는 흐린 ⇅)
+    indicator(field, sortField, sortDir) {
+      if (field !== sortField) return ' <span style="opacity:.3;">⇅</span>';
+      return sortDir === 'asc' ? ' ↑' : ' ↓';
+    },
+    // 클릭 가능한 정렬 헤더 <th> 생성
+    th(label, field, sortField, sortDir, moduleName, extraClass) {
+      return `<th class="${extraClass || ''}" style="cursor:pointer;user-select:none;white-space:nowrap;" onclick="${moduleName}._sort('${field}')">${label}${this.indicator(field, sortField, sortDir)}</th>`;
+    },
+    // 배열을 필드/방향에 따라 정렬한 사본 반환 (정렬 미지정 시 원본 순서 유지)
+    apply(rows, field, dir) {
+      if (!field || !Array.isArray(rows)) return rows;
+      const m = dir === 'asc' ? 1 : -1;
+      return rows.slice().sort((a, b) => {
+        const va = a ? a[field] : undefined;
+        const vb = b ? b[field] : undefined;
+        const aE = va == null || va === '';
+        const bE = vb == null || vb === '';
+        if (aE && bE) return 0;
+        if (aE) return 1;   // 빈값은 항상 아래로
+        if (bE) return -1;
+        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * m;
+        const na = Number(va), nb = Number(vb);
+        if (!isNaN(na) && !isNaN(nb) && String(va).trim() !== '' && String(vb).trim() !== '') return (na - nb) * m;
+        return String(va).localeCompare(String(vb), 'ko') * m;
+      });
+    }
   }
 };
 

@@ -959,6 +959,12 @@ const TaxInvoiceRequestModule = {
     Router.navigate('/tax-invoice/my');
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.renderMyList();
+  },
+
   // ===== 나의 요청 현황 =====
   async renderMyList() {
     const user = Auth.currentUser();
@@ -971,7 +977,7 @@ const TaxInvoiceRequestModule = {
         <div class="empty-state"><div class="empty-icon">📝</div><h3>아직 요청 내역이 없습니다</h3><p>세금계산서 발행 요청을 해보세요.</p></div>
       </td></tr>`;
     } else {
-      tableRows = myItems.map(item => `
+      tableRows = Utils.Sort.apply(myItems, this.sortField, this.sortDir).map(item => `
         <tr onclick="TaxInvoiceRequestModule._showDetail('${item.id}')" style="cursor:pointer;">
           <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
           <td>${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
@@ -996,13 +1002,13 @@ const TaxInvoiceRequestModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>요청번호</th>
-              <th>거래처</th>
-              <th>발행사유</th>
-              <th class="text-right">합계금액</th>
-              <th class="text-center">상태</th>
-              <th>요청일</th>
-              <th>발행일</th>
+              ${Utils.Sort.th('요청번호', 'requestNumber', this.sortField, this.sortDir, 'TaxInvoiceRequestModule')}
+              ${Utils.Sort.th('거래처', 'partnerCompanyName', this.sortField, this.sortDir, 'TaxInvoiceRequestModule')}
+              ${Utils.Sort.th('발행사유', 'reason', this.sortField, this.sortDir, 'TaxInvoiceRequestModule')}
+              ${Utils.Sort.th('합계금액', 'totalAmount', this.sortField, this.sortDir, 'TaxInvoiceRequestModule', 'text-right')}
+              ${Utils.Sort.th('상태', 'status', this.sortField, this.sortDir, 'TaxInvoiceRequestModule', 'text-center')}
+              ${Utils.Sort.th('요청일', 'createdAt', this.sortField, this.sortDir, 'TaxInvoiceRequestModule')}
+              ${Utils.Sort.th('발행일', 'issueDate', this.sortField, this.sortDir, 'TaxInvoiceRequestModule')}
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>

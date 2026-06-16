@@ -63,7 +63,7 @@ const TransferModule = {
         <div class="empty-state"><div class="empty-icon">💸</div><h3>송금내역이 없습니다</h3></div>
       </td></tr>`;
     } else {
-      tableRows = records.map(r => `
+      tableRows = Utils.Sort.apply(records, this.sortField, this.sortDir).map(r => `
         <tr oncontextmenu="TransferModule._showContextMenu(event, '${r.id}')">
           <td>${Utils.formatDate(r.transferDate)}</td>
           <td class="fw-medium">${Utils.escapeHtml(r.recipientName || '-')}</td>
@@ -125,12 +125,12 @@ const TransferModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>송금일</th>
-              <th>수취인</th>
-              <th class="text-right">금액</th>
-              <th>용도</th>
-              <th>프로젝트</th>
-              <th>비고</th>
+              ${Utils.Sort.th('송금일', 'transferDate', this.sortField, this.sortDir, 'TransferModule')}
+              ${Utils.Sort.th('수취인', 'recipientName', this.sortField, this.sortDir, 'TransferModule')}
+              ${Utils.Sort.th('금액', 'amount', this.sortField, this.sortDir, 'TransferModule', 'text-right')}
+              ${Utils.Sort.th('용도', 'purpose', this.sortField, this.sortDir, 'TransferModule')}
+              ${Utils.Sort.th('프로젝트', 'projectName', this.sortField, this.sortDir, 'TransferModule')}
+              ${Utils.Sort.th('비고', 'memo', this.sortField, this.sortDir, 'TransferModule')}
               <th>관리</th>
             </tr>
           </thead>
@@ -451,6 +451,12 @@ const TransferModule = {
     } catch (err) {
       Utils.showToast('저장 실패: ' + err.message, 'error');
     }
+  },
+
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
   },
 
   async _edit(id) {

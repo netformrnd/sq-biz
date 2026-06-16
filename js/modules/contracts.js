@@ -131,6 +131,12 @@ const ContractsModule = {
     return Math.round((done / total) * 100);
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const isAdmin = Auth.isAdmin();
     await this._loadCaches();
@@ -163,7 +169,7 @@ const ContractsModule = {
         : '<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 계약이 없습니다</h3><p>다른 카드를 클릭하거나 [전체 계약]을 누르세요.</p></div>';
       tableRows = `<tr><td colspan="8" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
-      tableRows = all.map(c => {
+      tableRows = Utils.Sort.apply(all, this.sortField, this.sortDir).map(c => {
         const down = this._phaseStatus(c.downPayment);
         const interim = this._phaseStatus(c.interimPayment);
         const fin = this._phaseStatus(c.finalPayment);
@@ -225,14 +231,14 @@ const ContractsModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>단지명</th>
-              <th>계약건명</th>
-              <th>발주처</th>
-              <th class="text-right">계약금액</th>
+              ${Utils.Sort.th('단지명', 'complexName', this.sortField, this.sortDir, 'ContractsModule')}
+              ${Utils.Sort.th('계약건명', 'contractName', this.sortField, this.sortDir, 'ContractsModule')}
+              ${Utils.Sort.th('발주처', 'clientName', this.sortField, this.sortDir, 'ContractsModule')}
+              ${Utils.Sort.th('계약금액', 'totalAmount', this.sortField, this.sortDir, 'ContractsModule', 'text-right')}
               <th>계약금</th>
               <th>중도금</th>
               <th>잔금</th>
-              <th class="text-center">상태</th>
+              ${Utils.Sort.th('상태', 'status', this.sortField, this.sortDir, 'ContractsModule', 'text-center')}
             </tr>
           </thead>
           <tbody>${tableRows}</tbody>

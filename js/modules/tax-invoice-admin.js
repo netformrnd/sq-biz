@@ -14,6 +14,12 @@ const TaxInvoiceAdminModule = {
     await this.render();
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const all = await DB.getAll('taxInvoiceRequests');
     // 발행일(issueDate) 기준 내림차순 정렬 (최신 발행이 위)
@@ -96,7 +102,7 @@ const TaxInvoiceAdminModule = {
         <div class="empty-state"><div class="empty-icon">📋</div><h3>해당 요청이 없습니다</h3></div>
       </td></tr>`;
     } else {
-      tableRows = filtered.map(item => {
+      tableRows = Utils.Sort.apply(filtered, this.sortField, this.sortDir).map(item => {
         // 매칭된 입금 정보 (다건 지원: matchedDepositIds 배열 + 하위호환 matchedDepositId)
         let matchedIds = [];
         if (Array.isArray(item.matchedDepositIds) && item.matchedDepositIds.length > 0) {
@@ -257,15 +263,15 @@ const TaxInvoiceAdminModule = {
         <table class="data-table tax-admin-table">
           <thead>
             <tr>
-              <th>요청번호</th>
-              <th>발행일</th>
+              ${Utils.Sort.th('요청번호', 'requestNumber', this.sortField, this.sortDir, 'TaxInvoiceAdminModule')}
+              ${Utils.Sort.th('발행일', 'issueDate', this.sortField, this.sortDir, 'TaxInvoiceAdminModule')}
               <th>입금일</th>
               <th>입금처</th>
-              <th>거래처</th>
-              <th>발행사유</th>
-              <th class="text-right">합계금액</th>
-              <th class="text-center">상태</th>
-              <th>요청자</th>
+              ${Utils.Sort.th('거래처', 'partnerCompanyName', this.sortField, this.sortDir, 'TaxInvoiceAdminModule')}
+              ${Utils.Sort.th('발행사유', 'reason', this.sortField, this.sortDir, 'TaxInvoiceAdminModule')}
+              ${Utils.Sort.th('합계금액', 'totalAmount', this.sortField, this.sortDir, 'TaxInvoiceAdminModule', 'text-right')}
+              ${Utils.Sort.th('상태', 'status', this.sortField, this.sortDir, 'TaxInvoiceAdminModule', 'text-center')}
+              ${Utils.Sort.th('요청자', 'requesterName', this.sortField, this.sortDir, 'TaxInvoiceAdminModule')}
               <th>관리</th>
             </tr>
           </thead>

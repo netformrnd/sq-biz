@@ -24,10 +24,16 @@ const UserManagementModule = {
     await this.render();
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const users = await DB.getAll('users');
 
-    let tableRows = users.map(u => {
+    let tableRows = Utils.Sort.apply(users, this.sortField, this.sortDir).map(u => {
       // 권한 뱃지 표시
       const perms = u.menuPermissions || [];
       const permDisplay = u.role === 'admin' ? '<span class="text-xs text-muted">전체 접근</span>'
@@ -84,12 +90,12 @@ const UserManagementModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>아이디</th>
-              <th>이름</th>
-              <th>역할</th>
-              <th>부서</th>
+              ${Utils.Sort.th('아이디', 'username', this.sortField, this.sortDir, 'UserManagementModule')}
+              ${Utils.Sort.th('이름', 'displayName', this.sortField, this.sortDir, 'UserManagementModule')}
+              ${Utils.Sort.th('역할', 'role', this.sortField, this.sortDir, 'UserManagementModule')}
+              ${Utils.Sort.th('부서', 'department', this.sortField, this.sortDir, 'UserManagementModule')}
               <th>메뉴 권한</th>
-              <th>상태</th>
+              ${Utils.Sort.th('상태', 'isActive', this.sortField, this.sortDir, 'UserManagementModule')}
               <th>관리</th>
             </tr>
           </thead>

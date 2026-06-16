@@ -214,6 +214,12 @@ const OutsourcingModule = {
     }).join('<br>');
   },
 
+  _sort(field) {
+    if (this.sortField === field) this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';
+    else { this.sortField = field; this.sortDir = 'asc'; }
+    this.render();
+  },
+
   async render() {
     const isAdmin = Auth.isAdmin();
     await this._loadTransferTotals();
@@ -245,7 +251,7 @@ const OutsourcingModule = {
         : `<div class="empty-state"><div class="empty-icon">🔍</div><h3>이 조건에 해당하는 프로젝트가 없습니다</h3><p>다른 카드를 클릭하거나 [전체 프로젝트]를 누르세요.</p></div>`;
       tableRows = `<tr><td colspan="7" class="text-center" style="padding:var(--sp-10);">${emptyMsg}</td></tr>`;
     } else {
-      tableRows = all.map(p => {
+      tableRows = Utils.Sort.apply(all, this.sortField, this.sortDir).map(p => {
         const projKey = (p.projectName || '').trim();
         const outsourcingTotal = this._transferTotalsByProject[projKey] || 0;
         const balance = (Number(p.depositAmount) || 0) - outsourcingTotal;
@@ -343,9 +349,9 @@ const OutsourcingModule = {
         <table class="data-table">
           <thead>
             <tr>
-              <th>매출처명</th>
+              ${Utils.Sort.th('매출처명', 'projectName', this.sortField, this.sortDir, 'OutsourcingModule')}
               <th>입금일자</th>
-              <th class="text-right">매출금액</th>
+              ${Utils.Sort.th('매출금액', 'depositAmount', this.sortField, this.sortDir, 'OutsourcingModule', 'text-right')}
               <th>출금일자</th>
               <th class="text-right">출금금액</th>
               <th>매입계산서일</th>

@@ -191,7 +191,7 @@ const DepositModule = {
                     return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(37,99,235,.12);color:#2563eb;" title="요청번호 ${Utils.escapeHtml(inv.requestNumber || '')}">📄 ${Utils.escapeHtml(inv.status || '요청')}</span>`;
                   }
                   if (canRequestInvoice) {
-                    return `<button class="btn btn-ghost btn-sm" onclick="DepositModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청">📝 세금계산서</button>`;
+                    return `<button onclick="DepositModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">📝 세금계산서 요청</button>`;
                   }
                   return '';
                 })()}

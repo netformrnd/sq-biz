@@ -466,6 +466,9 @@ const TaxInvoiceAdminModule = {
       `;
     }
 
+    // 수정 버튼 (모든 상태에서 가능, 수정 사유 기록) — 요청 모듈의 수정 폼 재사용
+    footerBtns = `<button class="btn btn-ghost" onclick="Utils.closeModal(); TaxInvoiceRequestModule._openEditForm('${item.id}')">✏️ 수정</button>` + footerBtns;
+
     Utils.openModal(`
       <div class="modal-header">
         <div class="d-flex items-center gap-2">

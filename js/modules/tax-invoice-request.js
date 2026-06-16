@@ -1051,6 +1051,23 @@ const TaxInvoiceRequestModule = {
       </div>`;
     }
 
+    // 수정 권한: 요청자 본인 또는 관리자
+    const me = Auth.currentUser();
+    const canEdit = !!(me && (me.id === item.requesterId || me.role === 'admin'));
+
+    // 수정 이력 표시
+    let historyHtml = '';
+    if (Array.isArray(item.editHistory) && item.editHistory.length > 0) {
+      historyHtml = `<div class="mt-4"><label class="text-xs text-muted">수정 이력 (${item.editHistory.length}건)</label>` +
+        item.editHistory.slice().reverse().map(h => `
+          <div style="padding:var(--sp-2) var(--sp-3);background:#FFF7ED;border-left:3px solid var(--color-warning);border-radius:var(--radius-sm);margin-top:var(--sp-2);font-size:var(--font-size-sm);">
+            <div><strong>${Utils.escapeHtml(h.editorName || '-')}</strong> · ${Utils.formatDateTime(h.editedAt)}</div>
+            <div class="text-muted">사유: ${Utils.escapeHtml(h.reason || '-')}</div>
+            ${Array.isArray(h.changes) && h.changes.length ? `<div class="text-xs text-muted mt-1">${h.changes.map(c => `${Utils.escapeHtml(c.label)}: ${Utils.escapeHtml(c.before || '(빈값)')} → ${Utils.escapeHtml(c.after || '(빈값)')}`).join('<br>')}</div>` : ''}
+          </div>
+        `).join('') + `</div>`;
+    }
+
     Utils.openModal(`
       <div class="modal-header">
         <h3>발행 요청 상세 - ${Utils.escapeHtml(item.requestNumber)}</h3>
@@ -1098,11 +1115,150 @@ const TaxInvoiceRequestModule = {
         ${rejectInfo}
         ${attachmentHtml}
         ${item.issueDate ? `<div class="mt-4 text-sm text-muted">발행일: ${Utils.formatDate(item.issueDate)} · 처리자: ${Utils.escapeHtml(item.reviewerName || '-')}</div>` : ''}
+        ${historyHtml}
       </div>
       <div class="modal-footer">
+        ${canEdit ? `<button class="btn btn-primary" onclick="TaxInvoiceRequestModule._openEditForm('${item.id}')">✏️ 수정</button>` : ''}
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  // ===== 제출한 요청 수정 (요청자 본인/관리자) =====
+  async _openEditForm(id) {
+    const item = await DB.get('taxInvoiceRequests', id);
+    if (!item) return;
+    const v = (x) => Utils.escapeHtml(x == null ? '' : String(x));
+    const statusNote = (item.status === '발행완료')
+      ? `<div style="padding:var(--sp-2) var(--sp-3);background:var(--color-danger-light);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">⚠️ 이미 <strong>발행완료</strong>된 요청입니다. 실제 세금계산서가 발행됐을 수 있으니 수정 사유를 꼭 남겨주세요.</div>`
+      : '';
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>요청 수정 - ${v(item.requestNumber)}</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        ${statusNote}
+        <div class="form-group">
+          <label>발행 사유 <span class="required">*</span></label>
+          <textarea id="editReason" class="form-control" rows="2">${v(item.reason)}</textarea>
+        </div>
+        <div class="form-group">
+          <label>공급가액 <span class="required">*</span></label>
+          <input type="number" id="editAmount" class="form-control" min="0" value="${Number(item.amount) || 0}">
+          <div class="hint">세액·합계는 저장 시 자동 재계산됩니다.</div>
+        </div>
+        <fieldset>
+          <legend>거래처 정보</legend>
+          <div class="form-row">
+            <div class="form-group"><label>사업자등록번호 <span class="required">*</span></label><input type="text" id="editPartnerRegNumber" class="form-control" value="${v(item.partnerRegNumber)}"></div>
+            <div class="form-group"><label>상호 <span class="required">*</span></label><input type="text" id="editPartnerCompanyName" class="form-control" value="${v(item.partnerCompanyName)}"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>대표자 <span class="required">*</span></label><input type="text" id="editPartnerRepName" class="form-control" value="${v(item.partnerRepName)}"></div>
+            <div class="form-group"><label>이메일 <span class="required">*</span></label><input type="email" id="editPartnerEmail" class="form-control" value="${v(item.partnerEmail)}"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>주소</label><input type="text" id="editPartnerAddress" class="form-control" value="${v(item.partnerAddress)}"></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>업태</label><input type="text" id="editPartnerBusinessType" class="form-control" value="${v(item.partnerBusinessType)}"></div>
+            <div class="form-group"><label>종목</label><input type="text" id="editPartnerBusinessItem" class="form-control" value="${v(item.partnerBusinessItem)}"></div>
+          </div>
+        </fieldset>
+        <div class="form-group"><label>프로젝트명</label><input type="text" id="editProjectName" class="form-control" value="${v(item.projectName)}"></div>
+        <div class="form-group"><label>비고</label><textarea id="editMemo" class="form-control" rows="2">${v(item.memo)}</textarea></div>
+        <div class="form-group" style="background:#FFF7ED;padding:var(--sp-3);border-radius:var(--radius-sm);border:1px solid var(--color-warning);">
+          <label>수정 사유 <span class="required">*</span></label>
+          <textarea id="editModReason" class="form-control" rows="2" placeholder="무엇을 왜 수정하는지 적어주세요 (수정 이력에 기록됩니다)"></textarea>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-primary" onclick="TaxInvoiceRequestModule._saveEdit('${item.id}')">수정 저장</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _saveEdit(id) {
+    const item = await DB.get('taxInvoiceRequests', id);
+    if (!item) { Utils.showToast('요청을 찾을 수 없습니다.', 'error'); return; }
+
+    const getV = (eid) => { const el = document.getElementById(eid); return el ? el.value.trim() : ''; };
+    const modReason = getV('editModReason');
+    if (!modReason) { Utils.showToast('수정 사유를 입력해 주세요.', 'error'); document.getElementById('editModReason')?.focus(); return; }
+
+    const newAmount = Number(document.getElementById('editAmount').value) || 0;
+    const newVals = {
+      reason: getV('editReason'),
+      amount: newAmount,
+      partnerCompanyName: getV('editPartnerCompanyName'),
+      partnerRegNumber: getV('editPartnerRegNumber'),
+      partnerRepName: getV('editPartnerRepName'),
+      partnerEmail: getV('editPartnerEmail'),
+      partnerAddress: getV('editPartnerAddress'),
+      partnerBusinessType: getV('editPartnerBusinessType'),
+      partnerBusinessItem: getV('editPartnerBusinessItem'),
+      projectName: getV('editProjectName'),
+      memo: getV('editMemo')
+    };
+
+    // 필수값 검증
+    if (!newVals.reason) { Utils.showToast('발행 사유를 입력해 주세요.', 'error'); return; }
+    if (newAmount <= 0) { Utils.showToast('공급가액을 입력해 주세요.', 'error'); return; }
+    if (!newVals.partnerRegNumber) { Utils.showToast('사업자등록번호를 입력해 주세요.', 'error'); return; }
+    if (!newVals.partnerCompanyName) { Utils.showToast('상호를 입력해 주세요.', 'error'); return; }
+    if (!newVals.partnerRepName) { Utils.showToast('대표자명을 입력해 주세요.', 'error'); return; }
+    if (!newVals.partnerEmail) { Utils.showToast('이메일을 입력해 주세요.', 'error'); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(newVals.partnerEmail)) { Utils.showToast('올바른 이메일 형식을 입력해 주세요.', 'error'); return; }
+
+    // 변경 항목 비교
+    const FIELD_LABELS = {
+      reason: '발행사유', amount: '공급가액',
+      partnerCompanyName: '상호', partnerRegNumber: '사업자등록번호',
+      partnerRepName: '대표자', partnerEmail: '이메일',
+      partnerAddress: '주소', partnerBusinessType: '업태', partnerBusinessItem: '종목',
+      projectName: '프로젝트', memo: '비고'
+    };
+    const fmt = (k, val) => k === 'amount' ? Utils.formatCurrency(Number(val) || 0) : String(val == null ? '' : val);
+    const changes = [];
+    for (const [k, label] of Object.entries(FIELD_LABELS)) {
+      const before = (item[k] == null) ? '' : String(item[k]);
+      const after = String(newVals[k] == null ? '' : newVals[k]);
+      if (before !== after) changes.push({ field: k, label, before: fmt(k, item[k]), after: fmt(k, newVals[k]) });
+    }
+    if (changes.length === 0) { Utils.showToast('변경된 내용이 없습니다.', 'warning'); return; }
+
+    const user = Auth.currentUser();
+    Object.assign(item, newVals);
+    item.taxAmount = Math.round(newAmount * 0.1);
+    item.totalAmount = newAmount + item.taxAmount;
+    if (!Array.isArray(item.editHistory)) item.editHistory = [];
+    item.editHistory.push({
+      editedAt: new Date().toISOString(),
+      editorId: user.id,
+      editorName: user.displayName,
+      reason: modReason,
+      changes
+    });
+    item.lastModifiedAt = new Date().toISOString();
+    item.lastModifiedById = user.id;
+    item.lastModifiedByName = user.displayName;
+    item.updatedAt = new Date().toISOString();
+
+    try {
+      await DB.update('taxInvoiceRequests', item);
+      await DB.log('UPDATE', 'taxInvoice', id, `요청 수정 [${changes.map(c => c.label).join(', ')}] 사유: ${modReason}`);
+    } catch (e) {
+      console.error('[요청수정] 저장 실패:', e);
+      Utils.showToast('수정 저장 실패: ' + e.message, 'error');
+      return;
+    }
+
+    Utils.closeModal();
+    Utils.showToast('수정되었습니다.', 'success');
+    // 갱신된 상세 다시 표시
+    await this._showDetail(id);
   },
 
   destroy() {

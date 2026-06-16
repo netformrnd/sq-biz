@@ -132,6 +132,18 @@ const DepositModule = {
 
     const sortIndicator = (field) => this.sortField === field ? (this.sortDir === 'asc' ? ' ↑' : ' ↓') : ' ⇅';
 
+    // ===== 세금계산서 요청 상태 매핑 (입금건 → 발행요청) =====
+    // 입금 데이터는 수정하지 않고, 요청 현황을 읽어 표시만 함 (중복요청 방지)
+    const _allInvoices = await DB.getAll('taxInvoiceRequests');
+    const depInvoiceMap = {};
+    for (const inv of _allInvoices) {
+      const ids = [];
+      if (inv.matchedDepositId !== undefined && inv.matchedDepositId !== null && inv.matchedDepositId !== '') ids.push(String(inv.matchedDepositId));
+      if (Array.isArray(inv.matchedDepositIds)) inv.matchedDepositIds.forEach(x => ids.push(String(x)));
+      for (const did of ids) { if (!depInvoiceMap[did]) depInvoiceMap[did] = inv; }
+    }
+    const canRequestInvoice = (typeof App !== 'undefined' && App.hasMenuPermission) ? App.hasMenuPermission('tax-invoice') : isAdmin;
+
     let tableRows = '';
     if (filtered.length === 0) {
       tableRows = `<tr><td colspan="10" class="text-center" style="padding:var(--sp-10);">
@@ -172,12 +184,22 @@ const DepositModule = {
               </span>
             </td>
             <td>
-              ${isAdmin ? `
-                <div class="d-flex gap-1">
+              <div class="d-flex gap-1" style="align-items:center;flex-wrap:wrap;">
+                ${(() => {
+                  const inv = depInvoiceMap[String(d.id)];
+                  if (inv) {
+                    return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(37,99,235,.12);color:#2563eb;" title="요청번호 ${Utils.escapeHtml(inv.requestNumber || '')}">📄 ${Utils.escapeHtml(inv.status || '요청')}</span>`;
+                  }
+                  if (canRequestInvoice) {
+                    return `<button class="btn btn-ghost btn-sm" onclick="DepositModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청">📝 세금계산서</button>`;
+                  }
+                  return '';
+                })()}
+                ${isAdmin ? `
                   <button class="btn btn-ghost btn-sm" onclick="DepositModule._edit('${d.id}')" title="수정">✏️</button>
                   <button class="btn btn-ghost btn-sm text-danger" onclick="DepositModule._delete('${d.id}')" title="삭제">🗑️</button>
-                </div>
-              ` : ''}
+                ` : ''}
+              </div>
             </td>
           </tr>
         `;
@@ -669,6 +691,24 @@ const DepositModule = {
   async _edit(id) {
     const item = await DB.get('deposits', id);
     if (item) this._openAddModal(item);
+  },
+
+  // 이 입금건으로 세금계산서 발행요청 (입금정보를 폼에 안전하게 전달)
+  async _requestInvoice(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) { Utils.showToast('입금내역을 찾을 수 없습니다.', 'error'); return; }
+    if (typeof TaxInvoiceRequestModule === 'undefined') {
+      Utils.showToast('세금계산서 모듈을 불러오지 못했습니다.', 'error');
+      return;
+    }
+    TaxInvoiceRequestModule._prefillFromDeposit = {
+      depositId: id,
+      partnerCompanyName: d.partnerCompanyName || '',
+      depositorName: d.depositorName || '',
+      amount: d.amount || 0,
+      depositDate: d.depositDate || ''
+    };
+    Router.navigate('/tax-invoice/new');
   },
 
   async _delete(id) {

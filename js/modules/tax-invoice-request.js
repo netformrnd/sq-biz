@@ -222,6 +222,38 @@ const TaxInvoiceRequestModule = {
     `;
 
     this._bindFormEvents();
+    this._applyDepositPrefill();
+  },
+
+  // 입금내역에서 [세금계산서 요청]으로 넘어온 경우, 입금정보를 폼에 채움 (1회성)
+  _applyDepositPrefill() {
+    const p = this._prefillFromDeposit;
+    this._prefillFromDeposit = null;   // 1회만 사용
+    this._linkedDepositId = p ? p.depositId : null;
+    if (!p) return;
+
+    // 거래처 상호 (이미 입력된 값은 덮어쓰지 않음)
+    const nameEl = document.getElementById('partnerCompanyName');
+    const partner = p.partnerCompanyName || p.depositorName || '';
+    if (nameEl && partner && !nameEl.value) nameEl.value = partner;
+
+    // 발행 사유 기본값
+    const reasonEl = document.getElementById('reason');
+    if (reasonEl && !reasonEl.value) {
+      reasonEl.value = `입금건 관련 세금계산서 발행${p.depositDate ? ' (' + p.depositDate + ' 입금 ' + Utils.formatCurrency(p.amount || 0) + ')' : ''}`;
+    }
+
+    // 안내 배너 — 입금액은 "참고"로만, 공급가액은 직접 확인해 입력하도록 (부가세 혼동 방지)
+    const suggested = Math.round((p.amount || 0) / 1.1);
+    const form = document.getElementById('taxInvoiceForm');
+    if (form) {
+      const banner = document.createElement('div');
+      banner.style.cssText = 'padding:var(--sp-3) var(--sp-4);background:#EFF6FF;border-left:4px solid var(--color-primary);border-radius:var(--radius-sm);margin-bottom:var(--sp-4);font-size:var(--font-size-sm);';
+      banner.innerHTML = `💰 <strong>입금내역에서 연결됨</strong> · 입금액 <strong>${Utils.formatCurrency(p.amount || 0)}</strong> `
+        + `<span class="text-muted">(부가세 포함 기준이면 공급가액 ≈ ${Utils.formatCurrency(suggested)})</span><br>`
+        + `<span class="text-muted">※ 입금액은 참고용입니다. 공급가액이 맞는지 확인 후 입력하고, 거래처 정보도 확인해 주세요.</span>`;
+      form.insertBefore(banner, form.firstChild);
+    }
   },
 
   _bindFormEvents() {
@@ -814,7 +846,7 @@ const TaxInvoiceRequestModule = {
       reviewedAt: null,
       issueDate: null,
       rejectReason: null,
-      matchedDepositId: null,
+      matchedDepositId: this._linkedDepositId || null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString()
     };

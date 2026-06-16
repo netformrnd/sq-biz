@@ -126,7 +126,7 @@ const TaxInvoiceRequestModule = {
 
             <!-- 사업자등록증 업로드 -->
             <div class="form-group">
-              <label>사업자등록증 첨부 <span class="required">*</span></label>
+              <label>사업자등록증 첨부 <span class="required" id="bizCertRequiredMark">*</span><span id="contractLinkSkipNote" class="text-muted text-xs hidden"> · 기존 계약 연동 시 생략 가능</span></label>
               <div class="upload-area" id="ocrUploadArea" style="cursor:default;">
                 <div class="upload-icon">📄</div>
                 <div class="upload-text"><strong>Ctrl+V</strong>로 사업자등록증 화면캡쳐 붙여넣기</div>
@@ -284,6 +284,16 @@ const TaxInvoiceRequestModule = {
     const existingArea = document.getElementById('contractExistingArea');
     if (newArea) newArea.style.display = mode === 'new' ? 'block' : 'none';
     if (existingArea) existingArea.style.display = mode === 'existing' ? 'block' : 'none';
+    // 기존 계약 연동 시: 사업자등록증/계약서 첨부 생략 가능 안내
+    this._setAttachmentOptional(mode === 'existing');
+  },
+
+  // 첨부(사업자등록증/계약서) 생략 가능 여부에 따라 라벨 안내 토글
+  _setAttachmentOptional(optional) {
+    const reqMark = document.getElementById('bizCertRequiredMark');
+    const skipNote = document.getElementById('contractLinkSkipNote');
+    if (reqMark) reqMark.classList.toggle('hidden', optional);
+    if (skipNote) skipNote.classList.toggle('hidden', !optional);
   },
 
   async _loadExistingContracts() {
@@ -329,6 +339,58 @@ const TaxInvoiceRequestModule = {
     phaseSel.innerHTML = options.length > 0
       ? options.join('')
       : '<option value="">-- 발행 가능한 단계가 없습니다 --</option>';
+
+    // 기존 계약에 이미 발행된 세금계산서가 있으면 그 거래처 정보를 자동으로 불러옴
+    // (사업자등록증을 다시 첨부하지 않아도 거래처 정보가 채워짐)
+    await this._autofillPartnerFromContract(c);
+  },
+
+  // 계약에 연결된 (이전) 세금계산서에서 거래처 정보를 가져와 폼에 채움
+  async _autofillPartnerFromContract(contract) {
+    try {
+      // 계약의 각 단계에 연결된 invoiceId 수집
+      const invoiceIds = [];
+      for (const k of ['downPayment', 'interimPayment', 'finalPayment']) {
+        const id = contract[k] && contract[k].invoiceId;
+        if (id) invoiceIds.push(id);
+      }
+      if (invoiceIds.length === 0) return; // 이전 발행 건이 없으면 자동입력 없음
+
+      // 연결된 세금계산서들 중 가장 최근 것 사용
+      const invoices = [];
+      for (const id of invoiceIds) {
+        const inv = await DB.get('taxInvoiceRequests', id);
+        if (inv) invoices.push(inv);
+      }
+      if (invoices.length === 0) return;
+      invoices.sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0));
+      const src = invoices[0];
+
+      // 거래처 정보 채우기 (이미 입력된 값은 덮어쓰지 않음)
+      const map = {
+        partnerRegNumber: src.partnerRegNumber,
+        partnerCompanyName: src.partnerCompanyName,
+        partnerRepName: src.partnerRepName,
+        partnerEmail: src.partnerEmail,
+        partnerAddress: src.partnerAddress,
+        partnerBusinessType: src.partnerBusinessType,
+        partnerBusinessItem: src.partnerBusinessItem
+      };
+      let filled = 0;
+      for (const [fid, val] of Object.entries(map)) {
+        const el = document.getElementById(fid);
+        if (el && val && !el.value) {
+          el.value = val;
+          el.style.borderColor = 'var(--color-success)';
+          filled++;
+        }
+      }
+      if (filled > 0) {
+        Utils.showToast(`기존 계약의 거래처 정보(${Utils.escapeHtml(src.partnerCompanyName || '')})를 불러왔습니다. 사업자등록증 첨부는 생략하셔도 됩니다.`, 'success', 5000);
+      }
+    } catch (e) {
+      console.warn('[계약연동] 거래처 자동입력 실패:', e);
+    }
   },
 
   // ===== 기존 거래처 불러오기 =====

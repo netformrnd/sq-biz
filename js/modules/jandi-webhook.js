@@ -100,42 +100,29 @@ const JandiWebhook = {
 
     console.log('[Jandi] 전송 시도:', title);
 
-    // CORS 우회 프록시 후보 (순차 시도)
-    const proxies = [
-      { name: 'corsproxy.io',  build: (u) => 'https://corsproxy.io/?' + encodeURIComponent(u) },
-      { name: 'allorigins',    build: (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u) },
-      { name: 'thingproxy',    build: (u) => 'https://thingproxy.freeboard.io/fetch/' + u },
-      { name: 'cors.sh',       build: (u) => 'https://proxy.cors.sh/' + u }
-    ];
-
-    for (const p of proxies) {
-      const proxyUrl = p.build(url);
+    // 잔디가 브라우저 CORS를 지원하므로 프록시 없이 직접 전송 (2026-06 확인: ACAO:*, preflight 204)
+    // Content-Type만 사용 (Accept 등 커스텀 헤더 불필요 → 불필요한 preflight 회피)
+    try {
       const ctrl = new AbortController();
-      const t = setTimeout(() => ctrl.abort(), 5000);
-      try {
-        const res = await fetch(proxyUrl, {
-          method: 'POST',
-          headers: {
-            'Accept': 'application/vnd.tosslab.jandi-v2+json',
-            'Content-Type': 'application/json'
-          },
-          body: payloadStr,
-          signal: ctrl.signal
-        });
-        clearTimeout(t);
-        if (res.ok) {
-          console.log(`[Jandi] ✅ 전송 완료 (${p.name}):`, res.status);
-          return { ok: true, via: p.name, status: res.status };
-        }
-        console.warn(`[Jandi] ${p.name} 응답 오류:`, res.status);
-      } catch (err) {
-        clearTimeout(t);
-        console.warn(`[Jandi] ${p.name} 시도 실패:`, err.name === 'AbortError' ? 'timeout' : err.message);
+      const t = setTimeout(() => ctrl.abort(), 8000);
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: payloadStr,
+        signal: ctrl.signal
+      });
+      clearTimeout(t);
+      if (res.ok) {
+        console.log('[Jandi] ✅ 전송 완료 (직접):', res.status);
+        return { ok: true, via: 'direct', status: res.status };
       }
+      console.warn('[Jandi] 직접 전송 응답 오류:', res.status);
+      return { ok: false, error: 'http-' + res.status };
+    } catch (err) {
+      const reason = err.name === 'AbortError' ? 'timeout' : (err.message || 'fetch-failed');
+      console.error('[Jandi] ❌ 직접 전송 실패:', reason);
+      return { ok: false, error: reason };
     }
-
-    console.error('[Jandi] ❌ 모든 프록시 전송 실패');
-    return { ok: false, error: 'all-proxies-failed' };
   },
 
   // 수동 테스트 발송 (설정 화면에서 호출)
@@ -146,9 +133,10 @@ const JandiWebhook = {
       '#2563EB'
     );
     if (r && r.ok) {
-      Utils.showToast(`잔디 테스트 메시지 발송됨 (${r.via}). 채널을 확인하세요.`, 'success');
+      Utils.showToast('잔디 테스트 메시지 발송됨. 채널을 확인하세요.', 'success');
     } else {
-      Utils.showToast('잔디 전송 실패: 모든 CORS 프록시 실패. 콘솔 로그를 확인하세요.', 'error', 5000);
+      const why = r && r.error === 'no-url' ? 'URL 미설정' : (r && r.error ? r.error : '전송 실패');
+      Utils.showToast(`잔디 전송 실패 (${why}). URL을 저장했는지 확인하세요.`, 'error', 5000);
     }
     return r;
   },

@@ -110,9 +110,13 @@ const ContractsModule = {
     const inv = this._invoiceMap[String(p.invoiceId)];
     if (!inv) return { issueDate: null, depositDate: null, invoice: null };
     let depositDate = null;
-    if (inv.matchedDepositId) {
-      const dep = this._depositMap[String(inv.matchedDepositId)];
-      if (dep) depositDate = dep.depositDate;
+    // 단건(matchedDepositId) + 다건(matchedDepositIds) 모두 인식 → 가장 최근 입금일
+    const _depIds = [];
+    if (Array.isArray(inv.matchedDepositIds) && inv.matchedDepositIds.length) _depIds.push(...inv.matchedDepositIds.map(String));
+    else if (inv.matchedDepositId) _depIds.push(String(inv.matchedDepositId));
+    for (const _did of _depIds) {
+      const dep = this._depositMap[_did];
+      if (dep && dep.depositDate && (!depositDate || dep.depositDate > depositDate)) depositDate = dep.depositDate;
     }
     return { issueDate: inv.issueDate || null, depositDate, invoice: inv };
   },

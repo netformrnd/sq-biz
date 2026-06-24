@@ -19,7 +19,7 @@ const FinanceMatchingModule = {
 
   CATEGORIES: ['위탁', '포어', '자사몰', '미지정'],
   PAYMENT_METHODS: ['계좌이체', '카드', '현금', '가상계좌', '기타'],
-  ACTION_TYPES: ['세금계산서 발행필요', '현금영수증 발급필요', '처리완료(자사몰)', '처리완료(카드사)', '처리완료(선발행매칭)'],
+  ACTION_TYPES: ['세금계산서 발행필요', '현금영수증 발급필요', '처리완료(현금영수증)', '처리완료(자사몰)', '처리완료(카드사)', '처리완료(선발행매칭)'],
 
   _categoryBadge(cat) {
     const style = {
@@ -214,12 +214,17 @@ const FinanceMatchingModule = {
             <td>
               <div class="d-flex gap-1" style="align-items:center;flex-wrap:wrap;">
                 ${(() => {
+                  // 현금영수증으로 처리한 건 → 표시만 (세금계산서 버튼 숨김)
+                  if (d.actionRequired === '처리완료(현금영수증)') {
+                    return `<span title="현금영수증 처리완료 (해제하려면 수정에서 처리사항 변경)" style="display:inline-flex;align-items:center;gap:3px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;background:rgba(16,185,129,.12);color:#059669;">💳 현금영수증</span>`;
+                  }
                   const inv = depInvoiceMap[String(d.id)];
                   if (inv) {
                     return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(37,99,235,.12);color:#2563eb;" title="요청번호 ${Utils.escapeHtml(inv.requestNumber || '')}">📄 ${Utils.escapeHtml(inv.status || '요청')}</span>`;
                   }
                   if (canRequestInvoice) {
-                    return `<button onclick="FinanceMatchingModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">📝 세금계산서 요청</button>`;
+                    return `<button onclick="FinanceMatchingModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">📝 세금계산서 요청</button>`
+                      + `<button onclick="FinanceMatchingModule._markCashReceipt('${d.id}')" title="이 입금을 현금영수증 처리완료로 표시" style="display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border:1px solid #059669;background:#ecfdf5;color:#047857;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">💳 현금영수증</button>`;
                   }
                   return '';
                 })()}
@@ -264,7 +269,7 @@ const FinanceMatchingModule = {
 
       <!-- 요약 카드 -->
       <div class="summary-cards">
-        <div class="summary-card">
+        <div class="summary-card" onclick="FinanceMatchingModule._setDepositFilter('all')" title="전체 보기" style="cursor:pointer;${this.depositFilter === 'all' ? 'outline:2px solid var(--color-primary);outline-offset:-1px;' : ''}">
           <div class="card-icon cyan">💰</div>
           <div class="card-info">
             <div class="card-label">전체 입금건수</div>
@@ -278,7 +283,7 @@ const FinanceMatchingModule = {
             <div class="card-value">${Utils.formatCurrency(totalAmount)}</div>
           </div>
         </div>
-        <div class="summary-card" style="border-left:4px solid var(--color-success);">
+        <div class="summary-card" onclick="FinanceMatchingModule._setDepositFilter('matched')" title="매칭완료만 보기" style="border-left:4px solid var(--color-success);cursor:pointer;${this.depositFilter === 'matched' ? 'outline:2px solid var(--color-success);outline-offset:-1px;' : ''}">
           <div class="card-icon green">✅</div>
           <div class="card-info">
             <div class="card-label">매칭완료</div>
@@ -286,7 +291,7 @@ const FinanceMatchingModule = {
             <div class="card-sub">${Utils.formatCurrency(matchedAmount)}</div>
           </div>
         </div>
-        <div class="summary-card" style="border-left:4px solid var(--color-warning);">
+        <div class="summary-card" onclick="FinanceMatchingModule._setDepositFilter('unmatched')" title="미매칭만 보기" style="border-left:4px solid var(--color-warning);cursor:pointer;${this.depositFilter === 'unmatched' ? 'outline:2px solid var(--color-warning);outline-offset:-1px;' : ''}">
           <div class="card-icon orange">⚠️</div>
           <div class="card-info">
             <div class="card-label">미매칭 (발행 대기)</div>
@@ -807,6 +812,18 @@ const FinanceMatchingModule = {
       depositDate: d.depositDate || ''
     };
     Router.navigate('/tax-invoice/new');
+  },
+
+  // 이 입금을 '현금영수증 처리완료'로 표시 (세금계산서 대신)
+  async _markCashReceipt(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) { Utils.showToast('입금내역을 찾을 수 없습니다.', 'error'); return; }
+    d.actionRequired = '처리완료(현금영수증)';
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    await DB.log('UPDATE', 'deposit', id, '현금영수증 처리완료 표시');
+    Utils.showToast('현금영수증 처리완료로 표시했습니다.', 'success');
+    await this.render();
   },
 
   _openDepositAdd(editData = null) {

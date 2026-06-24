@@ -761,9 +761,13 @@ const FinanceMatchingModule = {
       const depName = normalizeName(dep.depositorName);
       if (!depName) continue;
       const candidates = allInvoices.filter(inv => {
-        const remaining = (inv.totalAmount || 0) - (invMatched[String(inv.id)] || 0);
+        const already = invMatched[String(inv.id)] || 0;
+        const remaining = (inv.totalAmount || 0) - already;
         if (remaining <= 0) return false;
-        if (Math.abs(remaining - dep.amount) >= 10) return false;   // 입금이 남은금액과 정확히 일치해야
+        // 입금이 ① 남은금액(합계 기준)과 일치 OR ② 아직 매칭 전이고 공급가액(부가세 뺀 금액)과 일치
+        const matchTotal  = Math.abs(remaining - dep.amount) < 10;
+        const matchSupply = already === 0 && (inv.supplyAmount || 0) > 0 && Math.abs((inv.supplyAmount || 0) - dep.amount) < 10;
+        if (!matchTotal && !matchSupply) return false;
         const invName = normalizeName(inv.partnerCompanyName);
         if (!invName) return false;
         return depName === invName || depName.includes(invName) || invName.includes(depName);  // 이름 강일치

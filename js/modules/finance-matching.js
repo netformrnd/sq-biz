@@ -737,7 +737,22 @@ const FinanceMatchingModule = {
     const depositMap = {};
     allDeposits.forEach(d => { depositMap[String(d.id)] = d; });
 
-    const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜]/g, '').toLowerCase();
+    const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜&]/g, '').toLowerCase();
+    // 거래처명 유사 판정: 완전일치/포함 OR 3글자 이상 공통 부분이 있으면 같은 거래처로 인정
+    // (예: '이편한한강2차' ↔ '이편한세상한강신도시2차' → 공통 '이편한'/'한강')
+    const shareName = (aRaw, bRaw) => {
+      const a = normalizeName(aRaw), b = normalizeName(bRaw);
+      if (!a || !b) return false;
+      if (a === b || a.includes(b) || b.includes(a)) return true;
+      const short = a.length <= b.length ? a : b;
+      const long = a.length <= b.length ? b : a;
+      for (let len = Math.min(short.length, 6); len >= 3; len--) {
+        for (let i = 0; i + len <= short.length; i++) {
+          if (long.includes(short.slice(i, i + len))) return true;
+        }
+      }
+      return false;
+    };
 
     // 미매칭 입금만 (이미 매칭/현금영수증·처리완료 제외)
     const unmatched = allDeposits.filter(d =>
@@ -768,9 +783,7 @@ const FinanceMatchingModule = {
         const matchTotal  = Math.abs(remaining - dep.amount) < 10;
         const matchSupply = already === 0 && (inv.supplyAmount || 0) > 0 && Math.abs((inv.supplyAmount || 0) - dep.amount) < 10;
         if (!matchTotal && !matchSupply) return false;
-        const invName = normalizeName(inv.partnerCompanyName);
-        if (!invName) return false;
-        return depName === invName || depName.includes(invName) || invName.includes(depName);  // 이름 강일치
+        return shareName(dep.depositorName, inv.partnerCompanyName);  // 이름 유사(부분 공통 포함)
       });
       if (candidates.length !== 1) continue;   // 후보 0 또는 2+ → 안전상 건너뜀
       const inv = candidates[0];

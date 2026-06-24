@@ -1616,7 +1616,7 @@ const FinanceMatchingModule = {
     const parts = [`입금 ${depCount}건`, `송금 ${wdCount}건 등록`];
     if (depSkip > 0 || wdSkip > 0) parts.push(`중복 스킵 입금${depSkip}/송금${wdSkip}건`);
     if (clearFirst) parts.unshift(`기존 입금${delDep}/송금${delWd} 삭제`);
-    Utils.showToast(parts.join(' · '), 'success');
+    Utils.showToast(parts.join(' · '), 'success', 12000);   // 결과 메시지 12초 유지 (놓치지 않게)
     await this.render();
   },
 

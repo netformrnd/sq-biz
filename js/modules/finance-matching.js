@@ -1554,7 +1554,19 @@ const FinanceMatchingModule = {
       if (errors.length > 0) Utils.showToast(`⚠️ 일부 삭제 실패: ${errors.slice(0,3).join(', ')}`, 'warning', 5000);
     }
 
+    // 중복 자동 스킵용 키 집합 (날짜|금액|이름|거래후잔액)
+    // 초기화(clearFirst) 시엔 위에서 이미 삭제됐으므로 기존은 비어있고, 같은 붙여넣기 내 중복만 거름
+    const _bankKey = (date, amount, name, bal) => `${date || ''}|${amount}|${(name || '').trim()}|${bal ?? ''}`;
+    const _existingDeps = await DB.getAll('deposits');
+    const _depKeys = new Set(_existingDeps.map(d => _bankKey(d.depositDate, d.amount, d.depositorName, d.balanceAfter)));
+    const _existingWds = await DB.getAll('transferRecords');
+    const _wdKeys = new Set(_existingWds.map(t => _bankKey(t.transferDate, t.amount, t.recipientName, t.balanceAfter)));
+    let depSkip = 0, wdSkip = 0;
+
     for (const row of depSel) {
+      const _k = _bankKey(row.date, row.amount, row.name, row.balanceAfter ?? null);
+      if (_depKeys.has(_k)) { depSkip++; continue; }   // 중복 → 건너뜀
+      _depKeys.add(_k);
       await DB.add('deposits', {
         depositDate: row.date,
         depositorName: row.name,
@@ -1578,6 +1590,9 @@ const FinanceMatchingModule = {
     }
 
     for (const row of wdSel) {
+      const _k = _bankKey(row.date, row.amount, row.name, row.balanceAfter ?? null);
+      if (_wdKeys.has(_k)) { wdSkip++; continue; }   // 중복 → 건너뜀
+      _wdKeys.add(_k);
       await DB.add('transferRecords', {
         transferDate: row.date,
         recipientName: row.name,
@@ -1594,11 +1609,12 @@ const FinanceMatchingModule = {
       wdCount++;
     }
 
-    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건 (초기화: 입금${delDep}/송금${delWd})`);
+    await DB.log('CREATE', 'bank', null, `통장내역 일괄 등록: 입금 ${depCount}건, 송금 ${wdCount}건 (중복스킵 입금${depSkip}/송금${wdSkip}, 초기화: 입금${delDep}/송금${delWd})`);
     this._bankParsed = { deposits: [], withdrawals: [] };
 
     Utils.closeModal();
     const parts = [`입금 ${depCount}건`, `송금 ${wdCount}건 등록`];
+    if (depSkip > 0 || wdSkip > 0) parts.push(`중복 스킵 입금${depSkip}/송금${wdSkip}건`);
     if (clearFirst) parts.unshift(`기존 입금${delDep}/송금${delWd} 삭제`);
     Utils.showToast(parts.join(' · '), 'success');
     await this.render();

@@ -160,6 +160,12 @@ const FinanceMatchingModule = {
     }
     const canRequestInvoice = (typeof App !== 'undefined' && App.hasMenuPermission) ? App.hasMenuPermission('tax-invoice') : isAdmin;
 
+    // 부분매칭 판별용: 세금계산서 id맵 + 입금 id맵
+    const _invoiceById = {};
+    _allInvoices.forEach(inv => { _invoiceById[String(inv.id)] = inv; });
+    const _depositMapById = {};
+    allDeposits.forEach(x => { _depositMapById[String(x.id)] = x; });
+
     // 입금 테이블 행
     let tableRows = '';
     if (filtered.length === 0) {
@@ -175,11 +181,24 @@ const FinanceMatchingModule = {
           ? 'background:rgba(16,185,129,.12);color:#059669;'
           : 'background:rgba(245,158,11,.15);color:#b45309;';
 
-        // 상태 배지
-        const statusLabel = matched ? '매칭완료' : (d.matchStatus || '미매칭');
-        const statusStyle = matched
+        // 상태 배지 (매칭완료 중 부분입금이면 '부분매칭 · 남은금액' 표시)
+        let statusLabel = matched ? '매칭완료' : (d.matchStatus || '미매칭');
+        let statusStyle = matched
           ? 'background:rgba(16,185,129,.15);color:#065F46;'
           : 'background:rgba(148,163,184,.2);color:#475569;';
+        let statusExtra = '';
+        if (matched && d.matchedInvoiceId) {
+          const _inv = _invoiceById[String(d.matchedInvoiceId)];
+          if (_inv) {
+            const _info = this._getInvoiceMatchStatus(_inv, _depositMapById);
+            const _remaining = (_inv.totalAmount || 0) - _info.matchedAmount;
+            if (_info.status === 'partial' && _remaining > 0) {
+              statusLabel = '부분매칭';
+              statusStyle = 'background:rgba(245,158,11,.2);color:#b45309;';
+              statusExtra = `<div class="text-xs" style="color:#b45309;font-weight:700;margin-top:2px;white-space:nowrap;">남은 ${Utils.formatCurrency(_remaining)}</div>`;
+            }
+          }
+        }
 
         return `
           <tr ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
@@ -188,7 +207,7 @@ const FinanceMatchingModule = {
             <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
             <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
             <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
-            <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${statusStyle}">${statusLabel}</span></td>
+            <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${statusStyle}">${statusLabel}</span>${statusExtra}</td>
             <td class="text-xs">${Utils.escapeHtml(d.partnerCompanyName || '-')}</td>
             <td><span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;${actionStyle}">${Utils.escapeHtml(actionText)}</span></td>
             <td class="text-xs text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Utils.escapeHtml(d.memo || '-')}</td>

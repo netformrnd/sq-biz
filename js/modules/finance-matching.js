@@ -260,6 +260,7 @@ const FinanceMatchingModule = {
         ${isAdmin ? `
           <div class="page-actions d-flex gap-2">
             <button class="btn btn-ghost btn-sm text-danger" onclick="FinanceMatchingModule._clearAllDepositsAndTransfers()" title="모든 입금/송금 내역 삭제">🗑️ 전체 초기화</button>
+            <button class="btn btn-sm" onclick="FinanceMatchingModule._autoMatch()" title="금액·거래처가 정확히 일치하는 확실한 건만 자동 매칭" style="background:#ecfdf5;border:1px solid #059669;color:#047857;font-weight:700;">⚡ 자동매칭</button>
             <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
             <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openDepositAdd()">+ 입금내역 개별 등록</button>
           </div>
@@ -718,6 +719,90 @@ const FinanceMatchingModule = {
     const invoiceId = document.getElementById('matchInvoiceSelect').value;
     if (!invoiceId) { Utils.showToast('세금계산서를 선택하세요.', 'error'); return; }
     await this._matchFromDetail(depositId, invoiceId);
+  },
+
+  // ===== 자동매칭 (안전 버전) =====
+  // 금액이 "남은금액과 정확히 일치" + "거래처 이름 강일치" + "후보가 유일"한 건만 자동 매칭
+  // 애매한 건(금액 다름/이름 불일치/후보 여러개)은 건드리지 않음 → 직접 매칭
+  async _autoMatch() {
+    const ok = window.confirm(
+      '⚡ 자동매칭\n\n금액이 정확히 같고 거래처 이름도 맞는, "확실한 건만" 자동으로 매칭합니다.\n애매한 건(금액 다름·이름 안 맞음·후보 여러 개)은 건드리지 않고 그대로 둡니다.\n\n진행할까요?'
+    );
+    if (!ok) return;
+
+    const user = Auth.currentUser();
+    const allDeposits = await DB.getAll('deposits');
+    const allInvoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
+
+    const depositMap = {};
+    allDeposits.forEach(d => { depositMap[String(d.id)] = d; });
+
+    const normalizeName = (s) => (s || '').replace(/[\s()주식회사㈜]/g, '').toLowerCase();
+
+    // 미매칭 입금만 (이미 매칭/현금영수증·처리완료 제외)
+    const unmatched = allDeposits.filter(d =>
+      d.matchStatus !== '매칭완료' &&
+      !((d.actionRequired || '').startsWith('처리완료')) &&
+      (d.amount || 0) > 0
+    );
+
+    // 세금계산서별 현재 매칭금액 (실시간 갱신용)
+    const invMatched = {};
+    for (const inv of allInvoices) {
+      let amt = 0;
+      for (const id of this._getInvoiceMatchedIds(inv)) { const dd = depositMap[String(id)]; if (dd) amt += (dd.amount || 0); }
+      invMatched[String(inv.id)] = amt;
+    }
+
+    let matchedCount = 0;
+    const lines = [];
+
+    for (const dep of unmatched) {
+      const depName = normalizeName(dep.depositorName);
+      if (!depName) continue;
+      const candidates = allInvoices.filter(inv => {
+        const remaining = (inv.totalAmount || 0) - (invMatched[String(inv.id)] || 0);
+        if (remaining <= 0) return false;
+        if (Math.abs(remaining - dep.amount) >= 10) return false;   // 입금이 남은금액과 정확히 일치해야
+        const invName = normalizeName(inv.partnerCompanyName);
+        if (!invName) return false;
+        return depName === invName || depName.includes(invName) || invName.includes(depName);  // 이름 강일치
+      });
+      if (candidates.length !== 1) continue;   // 후보 0 또는 2+ → 안전상 건너뜀
+      const inv = candidates[0];
+
+      // 매칭 쓰기 (기존 _matchFromDetail과 동일)
+      const existingIds = this._getInvoiceMatchedIds(inv).filter(id => String(id) !== String(dep.id));
+      const newIds = [...existingIds, dep.id];
+      inv.matchedDepositIds = newIds.map(String);
+      inv.matchedDepositId = String(newIds[0]);
+      inv.updatedAt = new Date().toISOString();
+      await DB.update('taxInvoiceRequests', inv);
+
+      dep.matchedInvoiceId = inv.id;
+      dep.matchStatus = '매칭완료';
+      dep.updatedAt = new Date().toISOString();
+      await DB.update('deposits', dep);
+
+      await DB.add('matchingLog', {
+        invoiceId: inv.id, depositId: dep.id, matchedAmount: dep.amount,
+        matchedBy: user.id, matchedByName: user.displayName,
+        matchedAt: new Date().toISOString(), memo: '자동매칭'
+      });
+
+      invMatched[String(inv.id)] = (invMatched[String(inv.id)] || 0) + (dep.amount || 0);
+      matchedCount++;
+      lines.push(`${dep.depositorName} ${Utils.formatCurrency(dep.amount)} ↔ ${inv.partnerCompanyName}`);
+    }
+
+    await DB.log('MATCH', 'matching', null, `자동매칭 일괄: ${matchedCount}건`);
+    await this.render();
+
+    if (matchedCount === 0) {
+      Utils.showToast('자동매칭할 확실한 건이 없습니다. 나머지는 직접 매칭(👁️)해 주세요.', 'warning', 7000);
+    } else {
+      Utils.showToast(`⚡ 자동매칭 ${matchedCount}건 완료 (확실한 건만). 틀린 게 있으면 👁️에서 매칭 해제할 수 있어요.`, 'success', 10000);
+    }
   },
 
   async _unmatchFromDetail(depositId) {

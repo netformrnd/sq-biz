@@ -222,6 +222,10 @@ const FinanceMatchingModule = {
                   if (inv) {
                     return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(37,99,235,.12);color:#2563eb;" title="요청번호 ${Utils.escapeHtml(inv.requestNumber || '')}">📄 ${Utils.escapeHtml(inv.status || '요청')}</span>`;
                   }
+                  // 이미 매칭완료 / 처리완료된 건 → 요청·현금영수증 버튼 숨기고 '처리완료'만 표시
+                  if (d.matchStatus === '매칭완료' || (d.actionRequired || '').startsWith('처리완료')) {
+                    return `<span title="이미 처리된 입금건" style="display:inline-flex;align-items:center;gap:3px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;background:rgba(16,185,129,.12);color:#059669;">✅ 처리완료</span>`;
+                  }
                   if (canRequestInvoice) {
                     return `<button onclick="FinanceMatchingModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">📝 세금계산서 요청</button>`
                       + `<button onclick="FinanceMatchingModule._markCashReceipt('${d.id}')" title="이 입금을 현금영수증 처리완료로 표시" style="display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border:1px solid #059669;background:#ecfdf5;color:#047857;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">💳 현금영수증</button>`;

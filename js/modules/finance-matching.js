@@ -14,6 +14,7 @@ const FinanceMatchingModule = {
   depositMonth: 'all',        // all | YYYY-MM
   depositSearch: '',
   hideCompleted: false,
+  depDupFilter: false,
   sortField: 'depositDate',
   sortDir: 'desc',
 
@@ -98,12 +99,21 @@ const FinanceMatchingModule = {
       };
     }
 
+    // 입금 중복 감지: 같은 날짜+금액+입금처(정규화)가 2건 이상이면 '중복 의심'
+    const _depDupKey = (d) => (d.depositDate || '') + '|' + (Number(d.amount) || 0) + '|'
+      + ((d.depositorName || '').replace(/[(（)）㈜\s&·.,\-_/]/g, '').replace(/주식회사|유한회사/g, '').toLowerCase());
+    const _depDupCount = {};
+    allDeposits.forEach(d => { const k = _depDupKey(d); _depDupCount[k] = (_depDupCount[k] || 0) + 1; });
+    const isDepDup = (d) => _depDupCount[_depDupKey(d)] >= 2;
+    const depDupSuspect = allDeposits.filter(isDepDup).length;
+
     // 필터
     let filtered = [...allDeposits];
     if (this.depositFilter === 'matched') filtered = filtered.filter(d => d.matchStatus === '매칭완료');
     if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
     if (this.depositMonth !== 'all') filtered = filtered.filter(d => (d.depositDate || '').slice(0, 7) === this.depositMonth);
     if (this.hideCompleted) filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
+    if (this.depDupFilter) filtered = filtered.filter(isDepDup);
     if (this.depositSearch) {
       const q = this.depositSearch.toLowerCase();
       filtered = filtered.filter(d =>
@@ -203,7 +213,7 @@ const FinanceMatchingModule = {
         return `
           <tr ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
             <td>${Utils.formatDate(d.depositDate)}</td>
-            <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}</td>
+            <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}${isDepDup(d) ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 날짜+금액+입금처 2건 이상 (중복 의심)">🔁중복?</span>' : ''}</td>
             <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>
             <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
             <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
@@ -339,6 +349,9 @@ const FinanceMatchingModule = {
           <input type="checkbox" ${this.hideCompleted ? 'checked' : ''} onchange="FinanceMatchingModule._toggleHideCompleted(this.checked)">
           완료 숨기기
         </label>
+        <button onclick="FinanceMatchingModule._toggleDepDup()" title="같은 날짜+금액+입금처가 2건 이상인 중복 의심 입금만 보기" style="display:flex;align-items:center;gap:5px;font-size:0.85rem;cursor:pointer;padding:5px 11px;border-radius:6px;border:1px solid ${this.depDupFilter ? '#dc2626' : '#e2e8f0'};background:${this.depDupFilter ? '#fee2e2' : '#F1F5F9'};color:${this.depDupFilter ? '#b91c1c' : 'inherit'};font-weight:${this.depDupFilter ? '700' : '400'};">
+          🔁 중복 의심만 ${depDupSuspect > 0 ? `(${depDupSuspect})` : ''}
+        </button>
       </div>
 
       <!-- 테이블 -->
@@ -375,6 +388,7 @@ const FinanceMatchingModule = {
   _setDepositCategory(c) { this.depositCategory = c; this.render(); },
   _setMonth(m) { this.depositMonth = m; this.render(); },
   _toggleHideCompleted(v) { this.hideCompleted = v; this.render(); },
+  _toggleDepDup() { this.depDupFilter = !this.depDupFilter; this.render(); },
   _sort(field) {
     if (this.sortField === field) {
       this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc';

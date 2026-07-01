@@ -39,10 +39,18 @@ const ReceivablesModule = {
     deposits.forEach(d => { depositMap[String(d.id)] = d; });
 
     // 거래처별 집계
+    // 이름 정규화 키: 괄호(전각/반각)·주식회사·유한회사·공백·기호 제거
+    //  → 표기만 다른 같은 거래처를 하나로 합침 (예: '주식회사 커널시스텍' = '（주）커널시스텍' = '커널시스텍')
+    const _key = (s) => (s || '').toString()
+      .replace(/[(（]\s*[주유]\s*[)）]/g, '')   // (주) (유) 전각/반각 통째 제거
+      .replace(/주식회사|유한회사/g, '')
+      .replace(/[（）()㈜\s&·.,\-_/]/g, '')
+      .toLowerCase().trim();
     const map = {};
     const rowOf = (name) => {
-      const k = (name || '').trim() || '(거래처 미상)';
-      if (!map[k]) map[k] = { name: k, debit: 0, credit: 0 };
+      const k = _key(name) || '(거래처 미상)';
+      // 표시 이름은 먼저 등록된 것(세금계산서 상호 우선) 사용
+      if (!map[k]) map[k] = { name: (name || '').trim() || '(거래처 미상)', debit: 0, credit: 0 };
       return map[k];
     };
     const counted = new Set();

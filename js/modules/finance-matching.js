@@ -1911,7 +1911,7 @@ const FinanceMatchingModule = {
     return null;
   },
 
-  _parseInvoicePaste() {
+  async _parseInvoicePaste() {
     const raw = document.getElementById('invoicePasteArea').value.trim();
     if (!raw) {
       Utils.showToast('데이터를 붙여넣기 하세요.', 'error');
@@ -2005,7 +2005,31 @@ const FinanceMatchingModule = {
       return;
     }
 
-    Utils.showToast(`[${formatLabel}] ${this._invoiceParsed.length}건의 세금계산서 인식됨`, 'success');
+    // ── 중복 예방: 이미 등록된 세금계산서(요청건 TIR 포함)와 겹치면 자동 체크 해제 + 표시
+    try {
+      const existing = await DB.getAll('taxInvoiceRequests');
+      const _n = (s) => (s || '')
+        .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
+        .replace(/주식회사|유한회사/g, '').toLowerCase();
+      const byKey = {}, byApproval = {};
+      existing.forEach(e => {
+        byKey[_n(e.partnerCompanyName) + '|' + (Number(e.totalAmount) || 0)] = true;
+        if (e.hometaxApprovalNo) byApproval[String(e.hometaxApprovalNo).trim()] = true;
+      });
+      let dupN = 0;
+      for (const r of this._invoiceParsed) {
+        const approvalDup = r.approvalNo && byApproval[String(r.approvalNo).trim()];
+        const nameAmtDup = byKey[_n(r.partnerCompanyName) + '|' + (Number(r.totalAmount) || 0)];
+        if (approvalDup || nameAmtDup) {
+          r.dupExisting = approvalDup ? '승인번호 이미 있음' : '같은 거래처+금액 이미 있음';
+          r.selected = false;   // 중복 의심 → 기본 체크 해제 (예방)
+          dupN++;
+        }
+      }
+      this._invoiceDupCount = dupN;
+    } catch (e) { console.warn('[붙여넣기 중복확인] 실패:', e); this._invoiceDupCount = 0; }
+
+    Utils.showToast(`[${formatLabel}] ${this._invoiceParsed.length}건 인식${this._invoiceDupCount ? ` · 중복 의심 ${this._invoiceDupCount}건 자동 제외` : ''}`, 'success', 6000);
     this._renderInvoiceParseResult();
   },
 
@@ -2013,12 +2037,16 @@ const FinanceMatchingModule = {
     document.getElementById('invoiceParseResult').classList.remove('hidden');
     document.getElementById('invoiceParsedCount').textContent = `(${this._invoiceParsed.length}건)`;
 
+    if (this._invoiceDupCount > 0) {
+      const noteEl = document.getElementById('invoiceParsedCount');
+      if (noteEl) noteEl.innerHTML = `(${this._invoiceParsed.length}건) <span style="color:#b91c1c;font-weight:700;">· 🔁 중복 의심 ${this._invoiceDupCount}건은 기본 제외됨 (필요시 체크)</span>`;
+    }
     const tbody = document.querySelector('#invoiceParseTable tbody');
     tbody.innerHTML = this._invoiceParsed.map((r, i) => `
-      <tr>
+      <tr style="${r.dupExisting ? 'background:#fef2f2;' : ''}">
         <td><input type="checkbox" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleInvoiceRow(${i}, this.checked)"></td>
         <td>${Utils.escapeHtml(r.issueDate)}</td>
-        <td class="fw-medium">${Utils.escapeHtml(r.partnerCompanyName)}</td>
+        <td class="fw-medium">${Utils.escapeHtml(r.partnerCompanyName)}${r.dupExisting ? ` <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="${Utils.escapeHtml(r.dupExisting)}">🔁 이미 있음</span>` : ''}</td>
         <td class="text-xs">${Utils.escapeHtml(r.partnerRegNumber)}</td>
         <td class="text-right">${Utils.formatCurrency(r.supplyAmount)}</td>
         <td class="text-right">${Utils.formatCurrency(r.taxAmount)}</td>

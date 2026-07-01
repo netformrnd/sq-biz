@@ -7,6 +7,7 @@ const TaxInvoiceAdminModule = {
   container: null,
   filterStatus: 'all',
   hideCompleted: false,
+  filterDup: false,
   searchText: '',
 
   async init(container) {
@@ -52,11 +53,24 @@ const TaxInvoiceAdminModule = {
     });
     counts['당일'] = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt)).length;
 
+    // 중복 감지: 같은 거래처(정규화)+합계금액이 2건 이상이면 '중복 의심'
+    const _dupKey = (i) => ((i.partnerCompanyName || '')
+        .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
+        .replace(/주식회사|유한회사/g, '').toLowerCase())
+      + '|' + (Number(i.totalAmount) || 0);
+    const _dupCount = {};
+    items.forEach(i => { const k = _dupKey(i); _dupCount[k] = (_dupCount[k] || 0) + 1; });
+    const isDup = (i) => _dupCount[_dupKey(i)] >= 2;
+    const dupSuspectCount = items.filter(isDup).length;
+
     // 상태 필터
     let filtered;
     if (this.filterStatus === 'all') filtered = items;
     else if (this.filterStatus === '당일') filtered = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt));
     else filtered = items.filter(i => i.status === this.filterStatus);
+
+    // 중복 의심만 보기
+    if (this.filterDup) filtered = filtered.filter(isDup);
 
     // 완료 숨기기: 매칭 합계가 세금계산서 합계와 일치하는 건 숨김
     if (this.hideCompleted) {
@@ -150,7 +164,7 @@ const TaxInvoiceAdminModule = {
               <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
               <td>${depositDateCell}</td>
               <td>${depositorCell}</td>
-              <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
+              <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">${Utils.escapeHtml(item.partnerCompanyName || '-')}${isDup(item) ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="중복 의심">🔁중복?</span>' : ''}</td>
               <td title="${Utils.escapeHtml(item.reason || '-')}">${Utils.escapeHtml(item.reason || '-')}</td>
               <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
               <td class="text-center">${Utils.statusBadge(item.status)}</td>
@@ -199,6 +213,7 @@ const TaxInvoiceAdminModule = {
               <span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
                 ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
               </span>
+              ${isDup(item) ? '<span style="display:inline-block;margin-left:5px;padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 거래처+금액이 2건 이상 (중복 의심)">🔁중복?</span>' : ''}
             </td>
             <td title="${Utils.escapeHtml(fullReason)}">${Utils.escapeHtml(fullReason)}</td>
             <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
@@ -243,7 +258,10 @@ const TaxInvoiceAdminModule = {
         <div class="tab-item ${this.filterStatus === '반려' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('반려')">
           반려 <span class="text-muted">(${counts['반려']})</span>
         </div>
-        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;margin-left:auto;background:#F1F5F9;border-radius:6px;">
+        <button onclick="TaxInvoiceAdminModule._toggleDup()" title="같은 거래처+금액이 2건 이상인 중복 의심 건만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterDup ? '#dc2626' : '#e2e8f0'};background:${this.filterDup ? '#fee2e2' : '#F1F5F9'};color:${this.filterDup ? '#b91c1c' : 'inherit'};font-weight:${this.filterDup ? '700' : '400'};">
+          🔁 중복 의심만 ${dupSuspectCount > 0 ? `(${dupSuspectCount})` : ''}
+        </button>
+        <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;background:#F1F5F9;border-radius:6px;">
           <input type="checkbox" ${this.hideCompleted ? 'checked' : ''} onchange="TaxInvoiceAdminModule._toggleHideCompleted(this.checked)">
           ✅ 완료 숨기기
         </label>
@@ -333,6 +351,11 @@ const TaxInvoiceAdminModule = {
 
   _toggleHideCompleted(checked) {
     this.hideCompleted = checked;
+    this.render();
+  },
+
+  _toggleDup() {
+    this.filterDup = !this.filterDup;
     this.render();
   },
 

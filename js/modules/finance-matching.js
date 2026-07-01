@@ -275,6 +275,7 @@ const FinanceMatchingModule = {
           <div class="page-actions d-flex gap-2">
             <button class="btn btn-ghost btn-sm text-danger" onclick="FinanceMatchingModule._clearAllDepositsAndTransfers()" title="모든 입금/송금 내역 삭제">🗑️ 전체 초기화</button>
             <button class="btn btn-sm" onclick="FinanceMatchingModule._autoMatch()" title="금액·거래처가 정확히 일치하는 확실한 건만 자동 매칭" style="background:#ecfdf5;border:1px solid #059669;color:#047857;font-weight:700;">⚡ 자동매칭</button>
+            <button class="btn btn-sm" onclick="FinanceMatchingModule._autoCleanDeposits()" title="같은 날짜+금액+입금처 중복 입금을 안전하게 일괄 정리 (연결/매칭된 건은 남김)" style="background:#fef2f2;border:1px solid #dc2626;color:#b91c1c;font-weight:700;">🧹 입금 중복 정리</button>
             <button class="btn btn-secondary btn-sm" onclick="FinanceMatchingModule._openBankStatementModal()">📊 은행/위하고 붙여넣기</button>
             <button class="btn btn-primary btn-sm" onclick="FinanceMatchingModule._openDepositAdd()">+ 입금내역 개별 등록</button>
           </div>
@@ -742,6 +743,82 @@ const FinanceMatchingModule = {
   // ===== 자동매칭 (안전 버전) =====
   // 금액이 "남은금액과 정확히 일치" + "거래처 이름 강일치" + "후보가 유일"한 건만 자동 매칭
   // 애매한 건(금액 다름/이름 불일치/후보 여러개)은 건드리지 않음 → 직접 매칭
+  // ===== 입금 중복 일괄 정리 (안전) =====
+  // 같은 날짜+금액+입금처 그룹에서, 세금계산서 연결/매칭된 건은 남기고 연결없는 중복만 삭제
+  async _autoCleanDeposits() {
+    const deposits = await DB.getAll('deposits');
+    const invoices = await DB.getAll('taxInvoiceRequests');
+    const linked = new Set();
+    invoices.forEach(inv => {
+      if (Array.isArray(inv.matchedDepositIds)) inv.matchedDepositIds.forEach(x => linked.add(String(x)));
+      if (inv.matchedDepositId) linked.add(String(inv.matchedDepositId));
+    });
+    const _key = (d) => (d.depositDate || '') + '|' + (Number(d.amount) || 0) + '|'
+      + ((d.depositorName || '').replace(/[(（)）㈜\s&·.,\-_/]/g, '').replace(/주식회사|유한회사/g, '').toLowerCase());
+    const groups = {};
+    deposits.forEach(d => { const k = _key(d); (groups[k] = groups[k] || []).push(d); });
+
+    const toDelete = [];
+    let manualGroups = 0;
+    for (const k in groups) {
+      const g = groups[k];
+      if (g.length < 2) continue;
+      const linkedOnes = g.filter(d => linked.has(String(d.id)));
+      const matchedOnes = g.filter(d => d.matchStatus === '매칭완료');
+      if (linkedOnes.length >= 2) { manualGroups++; continue; }   // 둘 다 세금계산서 연결 → 수동
+      if (matchedOnes.length === 0) { manualGroups++; continue; }  // 다 미매칭 → 수동(실거래 가능)
+      const keep = linkedOnes[0] || matchedOnes[0];
+      const dels = g.filter(d => String(d.id) !== String(keep.id));
+      if (dels.some(d => linked.has(String(d.id)))) { manualGroups++; continue; }  // 삭제대상에 연결건 → 수동
+      dels.forEach(d => toDelete.push(d));
+    }
+
+    this._cleanDeleteIds = toDelete.map(d => d.id);
+
+    if (toDelete.length === 0) {
+      Utils.showToast(`자동 정리할 확실한 중복이 없습니다.${manualGroups ? ` (직접 확인 필요 ${manualGroups}그룹)` : ''}`, 'warning', 6000);
+      return;
+    }
+
+    const listHtml = toDelete.slice(0, 60).map(d => `
+      <div style="padding:6px 10px;border-bottom:1px solid var(--color-border);font-size:13px;">
+        🗑️ ${Utils.formatDate(d.depositDate)} · <strong>${Utils.escapeHtml(d.depositorName || '-')}</strong> · ${Utils.formatCurrency(d.amount)}
+      </div>`).join('');
+
+    Utils.openModal(`
+      <div class="modal-header"><h3>🧹 입금 중복 일괄 정리</h3><button class="modal-close" onclick="Utils.closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div style="padding:var(--sp-3);background:var(--color-info-light);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:13px;">
+          아래 <strong>${toDelete.length}건</strong>의 중복 입금을 삭제합니다.<br>
+          <span class="text-muted">세금계산서에 연결됐거나 매칭된 원본은 <strong>남깁니다.</strong></span>
+          ${manualGroups ? `<br>⚠️ 애매한 <strong>${manualGroups}그룹</strong>(둘 다 미매칭 등)은 자동 삭제하지 않아요 → 직접 확인하세요.` : ''}
+        </div>
+        <div style="max-height:340px;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);">
+          ${listHtml}${toDelete.length > 60 ? `<div style="padding:8px;text-align:center;color:var(--color-text-muted);">…외 ${toDelete.length - 60}건</div>` : ''}
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+        <button class="btn btn-danger" onclick="FinanceMatchingModule._confirmCleanDeposits()">🗑️ ${toDelete.length}건 삭제 실행</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _confirmCleanDeposits() {
+    const ids = this._cleanDeleteIds || [];
+    if (!ids.length) { Utils.closeModal(); return; }
+    let done = 0, fail = 0;
+    for (const id of ids) {
+      try { await DB.delete('deposits', id); done++; }
+      catch (e) { console.error('입금 삭제 실패:', id, e); fail++; }
+    }
+    await DB.log('DELETE', 'deposit', null, `입금 중복 일괄 정리: ${done}건 삭제`);
+    this._cleanDeleteIds = [];
+    Utils.closeModal();
+    Utils.showToast(`중복 입금 ${done}건 삭제 완료${fail ? ` (실패 ${fail})` : ''}`, 'success', 8000);
+    await this.render();
+  },
+
   async _autoMatch() {
     const ok = window.confirm(
       '⚡ 자동매칭\n\n금액이 정확히 같고 거래처 이름도 맞는, "확실한 건만" 자동으로 매칭합니다.\n애매한 건(금액 다름·이름 안 맞음·후보 여러 개)은 건드리지 않고 그대로 둡니다.\n\n진행할까요?'

@@ -53,11 +53,14 @@ const TaxInvoiceAdminModule = {
     });
     counts['당일'] = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt)).length;
 
-    // 중복 감지: 같은 거래처(정규화)+합계금액이 2건 이상이면 '중복 의심'
+    // 중복 감지: 같은 거래처(정규화)+합계금액+발행년월 이 2건 이상이면 '중복 의심'
+    // (발행 년월까지 봐서, 다른 달의 정상 반복매출은 중복으로 안 잡음)
+    const _ym = (d) => { const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : ''; };
     const _dupKey = (i) => ((i.partnerCompanyName || '')
         .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
         .replace(/주식회사|유한회사/g, '').toLowerCase())
-      + '|' + (Number(i.totalAmount) || 0);
+      + '|' + (Number(i.totalAmount) || 0)
+      + '|' + _ym(i.issueDate || i.createdAt);
     const _dupCount = {};
     items.forEach(i => { const k = _dupKey(i); _dupCount[k] = (_dupCount[k] || 0) + 1; });
     const isDup = (i) => _dupCount[_dupKey(i)] >= 2;

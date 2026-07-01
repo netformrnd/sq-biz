@@ -2011,17 +2011,18 @@ const FinanceMatchingModule = {
       const _n = (s) => (s || '')
         .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
         .replace(/주식회사|유한회사/g, '').toLowerCase();
+      const _ym = (d) => { const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : ''; };
       const byKey = {}, byApproval = {};
       existing.forEach(e => {
-        byKey[_n(e.partnerCompanyName) + '|' + (Number(e.totalAmount) || 0)] = true;
+        byKey[_n(e.partnerCompanyName) + '|' + (Number(e.totalAmount) || 0) + '|' + _ym(e.issueDate || e.createdAt)] = true;
         if (e.hometaxApprovalNo) byApproval[String(e.hometaxApprovalNo).trim()] = true;
       });
       let dupN = 0;
       for (const r of this._invoiceParsed) {
         const approvalDup = r.approvalNo && byApproval[String(r.approvalNo).trim()];
-        const nameAmtDup = byKey[_n(r.partnerCompanyName) + '|' + (Number(r.totalAmount) || 0)];
+        const nameAmtDup = byKey[_n(r.partnerCompanyName) + '|' + (Number(r.totalAmount) || 0) + '|' + _ym(r.issueDate)];
         if (approvalDup || nameAmtDup) {
-          r.dupExisting = approvalDup ? '승인번호 이미 있음' : '같은 거래처+금액 이미 있음';
+          r.dupExisting = approvalDup ? '승인번호 이미 있음' : '같은 거래처+금액(같은 달) 이미 있음';
           r.selected = false;   // 중복 의심 → 기본 체크 해제 (예방)
           dupN++;
         }

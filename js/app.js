@@ -196,8 +196,9 @@ const App = {
     const showDeposits = hasPerm('deposits');
     const showMatching = isAdmin && hasPerm('matching');
     const showTransfers = hasPerm('transfers');
+    const showReceivables = hasPerm('receivables');
 
-    if (showDeposits || showMatching || showTransfers) {
+    if (showDeposits || showMatching || showTransfers || showReceivables) {
       html += `<div class="nav-section"><div class="nav-section-title">재무</div>`;
 
       if (showDeposits) {
@@ -215,6 +216,14 @@ const App = {
           <div class="nav-item" data-path="${transferPath}" onclick="Router.navigate('${transferPath}')">
             <span class="nav-icon">💸</span>
             <span>송금내역</span>
+          </div>
+        `;
+      }
+      if (showReceivables) {
+        html += `
+          <div class="nav-item" data-path="/receivables" onclick="Router.navigate('/receivables')">
+            <span class="nav-icon">📒</span>
+            <span>거래처별 대사</span>
           </div>
         `;
       }
@@ -356,6 +365,11 @@ const App = {
       module: 'MatchingModule',
       title: '매칭 관리',
       roles: ['admin']
+    });
+    Router.register('/receivables', {
+      module: 'ReceivablesModule',
+      title: '거래처별 대사',
+      roles: ['admin', 'employee']
     });
     Router.register('/transfers/my', {
       module: 'TransferModule',

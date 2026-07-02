@@ -88,21 +88,29 @@ const TaxInvoiceRequestModule = {
                     <input type="text" id="contractContractName" class="form-control" placeholder="예: 공용계단 누수 보수공사">
                   </div>
                 </div>
+                <div class="text-xs text-muted mb-2">계약금·중도금·잔금 금액을 입력하세요 (없는 단계는 0 또는 비워두기). 그러면 나중에 남은 단계도 "기존 계약"에서 선택할 수 있어요.</div>
                 <div class="form-row">
                   <div class="form-group">
-                    <label for="contractTotalAmount">총 계약금액 (원) <span class="required">*</span></label>
-                    <input type="number" id="contractTotalAmount" class="form-control" placeholder="0" min="0">
-                    <div class="hint">VAT 별도 또는 포함 여부는 회사 기준에 따라 입력</div>
+                    <label for="contractDownAmt">계약금 (원)</label>
+                    <input type="number" id="contractDownAmt" class="form-control" placeholder="0" min="0">
                   </div>
                   <div class="form-group">
-                    <label for="contractPhase">결제 단계 <span class="required">*</span></label>
-                    <select id="contractPhase" class="form-control">
-                      <option value="downPayment">계약금</option>
-                      <option value="interimPayment">중도금</option>
-                      <option value="finalPayment">잔금</option>
-                    </select>
-                    <div class="hint">이번 발행 = 어느 단계?</div>
+                    <label for="contractInterimAmt">중도금 (원)</label>
+                    <input type="number" id="contractInterimAmt" class="form-control" placeholder="0" min="0">
                   </div>
+                  <div class="form-group">
+                    <label for="contractFinalAmt">잔금 (원)</label>
+                    <input type="number" id="contractFinalAmt" class="form-control" placeholder="0" min="0">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="contractPhase">이번 발행 단계 <span class="required">*</span></label>
+                  <select id="contractPhase" class="form-control">
+                    <option value="downPayment">계약금</option>
+                    <option value="interimPayment">중도금</option>
+                    <option value="finalPayment">잔금</option>
+                  </select>
+                  <div class="hint">이번 세금계산서가 어느 단계인지 선택 (그 단계에 위 공급가액이 연결됩니다)</div>
                 </div>
               </div>
 
@@ -802,13 +810,19 @@ const TaxInvoiceRequestModule = {
     if (contractMode === 'new') {
       const complexName = document.getElementById('contractComplexName').value.trim();
       const contractName = document.getElementById('contractContractName').value.trim();
-      const totalAmount = Number(document.getElementById('contractTotalAmount').value) || 0;
+      const downAmt = Number(document.getElementById('contractDownAmt').value) || 0;
+      const interimAmt = Number(document.getElementById('contractInterimAmt').value) || 0;
+      const finalAmt = Number(document.getElementById('contractFinalAmt').value) || 0;
       const phaseKey = document.getElementById('contractPhase').value;
-      if (!complexName || !contractName || totalAmount <= 0 || !phaseKey) {
-        Utils.showToast('신규 계약 정보(단지명, 계약건명, 총계약금액, 결제단계)를 모두 입력해 주세요.', 'error');
+      const phaseAmts = { downPayment: downAmt, interimPayment: interimAmt, finalPayment: finalAmt };
+      if (!complexName || !contractName || !phaseKey) {
+        Utils.showToast('신규 계약 정보(단지명, 계약건명, 이번 발행 단계)를 입력해 주세요.', 'error');
         return;
       }
-      contractLink = { mode: 'new', complexName, contractName, totalAmount, phaseKey };
+      // 이번 발행 단계 금액이 비어있으면 이번 세금계산서 합계로 자동 설정
+      if (phaseAmts[phaseKey] <= 0) phaseAmts[phaseKey] = amount + taxAmount;
+      const totalAmount = downAmt + interimAmt + finalAmt || (amount + taxAmount);
+      contractLink = { mode: 'new', complexName, contractName, totalAmount, phaseKey, phaseAmts };
     } else if (contractMode === 'existing') {
       const contractId = document.getElementById('contractExistingId').value;
       const phaseKey = document.getElementById('contractExistingPhase').value;
@@ -867,9 +881,14 @@ const TaxInvoiceRequestModule = {
     if (contractLink) {
       try {
         if (contractLink.mode === 'new') {
-          // 신규 계약 자동 생성
-          const phases = { downPayment: { amount: 0, invoiceId: null }, interimPayment: { amount: 0, invoiceId: null }, finalPayment: { amount: 0, invoiceId: null } };
-          phases[contractLink.phaseKey] = { amount: amount + taxAmount, invoiceId: id };
+          // 신규 계약 자동 생성 (계약금/중도금/잔금 금액 반영, 이번 발행 단계에 invoiceId 연결)
+          const pa = contractLink.phaseAmts || {};
+          const phases = {
+            downPayment: { amount: Number(pa.downPayment) || 0, invoiceId: null },
+            interimPayment: { amount: Number(pa.interimPayment) || 0, invoiceId: null },
+            finalPayment: { amount: Number(pa.finalPayment) || 0, invoiceId: null }
+          };
+          phases[contractLink.phaseKey].invoiceId = id;   // 이번 발행 단계에 이 세금계산서 연결
           const newContract = {
             complexName: contractLink.complexName,
             contractName: contractLink.contractName,

@@ -48,7 +48,9 @@ const LeaveModule = {
     'half-am':  { label: '오전반차',  hours: 4,   days: 0.5 },
     'half-pm':  { label: '오후반차',  hours: 4,   days: 0.5 },
     half:       { label: '반차',      hours: 4,   days: 0.5 },
-    quarter:    { label: '반반차',    hours: 2,   days: 0.25 }
+    quarter:    { label: '반반차',    hours: 2,   days: 0.25 },
+    // 임산부 정기건강진단(태아검진) — 근로기준법 제74조의2, 유급 → 연차 미차감(days:0)
+    prenatal:   { label: '태아검진',  hours: 8,   days: 0 }
   },
 
   async init(container) {
@@ -382,7 +384,7 @@ const LeaveModule = {
         cancelled: '취소됨'
       }[r.status] || r.status;
       const typeLabel = this.leaveTypes[r.type]?.label || r.type;
-      const timeInfo = (r.type !== 'full') ? ` (${r.startTime}~${r.endTime})` : '';
+      const timeInfo = (r.type !== 'full' && r.type !== 'prenatal' && r.startTime) ? ` (${r.startTime}~${r.endTime})` : '';
 
       let actions = '';
       if (r.status === 'pending') {
@@ -482,6 +484,14 @@ const LeaveModule = {
               <div class="text-xs text-muted">0.25일 차감</div>
             </div>
           </label>
+          <label style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1.5px solid var(--color-border);border-radius:8px;cursor:pointer;" class="leave-type-opt">
+            <input type="radio" name="leaveType" value="prenatal" onchange="LeaveModule._onTypeChange()">
+            <span style="width:10px;height:10px;background:#14b8a6;border-radius:50%;"></span>
+            <div>
+              <div style="font-weight:600;">태아검진 <span class="text-xs" style="color:#14b8a6;">(임산부 정기건강진단)</span></div>
+              <div class="text-xs text-muted">연차 미차감 · 유급 (근로기준법 제74조의2)</div>
+            </div>
+          </label>
         </div>
       </div>
 
@@ -516,7 +526,7 @@ const LeaveModule = {
     const type = document.querySelector('input[name="leaveType"]:checked').value;
     this.selectedType = type;
     const area = document.getElementById('leaveTimeArea');
-    if (type === 'full') {
+    if (type === 'full' || type === 'prenatal') {
       area.style.display = 'none';
       return;
     }
@@ -642,8 +652,8 @@ const LeaveModule = {
         date,
         year: this.currentYear,
         type,
-        startTime: type === 'full' ? null : this.selectedStart,
-        endTime: type === 'full' ? null : this.selectedEnd,
+        startTime: (type === 'full' || type === 'prenatal') ? null : this.selectedStart,
+        endTime: (type === 'full' || type === 'prenatal') ? null : this.selectedEnd,
         hours: this._typeHours(type),
         reason,
         status: 'pending',
@@ -696,7 +706,7 @@ const LeaveModule = {
     } else {
       html += pending.sort((a, b) => (a.date || '').localeCompare(b.date || '')).map(r => {
         const typeLabel = this.leaveTypes[r.type]?.label || r.type;
-        const timeInfo = r.type !== 'full' ? ` (${r.startTime}~${r.endTime})` : '';
+        const timeInfo = (r.type !== 'full' && r.type !== 'prenatal' && r.startTime) ? ` (${r.startTime}~${r.endTime})` : '';
         return `
           <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-bottom:8px;border-left:3px solid #f97316;">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">

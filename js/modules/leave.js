@@ -378,11 +378,18 @@ const LeaveModule = {
       const unlimited = bal?.unlimited;
       const stat = unlimited ? '∞' : `${used.toFixed(1)}/${total}`;
       const prenatal = this._countType(u.id, 'prenatal');   // 태아검진 (승인+대기)
+      const preg = this._pregnancyInfo(bal?.dueDate);        // 출산예정일 있으면 주차·허용횟수
+      let prenatalBadge = '';
+      if (preg) {
+        prenatalBadge = `<span class="team-stat" style="background:rgba(20,184,166,.12);color:#0d9488;" title="임신 ${preg.weeks}주차 · 법정 허용 ${preg.allowed}회 중 ${prenatal}회 사용">태아 ${prenatal}/${preg.allowed} (${preg.weeks}주)</span>`;
+      } else if (prenatal > 0) {
+        prenatalBadge = `<span class="team-stat" style="background:rgba(20,184,166,.12);color:#0d9488;">태아 ${prenatal}</span>`;
+      }
       return `
         <div class="team-item">
           <span class="team-dot" style="background:${color};"></span>
           <span class="team-name">${Utils.escapeHtml(u.displayName)}</span>
-          ${prenatal > 0 ? `<span class="team-stat" style="background:rgba(20,184,166,.12);color:#0d9488;">태아 ${prenatal}</span>` : ''}
+          ${prenatalBadge}
           <span class="team-stat">${stat}</span>
         </div>
       `;
@@ -442,6 +449,23 @@ const LeaveModule = {
       r.type === type &&
       (r.status === 'approved' || r.status === 'pending')
     ).length;
+  },
+
+  // 출산예정일 → 임신 주수 + 태아검진 법정 허용 횟수(현재까지 누적) 계산
+  // 근로기준법 제74조의2: 임신 28주까지 4주마다 1회, 29~36주 2주마다 1회, 37주 이후 1주마다 1회
+  _pregnancyInfo(dueDate) {
+    if (!dueDate) return null;
+    const due = new Date(dueDate);
+    if (isNaN(due.getTime())) return null;
+    const lmp = new Date(due); lmp.setDate(lmp.getDate() - 280); // 임신 시작(최종생리) ≈ 예정일 -280일
+    const now = new Date();
+    const weeks = Math.floor((now - lmp) / (7 * 24 * 3600 * 1000));
+    if (weeks < 0) return { weeks: 0, allowed: 0 };
+    let allowed = 0;
+    allowed += Math.floor(Math.min(weeks, 28) / 4);                        // ~28주: 4주마다
+    if (weeks > 28) allowed += Math.floor((Math.min(weeks, 36) - 28) / 2); // 29~36주: 2주마다
+    if (weeks > 36) allowed += (Math.min(weeks, 42) - 36);                 // 37주~: 1주마다
+    return { weeks: Math.min(weeks, 42), allowed };
   },
 
   changeMonth(delta) {
@@ -524,6 +548,8 @@ const LeaveModule = {
         </div>
       </div>
 
+      <div id="leavePrenatalInfo" style="display:none;margin-top:12px;padding:12px 14px;background:rgba(20,184,166,.06);border:1px solid rgba(20,184,166,.3);border-radius:8px;font-size:0.82rem;color:#0d9488;line-height:1.5;"></div>
+
       <div id="leaveTimeArea" style="display:none;margin-top:12px;padding:14px;background:#F8FAFC;border:1px solid var(--color-border);border-radius:8px;">
         <div style="font-size:0.85rem;font-weight:700;margin-bottom:10px;">시간 선택</div>
         <div id="leaveTimePresets" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
@@ -555,6 +581,28 @@ const LeaveModule = {
     const type = document.querySelector('input[name="leaveType"]:checked').value;
     this.selectedType = type;
     const area = document.getElementById('leaveTimeArea');
+
+    // 태아검진 안내: 출산예정일 기준 임신 주차·법정 허용 횟수·잔여 표시
+    const pInfo = document.getElementById('leavePrenatalInfo');
+    if (pInfo) {
+      if (type === 'prenatal') {
+        const user = Auth.currentUser();
+        const bal = this.balances.find(b => String(b.userId) === String(user.id));
+        const preg = this._pregnancyInfo(bal?.dueDate);
+        const used = this._countType(user.id, 'prenatal');
+        if (preg) {
+          const remain = Math.max(0, preg.allowed - used);
+          pInfo.innerHTML = `🤰 임신 <b>${preg.weeks}주차</b> · 법정 허용 <b>${preg.allowed}회</b> 중 <b>${used}회</b> 사용<br>→ 현재 <b style="color:#0d9488;font-size:0.95rem;">${remain}회</b> 사용 가능` +
+            (used >= preg.allowed ? ` <span style="color:#f97316;">(허용 횟수 도달)</span>` : '');
+        } else {
+          pInfo.innerHTML = `🤰 태아검진은 <b>연차 미차감·유급</b>입니다.<br><span style="color:#64748b;">※ 관리자에게 출산예정일을 등록하면 임신 주차별 허용 횟수가 자동 표시됩니다.</span>`;
+        }
+        pInfo.style.display = 'block';
+      } else {
+        pInfo.style.display = 'none';
+      }
+    }
+
     if (type === 'full' || type === 'prenatal') {
       area.style.display = 'none';
       return;
@@ -1004,6 +1052,12 @@ const LeaveModule = {
           </label>
         </div>
 
+        <div class="form-group" style="padding:12px;background:rgba(20,184,166,.06);border:1px solid rgba(20,184,166,.3);border-radius:8px;">
+          <label class="form-label" style="color:#0d9488;">🤰 출산예정일 <span class="text-xs text-muted">(태아검진용, 임산부만)</span></label>
+          <input type="date" id="editBalDueDate" class="form-input" value="${bal.dueDate || ''}">
+          <div class="text-xs text-muted" style="margin-top:6px;">입력하면 임신 주차별 태아검진 허용 횟수가 자동 표시됩니다. (비우면 미표시)</div>
+        </div>
+
         <div style="padding:12px;background:#F8FAFC;border-radius:8px;margin-top:16px;">
           <div style="font-weight:700;margin-bottom:10px;">포상 연차 내역</div>
           <div id="bonusListEdit">${(bal.bonusLeaves || []).map((b, i) => `
@@ -1056,9 +1110,10 @@ const LeaveModule = {
     if (!bal) return;
     const total = parseFloat(document.getElementById('editBalTotal').value) || 0;
     const unlimited = document.getElementById('editBalUnlimited').checked;
+    const dueDate = (document.getElementById('editBalDueDate')?.value || '').trim();
     try {
-      await DB.update('leaveBalances', { ...bal, totalLeave: total, unlimited });
-      await DB.log('연차기본변경', 'leaveBalances', bal.id, { userId, totalLeave: total, unlimited });
+      await DB.update('leaveBalances', { ...bal, totalLeave: total, unlimited, dueDate });
+      await DB.log('연차기본변경', 'leaveBalances', bal.id, { userId, totalLeave: total, unlimited, dueDate });
       Utils.showToast('저장 완료', 'success');
       await this.refresh();
       this.openManageUsers();
@@ -1110,6 +1165,10 @@ const LeaveModule = {
             const pending = this._calculateUsed(u.id, 'pending');
             const remaining = bal?.unlimited ? '∞' : (total - used).toFixed(2);
             const prenatal = this._countType(u.id, 'prenatal');
+            const preg = this._pregnancyInfo(bal?.dueDate);
+            const prenatalCell = preg
+              ? `${prenatal}/${preg.allowed}회 <span style="color:#94a3b8;font-size:0.75rem;">(${preg.weeks}주)</span>`
+              : (prenatal > 0 ? prenatal + '회' : '-');
             return `
               <tr style="border-bottom:1px solid #F1F5F9;">
                 <td style="padding:10px;font-weight:600;">${Utils.escapeHtml(u.displayName)}</td>
@@ -1119,7 +1178,7 @@ const LeaveModule = {
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#8b5cf6;">${used.toFixed(2)}</td>
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#10b981;font-weight:600;">${remaining}</td>
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#f97316;">${pending.toFixed(2)}</td>
-                <td style="padding:10px;text-align:right;font-family:monospace;color:#0d9488;font-weight:600;">${prenatal > 0 ? prenatal + '회' : '-'}</td>
+                <td style="padding:10px;text-align:right;font-family:monospace;color:#0d9488;font-weight:600;">${prenatalCell}</td>
               </tr>
             `;
           }).join('')}

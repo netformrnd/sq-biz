@@ -112,6 +112,24 @@ const LeaveModule = {
       // 올해 신청 로드
       const allReq = await DB.getAll('leaveRequests');
       this.requests = allReq.filter(r => r.year === this.currentYear);
+
+      // ── 고아 신청 자동 재연결 ──
+      // 데이터 복원 등으로 사용자 id가 바뀌면, 예전 신청의 userId가 현재 계정과 안 맞아
+      // 팀원 현황/리포트에 안 뜨는 문제 → 이름(userName)으로 현재 계정 id에 자동 재연결
+      const nameToId = {};
+      activeUsers.forEach(u => { if (u.displayName) nameToId[u.displayName] = u.id; });
+      const validIds = new Set(activeUsers.map(u => String(u.id)));
+      let relinked = 0;
+      for (const r of this.requests) {
+        if (!validIds.has(String(r.userId)) && r.userName && nameToId[r.userName]) {
+          try {
+            await DB.update('leaveRequests', { ...r, userId: nameToId[r.userName] });
+            r.userId = nameToId[r.userName];
+            relinked++;
+          } catch (e) { console.warn('[연차] 재연결 실패:', r.id, e); }
+        }
+      }
+      if (relinked > 0) console.log(`[연차] 고아 신청 ${relinked}건 → 현재 계정 재연결 완료`);
     } catch (e) {
       console.error('[연차] 데이터 로드 실패:', e);
       Utils.showToast('연차 데이터 로드 실패: ' + e.message, 'error');

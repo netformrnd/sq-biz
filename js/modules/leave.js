@@ -359,10 +359,12 @@ const LeaveModule = {
       const color = this._colorForUser(u, idx);
       const unlimited = bal?.unlimited;
       const stat = unlimited ? '∞' : `${used.toFixed(1)}/${total}`;
+      const prenatal = this._countType(u.id, 'prenatal');   // 태아검진 (승인+대기)
       return `
         <div class="team-item">
           <span class="team-dot" style="background:${color};"></span>
           <span class="team-name">${Utils.escapeHtml(u.displayName)}</span>
+          ${prenatal > 0 ? `<span class="team-stat" style="background:rgba(20,184,166,.12);color:#0d9488;">태아 ${prenatal}</span>` : ''}
           <span class="team-stat">${stat}</span>
         </div>
       `;
@@ -413,6 +415,15 @@ const LeaveModule = {
     return this.requests
       .filter(r => String(r.userId) === String(userId) && r.status === status)
       .reduce((s, r) => s + (this.leaveTypes[r.type]?.days || 0), 0);
+  },
+
+  // 특정 종류(예: 태아검진 prenatal) 신청 횟수 (승인+대기, 반려/취소 제외)
+  _countType(userId, type) {
+    return this.requests.filter(r =>
+      String(r.userId) === String(userId) &&
+      r.type === type &&
+      (r.status === 'approved' || r.status === 'pending')
+    ).length;
   },
 
   changeMonth(delta) {
@@ -1068,6 +1079,7 @@ const LeaveModule = {
             <th style="padding:10px;text-align:right;font-size:0.82rem;color:#64748B;">사용</th>
             <th style="padding:10px;text-align:right;font-size:0.82rem;color:#64748B;">잔여</th>
             <th style="padding:10px;text-align:right;font-size:0.82rem;color:#64748B;">대기</th>
+            <th style="padding:10px;text-align:right;font-size:0.82rem;color:#0d9488;">태아검진</th>
           </tr>
         </thead>
         <tbody>
@@ -1079,6 +1091,7 @@ const LeaveModule = {
             const used = this._calculateUsed(u.id, 'approved');
             const pending = this._calculateUsed(u.id, 'pending');
             const remaining = bal?.unlimited ? '∞' : (total - used).toFixed(2);
+            const prenatal = this._countType(u.id, 'prenatal');
             return `
               <tr style="border-bottom:1px solid #F1F5F9;">
                 <td style="padding:10px;font-weight:600;">${Utils.escapeHtml(u.displayName)}</td>
@@ -1088,6 +1101,7 @@ const LeaveModule = {
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#8b5cf6;">${used.toFixed(2)}</td>
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#10b981;font-weight:600;">${remaining}</td>
                 <td style="padding:10px;text-align:right;font-family:monospace;color:#f97316;">${pending.toFixed(2)}</td>
+                <td style="padding:10px;text-align:right;font-family:monospace;color:#0d9488;font-weight:600;">${prenatal > 0 ? prenatal + '회' : '-'}</td>
               </tr>
             `;
           }).join('')}

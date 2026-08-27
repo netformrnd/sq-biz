@@ -766,7 +766,19 @@ const FinanceMatchingModule = {
       const linkedOnes = g.filter(d => linked.has(String(d.id)));
       const matchedOnes = g.filter(d => d.matchStatus === '매칭완료');
       if (linkedOnes.length >= 2) { manualGroups++; continue; }   // 둘 다 세금계산서 연결 → 수동
-      if (matchedOnes.length === 0) { manualGroups++; continue; }  // 다 미매칭 → 수동(실거래 가능)
+      if (matchedOnes.length === 0) {
+        // 다 미매칭 → 원래는 수동. 단, 거래후잔액까지 전부 동일하면 '재붙여넣기 중복'이므로 안전하게 1건만 남김
+        // (진짜 별개 입금이면 거래후 잔액이 서로 다름 → 자동 삭제 안 함)
+        const hasBal = (d) => d.balanceAfter !== null && d.balanceAfter !== undefined && d.balanceAfter !== '';
+        const balVals = new Set(g.map(d => String(d.balanceAfter)));
+        if (g.every(hasBal) && balVals.size === 1) {
+          const keepDup = g[0];
+          g.filter(d => String(d.id) !== String(keepDup.id)).forEach(d => toDelete.push(d));
+        } else {
+          manualGroups++;   // 잔액이 다르거나 없음 → 직접 확인
+        }
+        continue;
+      }
       const keep = linkedOnes[0] || matchedOnes[0];
       const dels = g.filter(d => String(d.id) !== String(keep.id));
       if (dels.some(d => linked.has(String(d.id)))) { manualGroups++; continue; }  // 삭제대상에 연결건 → 수동
@@ -790,8 +802,8 @@ const FinanceMatchingModule = {
       <div class="modal-body">
         <div style="padding:var(--sp-3);background:var(--color-info-light);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:13px;">
           아래 <strong>${toDelete.length}건</strong>의 중복 입금을 삭제합니다.<br>
-          <span class="text-muted">세금계산서에 연결됐거나 매칭된 원본은 <strong>남깁니다.</strong></span>
-          ${manualGroups ? `<br>⚠️ 애매한 <strong>${manualGroups}그룹</strong>(둘 다 미매칭 등)은 자동 삭제하지 않아요 → 직접 확인하세요.` : ''}
+          <span class="text-muted">세금계산서에 연결·매칭된 원본, 또는 <strong>거래후잔액까지 똑같은 재입력 중복</strong> 중 1건은 <strong>남깁니다.</strong></span>
+          ${manualGroups ? `<br>⚠️ 애매한 <strong>${manualGroups}그룹</strong>(거래후잔액이 다르거나 없음 → 실제 별개 입금일 수 있음)은 자동 삭제하지 않아요 → 직접 확인하세요.` : ''}
         </div>
         <div style="max-height:340px;overflow-y:auto;border:1px solid var(--color-border);border-radius:var(--radius-sm);">
           ${listHtml}${toDelete.length > 60 ? `<div style="padding:8px;text-align:center;color:var(--color-text-muted);">…외 ${toDelete.length - 60}건</div>` : ''}

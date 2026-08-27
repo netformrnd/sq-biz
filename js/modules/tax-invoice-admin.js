@@ -8,6 +8,7 @@ const TaxInvoiceAdminModule = {
   filterStatus: 'all',
   hideCompleted: false,
   filterDup: false,
+  filterUnpaid: false,
   searchText: '',
 
   async init(container) {
@@ -66,6 +67,16 @@ const TaxInvoiceAdminModule = {
     const isDup = (i) => _dupCount[_dupKey(i)] >= 2;
     const dupSuspectCount = items.filter(isDup).length;
 
+    // 미입금 감지: 발행완료인데 매칭된 입금이 없음(또는 매칭합계가 계산서합계에 못 미침) = 미수금
+    const _matchedTotal = (i) => {
+      let mIds = [];
+      if (Array.isArray(i.matchedDepositIds) && i.matchedDepositIds.length > 0) mIds = i.matchedDepositIds.map(String);
+      else if (i.matchedDepositId) mIds = [String(i.matchedDepositId)];
+      return mIds.map(id => depositMap[id]).filter(Boolean).reduce((s, d) => s + (d.amount || 0), 0);
+    };
+    const isUnpaid = (i) => i.status === '발행완료' && (i.totalAmount || 0) - _matchedTotal(i) >= 10;
+    const unpaidCount = items.filter(isUnpaid).length;
+
     // 상태 필터
     let filtered;
     if (this.filterStatus === 'all') filtered = items;
@@ -74,6 +85,9 @@ const TaxInvoiceAdminModule = {
 
     // 중복 의심만 보기
     if (this.filterDup) filtered = filtered.filter(isDup);
+
+    // 미입금(미수금)만 보기: 발행했는데 입금 안 된 세금계산서
+    if (this.filterUnpaid) filtered = filtered.filter(isUnpaid);
 
     // 완료 숨기기: 매칭 합계가 세금계산서 합계와 일치하는 건 숨김
     if (this.hideCompleted) {
@@ -261,7 +275,10 @@ const TaxInvoiceAdminModule = {
         <div class="tab-item ${this.filterStatus === '반려' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('반려')">
           반려 <span class="text-muted">(${counts['반려']})</span>
         </div>
-        <button onclick="TaxInvoiceAdminModule._toggleDup()" title="같은 거래처+금액이 2건 이상인 중복 의심 건만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterDup ? '#dc2626' : '#e2e8f0'};background:${this.filterDup ? '#fee2e2' : '#F1F5F9'};color:${this.filterDup ? '#b91c1c' : 'inherit'};font-weight:${this.filterDup ? '700' : '400'};">
+        <button onclick="TaxInvoiceAdminModule._toggleUnpaid()" title="발행했는데 입금이 안 된(미수금) 세금계산서만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterUnpaid ? '#d97706' : '#e2e8f0'};background:${this.filterUnpaid ? '#fef3c7' : '#F1F5F9'};color:${this.filterUnpaid ? '#b45309' : 'inherit'};font-weight:${this.filterUnpaid ? '700' : '400'};">
+          💰 미입금만 ${unpaidCount > 0 ? `(${unpaidCount})` : ''}
+        </button>
+        <button onclick="TaxInvoiceAdminModule._toggleDup()" title="같은 거래처+금액이 2건 이상인 중복 의심 건만 보기" style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterDup ? '#dc2626' : '#e2e8f0'};background:${this.filterDup ? '#fee2e2' : '#F1F5F9'};color:${this.filterDup ? '#b91c1c' : 'inherit'};font-weight:${this.filterDup ? '700' : '400'};">
           🔁 중복 의심만 ${dupSuspectCount > 0 ? `(${dupSuspectCount})` : ''}
         </button>
         <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;background:#F1F5F9;border-radius:6px;">
@@ -359,6 +376,11 @@ const TaxInvoiceAdminModule = {
 
   _toggleDup() {
     this.filterDup = !this.filterDup;
+    this.render();
+  },
+
+  _toggleUnpaid() {
+    this.filterUnpaid = !this.filterUnpaid;
     this.render();
   },
 

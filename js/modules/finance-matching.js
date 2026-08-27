@@ -20,7 +20,7 @@ const FinanceMatchingModule = {
 
   CATEGORIES: ['위탁', '포어', '자사몰', '미지정'],
   PAYMENT_METHODS: ['계좌이체', '카드', '현금', '가상계좌', '기타'],
-  ACTION_TYPES: ['세금계산서 발행필요', '현금영수증 발급필요', '처리완료(현금영수증)', '처리완료(자사몰)', '처리완료(카드사)', '처리완료(선발행매칭)'],
+  ACTION_TYPES: ['세금계산서 발행필요', '현금영수증 발급필요', '처리완료(현금영수증)', '처리완료(대상외)', '처리완료(자사몰)', '처리완료(카드사)', '처리완료(선발행매칭)'],
 
   _categoryBadge(cat) {
     const style = {
@@ -107,12 +107,16 @@ const FinanceMatchingModule = {
     const isDepDup = (d) => _depDupCount[_depDupKey(d)] >= 2;
     const depDupSuspect = allDeposits.filter(isDepDup).length;
 
+    // 처리 완료 판별: 매칭완료 이거나, 처리완료(현금영수증/대상외/자사몰 등)로 표시된 건
+    // → 이런 건 '미매칭(발행 대기)'에서 제외 (세금계산서 대상 아닌 결산료·개인입금 등 정리용)
+    const isHandled = (d) => d.matchStatus === '매칭완료' || (d.actionRequired || '').startsWith('처리완료');
+
     // 필터
     let filtered = [...allDeposits];
     if (this.depositFilter === 'matched') filtered = filtered.filter(d => d.matchStatus === '매칭완료');
-    if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
+    if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => !isHandled(d));
     if (this.depositMonth !== 'all') filtered = filtered.filter(d => (d.depositDate || '').slice(0, 7) === this.depositMonth);
-    if (this.hideCompleted) filtered = filtered.filter(d => d.matchStatus !== '매칭완료');
+    if (this.hideCompleted) filtered = filtered.filter(d => !isHandled(d));
     if (this.depDupFilter) filtered = filtered.filter(isDepDup);
     if (this.depositSearch) {
       const q = this.depositSearch.toLowerCase();
@@ -152,9 +156,10 @@ const FinanceMatchingModule = {
 
     // 요약 통계
     const matchedCount = filtered.filter(d => d.matchStatus === '매칭완료').length;
-    const unmatchedCount = filtered.length - matchedCount;
+    const unmatchedCount = filtered.filter(d => !isHandled(d)).length;   // 발행 대기(처리완료 제외)
     const totalAmount = filtered.reduce((s, d) => s + (d.amount || 0), 0);
     const matchedAmount = filtered.filter(d => d.matchStatus === '매칭완료').reduce((s, d) => s + (d.amount || 0), 0);
+    const unmatchedAmount = filtered.filter(d => !isHandled(d)).reduce((s, d) => s + (d.amount || 0), 0);
 
     const sortInd = (f) => this.sortField === f ? (this.sortDir === 'asc' ? '↑' : '↓') : '⇅';
 
@@ -228,6 +233,10 @@ const FinanceMatchingModule = {
                   if (d.actionRequired === '처리완료(현금영수증)') {
                     return `<span title="현금영수증 처리완료 (해제하려면 수정에서 처리사항 변경)" style="display:inline-flex;align-items:center;gap:3px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;background:rgba(16,185,129,.12);color:#059669;">💳 현금영수증</span>`;
                   }
+                  // 세금계산서 대상 아님(결산료·개인입금 등) → 표시만, 클릭하면 해제
+                  if (d.actionRequired === '처리완료(대상외)') {
+                    return `<span onclick="FinanceMatchingModule._unmarkNonTarget('${d.id}')" title="세금계산서 대상 아님 (클릭하면 해제)" style="cursor:pointer;display:inline-flex;align-items:center;gap:3px;padding:4px 10px;border-radius:6px;font-size:12px;font-weight:700;background:rgba(100,116,139,.15);color:#475569;">🚫 대상외</span>`;
+                  }
                   const inv = depInvoiceMap[String(d.id)];
                   if (inv) {
                     return `<span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;background:rgba(37,99,235,.12);color:#2563eb;" title="요청번호 ${Utils.escapeHtml(inv.requestNumber || '')}">📄 ${Utils.escapeHtml(inv.status || '요청')}</span>`;
@@ -238,7 +247,8 @@ const FinanceMatchingModule = {
                   }
                   if (canRequestInvoice) {
                     return `<button onclick="FinanceMatchingModule._requestInvoice('${d.id}')" title="이 입금건으로 세금계산서 발행요청" style="display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border:1px solid #2563eb;background:#eff6ff;color:#1d4ed8;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">📝 세금계산서 요청</button>`
-                      + `<button onclick="FinanceMatchingModule._markCashReceipt('${d.id}')" title="이 입금을 현금영수증 처리완료로 표시" style="display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border:1px solid #059669;background:#ecfdf5;color:#047857;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">💳 현금영수증</button>`;
+                      + `<button onclick="FinanceMatchingModule._markCashReceipt('${d.id}')" title="이 입금을 현금영수증 처리완료로 표시" style="display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border:1px solid #059669;background:#ecfdf5;color:#047857;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">💳 현금영수증</button>`
+                      + `<button onclick="FinanceMatchingModule._markNonTarget('${d.id}')" title="세금계산서 대상 아님(결산료·개인입금 등)으로 표시 — 발행 대기에서 제외" style="display:inline-flex;align-items:center;gap:3px;padding:4px 9px;border:1px solid #94a3b8;background:#f8fafc;color:#475569;font-size:12px;font-weight:700;border-radius:6px;cursor:pointer;white-space:nowrap;">🚫 대상외</button>`;
                   }
                   return '';
                 })()}
@@ -312,7 +322,7 @@ const FinanceMatchingModule = {
           <div class="card-info">
             <div class="card-label">미매칭 (발행 대기)</div>
             <div class="card-value">${unmatchedCount}건</div>
-            <div class="card-sub">${Utils.formatCurrency(totalAmount - matchedAmount)}</div>
+            <div class="card-sub">${Utils.formatCurrency(unmatchedAmount)}</div>
           </div>
         </div>
       </div>
@@ -1032,6 +1042,31 @@ const FinanceMatchingModule = {
     await DB.update('deposits', d);
     await DB.log('UPDATE', 'deposit', id, '현금영수증 처리완료 표시');
     Utils.showToast('현금영수증 처리완료로 표시했습니다.', 'success');
+    await this.render();
+  },
+
+  // 이 입금을 '세금계산서 대상 아님(대상외)'으로 표시 (결산료·개인입금 등)
+  async _markNonTarget(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) { Utils.showToast('입금내역을 찾을 수 없습니다.', 'error'); return; }
+    d.actionRequired = '처리완료(대상외)';
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    await DB.log('UPDATE', 'deposit', id, '세금계산서 대상외 표시');
+    Utils.showToast('세금계산서 대상 아님으로 표시했습니다. (발행 대기에서 제외)', 'success');
+    await this.render();
+  },
+
+  // '대상외' 해제 → 다시 발행 대기로
+  async _unmarkNonTarget(id) {
+    const d = await DB.get('deposits', id);
+    if (!d) { Utils.showToast('입금내역을 찾을 수 없습니다.', 'error'); return; }
+    if (!confirm('세금계산서 대상외 표시를 해제할까요? (다시 발행 대기로 돌아갑니다)')) return;
+    d.actionRequired = '';
+    d.updatedAt = new Date().toISOString();
+    await DB.update('deposits', d);
+    await DB.log('UPDATE', 'deposit', id, '세금계산서 대상외 해제');
+    Utils.showToast('대상외 표시를 해제했습니다.', 'success');
     await this.render();
   },
 

@@ -80,6 +80,48 @@ const Utils = {
     return `<span class="badge ${cls}">${this.escapeHtml(status)}</span>`;
   },
 
+  // ===== 공용 중복 판정 (세금계산서/입금 전반에서 재사용) =====
+  // 이름 표기 차이(단체명:, 입주자대표회의, 아파트, ㈜ 등)를 걷어낸 '핵심 이름'으로 비교
+  Dedup: {
+    coreName(s) {
+      return (s || '')
+        .replace(/단체명\s*[:：]?/g, '')
+        .replace(/주식회사|유한회사|입주자대표회의|입주자대표|대표회의|관리사무소|관리단|입주자|아파트/g, '')
+        .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
+        .toLowerCase();
+    },
+    ym(d) {
+      const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/);
+      return m ? m[1] + '-' + m[2].padStart(2, '0') : '';
+    },
+    // 세금계산서 한 건의 중복키 (핵심상호 + 금액 + 발행월) — '중복 의심' 표시용
+    invoiceKey(inv) {
+      return this.coreName(inv.partnerCompanyName) + '|' + (Number(inv.totalAmount) || 0) + '|' + this.ym(inv.issueDate || inv.createdAt);
+    },
+    // 신규 요청/발행 후보(target)와 겹치는 '기존 세금계산서'를 찾는다 (취소·반려 제외, 자기 자신 제외)
+    //  판정: ① 같은 승인번호  ② 같은 입금건 연결  ③ 핵심상호 + 금액 일치(월 무시 — 요청단계 경고용)
+    findInvoiceDuplicates(existingList, target) {
+      const tgtName = this.coreName(target.partnerCompanyName);
+      const tgtAmt = Number(target.totalAmount) || 0;
+      const tgtApproval = String(target.hometaxApprovalNo || target.approvalNo || '').trim();
+      const tgtDep = (target.matchedDepositId !== undefined && target.matchedDepositId !== null && target.matchedDepositId !== '')
+        ? String(target.matchedDepositId) : '';
+      return (existingList || []).filter(e => {
+        if (!e || e.status === '취소' || e.status === '반려') return false;
+        if (target.id && String(e.id) === String(target.id)) return false;
+        if (tgtApproval && String(e.hometaxApprovalNo || '').trim() === tgtApproval) return true;
+        if (tgtDep) {
+          const ids = [];
+          if (e.matchedDepositId !== undefined && e.matchedDepositId !== null && e.matchedDepositId !== '') ids.push(String(e.matchedDepositId));
+          if (Array.isArray(e.matchedDepositIds)) e.matchedDepositIds.forEach(x => ids.push(String(x)));
+          if (ids.includes(tgtDep)) return true;
+        }
+        if (tgtAmt > 0 && tgtName && this.coreName(e.partnerCompanyName) === tgtName && (Number(e.totalAmount) || 0) === tgtAmt) return true;
+        return false;
+      });
+    }
+  },
+
   // 토스트 메시지
   showToast(message, type = 'success', duration = 3000) {
     const container = document.getElementById('toastContainer');

@@ -732,7 +732,34 @@ const TaxInvoiceRequestModule = {
     });
   },
 
-  async _submitForm() {
+  // 요청 시 같은 건이 이미 있으면 경고 (이중발급 원천 차단)
+  _showDupWarning(dups) {
+    const rows = dups.map(d => `
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;padding:9px 10px;border-bottom:1px solid var(--color-border);">
+        <div style="min-width:0;">
+          <div style="font-weight:700;">${Utils.escapeHtml(d.partnerCompanyName || '-')} · ${Utils.formatCurrency(d.totalAmount)}</div>
+          <div class="text-xs text-muted">${Utils.escapeHtml(d.requestNumber || '')} · ${d.issueDate ? '발행일 ' + Utils.formatDate(d.issueDate) : '작성 ' + Utils.formatDate(d.createdAt)} · 요청자 ${Utils.escapeHtml(d.requesterName || '-')}</div>
+          ${d.reason ? `<div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">사유: ${Utils.escapeHtml(d.reason)}</div>` : ''}
+        </div>
+        <div style="flex-shrink:0;">${Utils.statusBadge(d.status || '요청')}</div>
+      </div>`).join('');
+    Utils.openModal(`
+      <div class="modal-header"><h3>⚠️ 이미 있는 건이에요</h3><button class="modal-close" onclick="Utils.closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div style="padding:12px;background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;margin-bottom:12px;font-size:0.9rem;color:#92400e;line-height:1.5;">
+          같은 거래처·금액(또는 같은 입금건)으로 <strong>${dups.length}건</strong>이 이미 요청/발행되어 있어요.<br>
+          <strong>이중발급을 막기 위해</strong> 아래를 확인해 주세요. 정말 별개의 건이면 그대로 요청하시면 됩니다.
+        </div>
+        <div style="max-height:320px;overflow-y:auto;border:1px solid var(--color-border);border-radius:8px;">${rows}</div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소 (요청 안 함)</button>
+        <button class="btn btn-warning" onclick="Utils.closeModal(); TaxInvoiceRequestModule._submitForm(true);">그래도 요청 (별개 건임)</button>
+      </div>
+    `, { size: 'modal-lg' });
+  },
+
+  async _submitForm(skipDupCheck) {
     const user = Auth.currentUser();
     const reason = document.getElementById('reason').value.trim();
     const amount = Number(document.getElementById('amount').value) || 0;
@@ -775,6 +802,17 @@ const TaxInvoiceRequestModule = {
       Utils.showToast('올바른 이메일 형식을 입력해 주세요.', 'error');
       document.getElementById('partnerEmail').focus();
       return;
+    }
+
+    // ── 중복 요청 자동 경고 (누구나 검색 안 해도 시스템이 잡아줌) ──
+    // 같은 업체+금액(월 무시) 또는 같은 입금건에 이미 요청/발행된 게 있으면 그 자리에서 경고
+    if (!skipDupCheck) {
+      const _totalForCheck = amount + Math.round(amount * 0.1);
+      const _existingInv = await DB.getAll('taxInvoiceRequests');
+      const _dups = Utils.Dedup.findInvoiceDuplicates(_existingInv, {
+        partnerCompanyName, totalAmount: _totalForCheck, matchedDepositId: this._linkedDepositId
+      });
+      if (_dups.length > 0) { this._showDupWarning(_dups); return; }
     }
 
     const taxAmount = Math.round(amount * 0.1);

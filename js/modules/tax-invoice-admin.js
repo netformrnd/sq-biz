@@ -58,15 +58,7 @@ const TaxInvoiceAdminModule = {
     // (발행 년월까지 봐서, 다른 달의 정상 반복매출은 중복으로 안 잡음)
     // 거래처명은 표기 차이(단체명:, 입주자대표회의, 아파트, ㈜ 등)를 걷어내고 '핵심 이름'만 비교
     //  → 위하고 붙여넣기(INV-)와 앱 발행(TIR-)이 이름 표기만 달라 못 잡던 중복을 잡기 위함
-    const _ym = (d) => { const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : ''; };
-    const _coreName = (s) => (s || '')
-      .replace(/단체명\s*[:：]?/g, '')
-      .replace(/주식회사|유한회사|입주자대표회의|입주자대표|대표회의|관리사무소|관리단|입주자|아파트/g, '')
-      .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
-      .toLowerCase();
-    const _dupKey = (i) => _coreName(i.partnerCompanyName)
-      + '|' + (Number(i.totalAmount) || 0)
-      + '|' + _ym(i.issueDate || i.createdAt);
+    const _dupKey = (i) => Utils.Dedup.invoiceKey(i);   // 공용 중복판정 (Utils.Dedup) 사용
     const _dupCount = {};
     items.forEach(i => { if (i.status === '취소') return; const k = _dupKey(i); _dupCount[k] = (_dupCount[k] || 0) + 1; });
     const isDup = (i) => i.status !== '취소' && _dupCount[_dupKey(i)] >= 2;

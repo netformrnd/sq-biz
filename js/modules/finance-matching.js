@@ -736,6 +736,8 @@ const FinanceMatchingModule = {
     deposit.matchStatus = '매칭완료';
     deposit.updatedAt = new Date().toISOString();
     await DB.update('deposits', deposit);
+    // 별칭 학습: 이 입금자명 ↔ 이 거래처명 (다음부터 이름 달라도 자동매칭)
+    if (window.PartnerAlias) { try { await PartnerAlias.learn(deposit.depositorName, invoice.partnerCompanyName); } catch (e) { console.warn('[별칭] 학습 실패:', e); } }
 
     await DB.add('matchingLog', {
       invoiceId: invoice.id,
@@ -852,6 +854,8 @@ const FinanceMatchingModule = {
 
   // 거래처명 유사 판정 (완전일치/포함 OR 3글자 이상 공통) — 자동매칭 공용
   _shareName(aRaw, bRaw) {
+    // 학습된 거래처 별칭이 있으면 이름이 아예 달라도 같은 거래처로 인정 (a=입금자명, b=거래처명)
+    if (window.PartnerAlias && PartnerAlias.matches(aRaw, bRaw)) return true;
     const norm = (s) => (s || '').replace(/[\s()주식회사㈜&]/g, '').toLowerCase();
     const a = norm(aRaw), b = norm(bRaw);
     if (!a || !b) return false;
@@ -871,6 +875,7 @@ const FinanceMatchingModule = {
   //  - 여러 개면: 이름 겹치는 게 하나뿐일 때만 연결, 아니면 건드리지 않음(확인필요)
   async _autoMatchByAmount(deposits) {
     if (!deposits || deposits.length === 0) return { linked: 0, ambiguous: 0 };
+    if (window.PartnerAlias) await PartnerAlias.load();   // 학습된 별칭 반영
     const user = Auth.currentUser();
     const allDeposits = await DB.getAll('deposits');
     const depositMap = {};
@@ -935,6 +940,7 @@ const FinanceMatchingModule = {
   //  - 여러 개면 이름으로 유일하게 좁혀질 때만, 아니면 확인필요
   async _autoMatchInvoiceToDeposit(invoice) {
     if (!invoice || invoice.status !== '발행완료') return { linked: 0, ambiguous: 0 };
+    if (window.PartnerAlias) await PartnerAlias.load();   // 학습된 별칭 반영
     const allDeposits = await DB.getAll('deposits');
     const depositMap = {};
     allDeposits.forEach(d => { depositMap[String(d.id)] = d; });
@@ -996,6 +1002,7 @@ const FinanceMatchingModule = {
     );
     if (!ok) return;
 
+    if (window.PartnerAlias) await PartnerAlias.load();   // 학습된 별칭 반영
     const user = Auth.currentUser();
     const allDeposits = await DB.getAll('deposits');
     const allInvoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
@@ -1007,6 +1014,7 @@ const FinanceMatchingModule = {
     // 거래처명 유사 판정: 완전일치/포함 OR 3글자 이상 공통 부분이 있으면 같은 거래처로 인정
     // (예: '이편한한강2차' ↔ '이편한세상한강신도시2차' → 공통 '이편한'/'한강')
     const shareName = (aRaw, bRaw) => {
+      if (window.PartnerAlias && PartnerAlias.matches(aRaw, bRaw)) return true;   // 학습된 별칭
       const a = normalizeName(aRaw), b = normalizeName(bRaw);
       if (!a || !b) return false;
       if (a === b || a.includes(b) || b.includes(a)) return true;
@@ -1366,6 +1374,8 @@ const FinanceMatchingModule = {
     deposit.matchStatus = '매칭완료';
     deposit.updatedAt = new Date().toISOString();
     await DB.update('deposits', deposit);
+    // 별칭 학습: 이 입금자명 ↔ 이 거래처명 (다음부터 이름 달라도 자동매칭)
+    if (window.PartnerAlias) { try { await PartnerAlias.learn(deposit.depositorName, invoice.partnerCompanyName); } catch (e) { console.warn('[별칭] 학습 실패:', e); } }
 
     await DB.add('matchingLog', {
       invoiceId: invoice.id,

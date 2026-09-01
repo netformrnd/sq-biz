@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 7;
+const DB_VERSION = 8;
 
 const DB = {
   db: null,
@@ -148,6 +148,14 @@ const DB = {
           store.createIndex('clientName', 'clientName', { unique: false });
           store.createIndex('depositDate', 'depositDate', { unique: false });
           store.createIndex('withdrawDate', 'withdrawDate', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // 거래처 별칭 (입금자명 ↔ 거래처명 학습) — v8
+        if (!db.objectStoreNames.contains('partnerAliases')) {
+          const store = db.createObjectStore('partnerAliases', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('depositKey', 'depositKey', { unique: false });
+          store.createIndex('companyKey', 'companyKey', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };

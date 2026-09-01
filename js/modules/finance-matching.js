@@ -232,7 +232,7 @@ const FinanceMatchingModule = {
             <td class="text-xs text-muted">${Utils.escapeHtml(d.orderNumber || '-')}</td>
             <td class="text-xs">${Utils.escapeHtml(d.paymentMethod || '계좌이체')}</td>
             <td><span style="display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;${statusStyle}">${statusLabel}</span>${statusExtra}</td>
-            <td class="text-xs">${Utils.escapeHtml(d.partnerCompanyName || '-')}</td>
+            <td class="text-xs">${Utils.escapeHtml(d.partnerCompanyName || (depInvoiceMap[String(d.id)] && depInvoiceMap[String(d.id)].partnerCompanyName) || '-')}</td>
             <td><span style="display:inline-block;padding:2px 6px;border-radius:4px;font-size:10px;font-weight:600;${actionStyle}">${Utils.escapeHtml(actionText)}</span></td>
             <td class="text-xs text-muted" style="max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${Utils.escapeHtml(d.memo || '-')}</td>
             <td>

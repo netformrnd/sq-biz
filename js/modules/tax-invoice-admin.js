@@ -630,6 +630,16 @@ const TaxInvoiceAdminModule = {
 
     await DB.update('taxInvoiceRequests', item);
     await DB.log('UPDATE', 'taxInvoice', id, `상태 변경: ${oldStatus} → ${newStatus}`);
+
+    // 발행완료가 되면 → 이미 있는 미매칭 입금과 자동매칭 (입금 먼저 → 나중 발행 대응)
+    if (newStatus === '발행완료' && oldStatus !== '발행완료' && window.FinanceMatchingModule?._autoMatchInvoiceToDeposit) {
+      try {
+        const r = await FinanceMatchingModule._autoMatchInvoiceToDeposit(item);
+        if (r.linked > 0) Utils.showToast(`⚡ 입금 자동매칭 완료: ${Utils.escapeHtml(r.depositName || '')} ${Utils.formatCurrency(r.amount)}`, 'success', 7000);
+        else if (r.ambiguous > 0) Utils.showToast(`금액이 맞는 미매칭 입금 ${r.ambiguous}건이 있어요. 입금내역에서 확인해 매칭하세요.`, 'info', 7000);
+      } catch (e) { console.warn('[발행 자동매칭] 실패:', e); }
+    }
+
     App.updateNotificationBadges();
     await this.render();
   },

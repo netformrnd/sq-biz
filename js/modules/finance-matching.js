@@ -930,6 +930,66 @@ const FinanceMatchingModule = {
     return { linked, ambiguous };
   },
 
+  // 발행 시 자동매칭: 이 세금계산서 ↔ 이미 있는 '미매칭 입금'을 금액으로 안전 연결 (입금 먼저 → 나중 발행 대응)
+  //  - 금액(남은금액/공급가) 일치 + 다른 계산서에 안 물린 미매칭 입금이 '딱 하나'면 자동 연결
+  //  - 여러 개면 이름으로 유일하게 좁혀질 때만, 아니면 확인필요
+  async _autoMatchInvoiceToDeposit(invoice) {
+    if (!invoice || invoice.status !== '발행완료') return { linked: 0, ambiguous: 0 };
+    const allDeposits = await DB.getAll('deposits');
+    const depositMap = {};
+    allDeposits.forEach(d => { depositMap[String(d.id)] = d; });
+
+    let already = 0;
+    for (const id of this._getInvoiceMatchedIds(invoice)) { const dd = depositMap[String(id)]; if (dd) already += (dd.amount || 0); }
+    const remaining = (invoice.totalAmount || 0) - already;
+    if (remaining <= 0) return { linked: 0, ambiguous: 0 };
+
+    // 이미 다른 세금계산서에 물린 입금은 후보에서 제외
+    const linkedElsewhere = new Set();
+    const allInv = await DB.getAll('taxInvoiceRequests');
+    allInv.forEach(inv => { if (String(inv.id) !== String(invoice.id)) this._getInvoiceMatchedIds(inv).forEach(x => linkedElsewhere.add(String(x))); });
+
+    const cands = allDeposits.filter(d => {
+      if (d.matchStatus === '매칭완료') return false;
+      if ((d.actionRequired || '').startsWith('처리완료')) return false;
+      if (linkedElsewhere.has(String(d.id))) return false;
+      if ((d.amount || 0) <= 0) return false;
+      const matchRemain = Math.abs(remaining - d.amount) < 10;
+      const matchSupply = already === 0 && (invoice.supplyAmount || 0) > 0 && Math.abs((invoice.supplyAmount || 0) - d.amount) < 10;
+      return matchRemain || matchSupply;
+    });
+    if (cands.length === 0) return { linked: 0, ambiguous: 0 };
+
+    let chosen = null;
+    if (cands.length === 1) chosen = cands[0];
+    else {
+      const named = cands.filter(d => this._shareName(d.depositorName, invoice.partnerCompanyName));
+      if (named.length === 1) chosen = named[0];
+    }
+    if (!chosen) return { linked: 0, ambiguous: cands.length };
+
+    const user = Auth.currentUser();
+    const existingIds = this._getInvoiceMatchedIds(invoice).filter(id => String(id) !== String(chosen.id));
+    const newIds = [...existingIds, chosen.id];
+    invoice.matchedDepositIds = newIds.map(String);
+    invoice.matchedDepositId = String(newIds[0]);
+    invoice.updatedAt = new Date().toISOString();
+    await DB.update('taxInvoiceRequests', invoice);
+
+    chosen.matchedInvoiceId = invoice.id;
+    chosen.matchStatus = '매칭완료';
+    chosen.updatedAt = new Date().toISOString();
+    await DB.update('deposits', chosen);
+
+    await DB.add('matchingLog', {
+      invoiceId: invoice.id, depositId: chosen.id, matchedAmount: chosen.amount,
+      matchedBy: user.id, matchedByName: user.displayName,
+      matchedAt: new Date().toISOString(), memo: '발행시 자동매칭'
+    });
+    await DB.log('MATCH', 'matching', null, `발행시 자동매칭: ${invoice.partnerCompanyName} ↔ ${chosen.depositorName}`);
+    return { linked: 1, ambiguous: 0, depositName: chosen.depositorName, amount: chosen.amount };
+  },
+
   async _autoMatch() {
     const ok = window.confirm(
       '⚡ 자동매칭\n\n금액이 정확히 같고 거래처 이름도 맞는, "확실한 건만" 자동으로 매칭합니다.\n애매한 건(금액 다름·이름 안 맞음·후보 여러 개)은 건드리지 않고 그대로 둡니다.\n\n진행할까요?'

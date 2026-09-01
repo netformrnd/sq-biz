@@ -186,7 +186,7 @@ const TaxInvoiceAdminModule = {
               <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
               <td>${depositDateCell}</td>
               <td>${depositorCell}</td>
-              <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">${Utils.escapeHtml(item.partnerCompanyName || '-')}${isDup(item) ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="중복 의심">🔁중복?</span>' : ''}</td>
+              <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}" style="white-space:nowrap;">${isDup(item) ? '<span style="margin-right:5px;padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="중복 의심">🔁중복?</span>' : ''}${Utils.escapeHtml(item.partnerCompanyName || '-')}</td>
               <td title="${Utils.escapeHtml(item.reason || '-')}">${Utils.escapeHtml(item.reason || '-')}</td>
               <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>
               <td class="text-center">${Utils.statusBadge(item.status)}</td>
@@ -231,11 +231,8 @@ const TaxInvoiceAdminModule = {
             <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
             <td>${depositDateCell}</td>
             <td>${depositorCell}</td>
-            <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}">
-              <span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">
-                ${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}
-              </span>
-              ${isDup(item) ? '<span style="display:inline-block;margin-left:5px;padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 거래처+금액이 2건 이상 (중복 의심)">🔁중복?</span>' : ''}
+            <td title="${Utils.escapeHtml(item.partnerCompanyName || '')}" style="white-space:nowrap;">
+              ${isDup(item) ? '<span style="display:inline-block;margin-right:5px;padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 거래처+금액이 2건 이상 (중복 의심) — 위하고 붙여넣기(INV)와 앱발행(TIR) 중복일 수 있어요">🔁중복?</span>' : ''}<span onclick="TaxInvoiceAdminModule._editPartnerName('${item.id}')" style="cursor:pointer;border-bottom:1px dashed var(--color-text-muted);" title="클릭하여 거래처명 수정">${Utils.escapeHtml(item.partnerCompanyName || '-')}${!item.partnerCompanyName ? ' ✏️' : ''}</span>
             </td>
             <td title="${Utils.escapeHtml(fullReason)}">${Utils.escapeHtml(fullReason)}</td>
             <td class="text-right amount">${Utils.formatCurrency(item.totalAmount)}</td>

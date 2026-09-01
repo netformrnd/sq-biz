@@ -107,9 +107,22 @@ const FinanceMatchingModule = {
     const isDepDup = (d) => _depDupCount[_depDupKey(d)] >= 2;
     const depDupSuspect = allDeposits.filter(isDepDup).length;
 
-    // 처리 완료 판별: 매칭완료 이거나, 처리완료(현금영수증/대상외/자사몰 등)로 표시된 건
-    // → 이런 건 '미매칭(발행 대기)'에서 제외 (세금계산서 대상 아닌 결산료·개인입금 등 정리용)
-    const isHandled = (d) => d.matchStatus === '매칭완료' || (d.actionRequired || '').startsWith('처리완료');
+    // ===== 세금계산서 연결 매핑 (입금건 → 발행요청/발행완료) =====
+    // 입금 데이터는 수정하지 않고, 요청 현황을 읽어 표시만 함 (중복요청 방지)
+    const _allInvoices = await DB.getAll('taxInvoiceRequests');
+    const depInvoiceMap = {};
+    for (const inv of _allInvoices) {
+      const ids = [];
+      if (inv.matchedDepositId !== undefined && inv.matchedDepositId !== null && inv.matchedDepositId !== '') ids.push(String(inv.matchedDepositId));
+      if (Array.isArray(inv.matchedDepositIds)) inv.matchedDepositIds.forEach(x => ids.push(String(x)));
+      for (const did of ids) { if (!depInvoiceMap[did]) depInvoiceMap[did] = inv; }
+    }
+
+    // 처리 완료 판별: 매칭완료 이거나, 처리완료(현금영수증/대상외 등) 표시됐거나,
+    // 이 입금으로 세금계산서가 이미 발행완료된 건 → '미매칭(발행 대기)'에서 제외
+    const isHandled = (d) => d.matchStatus === '매칭완료'
+      || (d.actionRequired || '').startsWith('처리완료')
+      || (depInvoiceMap[String(d.id)] && depInvoiceMap[String(d.id)].status === '발행완료');
 
     // 필터
     let filtered = [...allDeposits];
@@ -163,16 +176,6 @@ const FinanceMatchingModule = {
 
     const sortInd = (f) => this.sortField === f ? (this.sortDir === 'asc' ? '↑' : '↓') : '⇅';
 
-    // ===== 세금계산서 요청 상태 매핑 (입금건 → 발행요청) =====
-    // 입금 데이터는 수정하지 않고, 요청 현황을 읽어 표시만 함 (중복요청 방지)
-    const _allInvoices = await DB.getAll('taxInvoiceRequests');
-    const depInvoiceMap = {};
-    for (const inv of _allInvoices) {
-      const ids = [];
-      if (inv.matchedDepositId !== undefined && inv.matchedDepositId !== null && inv.matchedDepositId !== '') ids.push(String(inv.matchedDepositId));
-      if (Array.isArray(inv.matchedDepositIds)) inv.matchedDepositIds.forEach(x => ids.push(String(x)));
-      for (const did of ids) { if (!depInvoiceMap[did]) depInvoiceMap[did] = inv; }
-    }
     const canRequestInvoice = (typeof App !== 'undefined' && App.hasMenuPermission) ? App.hasMenuPermission('tax-invoice') : isAdmin;
 
     // 부분매칭 판별용: 세금계산서 id맵 + 입금 id맵
@@ -188,9 +191,15 @@ const FinanceMatchingModule = {
     } else {
       tableRows = filtered.map(d => {
         const matched = d.matchStatus === '매칭완료';
-        // 처리사항 자동 판별
+        // 처리사항 자동 판별 — 이 입금에 연결된 세금계산서가 있으면 그 상태를 우선 반영
         let actionText = d.actionRequired || '';
-        if (!actionText) actionText = matched ? '처리완료(선발행매칭)' : '세금계산서 발행필요';
+        if (!actionText) {
+          const _linkedInv = depInvoiceMap[String(d.id)];
+          if (matched) actionText = '처리완료(선발행매칭)';
+          else if (_linkedInv && _linkedInv.status === '발행완료') actionText = '처리완료(발행)';  // 이미 발행됨
+          else if (_linkedInv) actionText = '세금계산서 요청됨';                                  // 요청·검토중
+          else actionText = '세금계산서 발행필요';
+        }
         const actionDone = actionText.startsWith('처리완료');
         const actionStyle = actionDone
           ? 'background:rgba(16,185,129,.12);color:#059669;'

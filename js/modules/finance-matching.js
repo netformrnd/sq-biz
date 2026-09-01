@@ -2155,9 +2155,13 @@ const FinanceMatchingModule = {
     // ── 중복 예방: 이미 등록된 세금계산서(요청건 TIR 포함)와 겹치면 자동 체크 해제 + 표시
     try {
       const existing = await DB.getAll('taxInvoiceRequests');
+      // 거래처명 표기 차이(단체명:, 입주자대표회의, 아파트, ㈜ 등)를 걷어낸 '핵심 이름'으로 비교
+      //  → 위하고(INV) 붙여넣기와 앱발행(TIR)이 이름 표기만 달라 중복 못 잡던 문제 예방
       const _n = (s) => (s || '')
+        .replace(/단체명\s*[:：]?/g, '')
+        .replace(/주식회사|유한회사|입주자대표회의|입주자대표|대표회의|관리사무소|관리단|입주자|아파트/g, '')
         .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
-        .replace(/주식회사|유한회사/g, '').toLowerCase();
+        .toLowerCase();
       const _ym = (d) => { const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : ''; };
       const byKey = {}, byApproval = {};
       existing.forEach(e => {

@@ -71,6 +71,7 @@ const Utils = {
       '검토중': 'badge-review',
       '발행완료': 'badge-complete',
       '반려': 'badge-reject',
+      '취소': 'badge-reject',
       '매칭완료': 'badge-matched',
       '미매칭': 'badge-unmatched',
       '부분매칭': 'badge-partial'

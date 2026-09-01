@@ -49,7 +49,7 @@ const TaxInvoiceAdminModule = {
     const isToday = (v) => (v || '').slice(0, 10) === todayStr;
 
     const counts = { all: items.length };
-    ['요청', '검토중', '발행완료', '반려'].forEach(s => {
+    ['요청', '검토중', '발행완료', '반려', '취소'].forEach(s => {
       counts[s] = items.filter(i => i.status === s).length;
     });
     counts['당일'] = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt)).length;
@@ -68,8 +68,8 @@ const TaxInvoiceAdminModule = {
       + '|' + (Number(i.totalAmount) || 0)
       + '|' + _ym(i.issueDate || i.createdAt);
     const _dupCount = {};
-    items.forEach(i => { const k = _dupKey(i); _dupCount[k] = (_dupCount[k] || 0) + 1; });
-    const isDup = (i) => _dupCount[_dupKey(i)] >= 2;
+    items.forEach(i => { if (i.status === '취소') return; const k = _dupKey(i); _dupCount[k] = (_dupCount[k] || 0) + 1; });
+    const isDup = (i) => i.status !== '취소' && _dupCount[_dupKey(i)] >= 2;
     const dupSuspectCount = items.filter(isDup).length;
 
     // 미입금 감지: 발행완료인데 매칭된 입금이 없음(또는 매칭합계가 계산서합계에 못 미침) = 미수금
@@ -212,7 +212,12 @@ const TaxInvoiceAdminModule = {
           actionBtns = `
             <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
             <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '요청')">요청으로</button>
-            <button class="btn btn-warning btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '검토중')">검토중으로</button>
+            <button class="btn btn-sm" style="background:#f1f5f9;border:1px solid #94a3b8;color:#475569;" onclick="TaxInvoiceAdminModule._cancelInvoice('${item.id}')" title="세금계산서 취소 처리 (착오에 의한 이중발급 등)">🚫 취소</button>
+          `;
+        } else if (item.status === '취소') {
+          actionBtns = `
+            <button class="btn btn-ghost btn-sm" onclick="TaxInvoiceAdminModule._openReviewDetail('${item.id}')" title="상세보기">👁️</button>
+            <button class="btn btn-secondary btn-sm" onclick="TaxInvoiceAdminModule._changeStatus('${item.id}', '발행완료')" title="취소 해제 → 발행완료로 되돌리기">↩️ 취소해제</button>
           `;
         } else if (item.status === '반려') {
           actionBtns = `
@@ -277,6 +282,9 @@ const TaxInvoiceAdminModule = {
         <div class="tab-item ${this.filterStatus === '반려' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('반려')">
           반려 <span class="text-muted">(${counts['반려']})</span>
         </div>
+        ${counts['취소'] > 0 ? `<div class="tab-item ${this.filterStatus === '취소' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('취소')">
+          🚫 취소 <span class="text-muted">(${counts['취소']})</span>
+        </div>` : ''}
         <button onclick="TaxInvoiceAdminModule._toggleUnpaid()" title="발행했는데 입금이 안 된(미수금) 세금계산서만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterUnpaid ? '#d97706' : '#e2e8f0'};background:${this.filterUnpaid ? '#fef3c7' : '#F1F5F9'};color:${this.filterUnpaid ? '#b45309' : 'inherit'};font-weight:${this.filterUnpaid ? '700' : '400'};">
           💰 미입금만 ${unpaidCount > 0 ? `(${unpaidCount})` : ''}
         </button>
@@ -359,6 +367,7 @@ const TaxInvoiceAdminModule = {
     if (status !== '검토중') items.push({ icon: '🔍', label: '검토중으로', onClick: () => this._changeStatus(id, '검토중') });
     if (status !== '발행완료') items.push({ icon: '✅', label: '발행완료 처리', onClick: () => this._changeStatus(id, '발행완료') });
     if (status !== '반려') items.push({ icon: '❌', label: '반려', onClick: () => this._reject(id) });
+    if (status !== '취소') items.push({ icon: '🚫', label: '취소 처리 (이중발급 등)', onClick: () => this._cancelInvoice(id) });
 
     items.push({ divider: true });
     items.push({ icon: '🗑️', label: '삭제', danger: true, onClick: () => this._deleteRequest(id) });
@@ -505,6 +514,13 @@ const TaxInvoiceAdminModule = {
         <strong class="text-danger">반려 사유:</strong> ${Utils.escapeHtml(item.rejectReason)}
       </div>`;
     }
+    // 취소 사유
+    if (item.status === '취소') {
+      rejectInfo += `<div class="mt-4" style="padding:var(--sp-3);background:#f1f5f9;border:1px solid #cbd5e1;border-radius:var(--radius-sm);">
+        <strong style="color:#475569;">🚫 취소 사유:</strong> ${Utils.escapeHtml(item.cancelReason || '착오에 의한 이중발급')}
+        ${item.cancelledAt ? `<div class="text-xs text-muted" style="margin-top:4px;">취소일: ${Utils.formatDate(item.cancelledAt)}${item.cancelledByName ? ' · ' + Utils.escapeHtml(item.cancelledByName) : ''}</div>` : ''}
+      </div>`;
+    }
 
     // 하단 액션 버튼 (상태에 따라)
     let footerBtns = `<button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>`;
@@ -609,7 +625,8 @@ const TaxInvoiceAdminModule = {
     item.updatedAt = new Date().toISOString();
 
     if (newStatus === '발행완료') {
-      item.issueDate = new Date().toISOString();
+      if (!item.issueDate) item.issueDate = new Date().toISOString();  // 기존 발행일 있으면 유지(취소해제 대응)
+      if (oldStatus === '취소') { item.cancelReason = null; item.cancelledAt = null; }  // 취소 해제
     }
     if (newStatus === '요청') {
       item.issueDate = null;
@@ -622,6 +639,29 @@ const TaxInvoiceAdminModule = {
     await DB.update('taxInvoiceRequests', item);
     await DB.log('UPDATE', 'taxInvoice', id, `상태 변경: ${oldStatus} → ${newStatus}`);
     App.updateNotificationBadges();
+    await this.render();
+  },
+
+  // ===== 취소 처리 (착오에 의한 이중발급 등) =====
+  async _cancelInvoice(id) {
+    const item = await DB.get('taxInvoiceRequests', id);
+    if (!item) return;
+    const reason = prompt(
+      `세금계산서 취소 처리\n\n${item.requestNumber} / ${item.partnerCompanyName || ''} / ${Utils.formatCurrency(item.totalAmount)}\n\n취소 사유를 입력하세요 (홈택스 취소와 동일하게 기록됩니다):`,
+      '착오에 의한 이중발급'
+    );
+    if (reason === null) return;  // 취소 버튼
+    const user = Auth.currentUser();
+    item.status = '취소';
+    item.cancelReason = (reason || '').trim() || '착오에 의한 이중발급';
+    item.cancelledAt = new Date().toISOString();
+    item.cancelledBy = user.id;
+    item.cancelledByName = user.displayName;
+    item.updatedAt = new Date().toISOString();
+    await DB.update('taxInvoiceRequests', item);
+    await DB.log('UPDATE', 'taxInvoice', id, `세금계산서 취소: ${item.cancelReason}`);
+    App.updateNotificationBadges();
+    Utils.showToast(`취소 처리했습니다. (사유: ${item.cancelReason})`, 'success', 6000);
     await this.render();
   },
 

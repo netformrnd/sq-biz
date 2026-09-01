@@ -197,7 +197,7 @@ const FinanceMatchingModule = {
           const _linkedInv = depInvoiceMap[String(d.id)];
           if (matched) actionText = '처리완료(선발행매칭)';
           else if (_linkedInv && _linkedInv.status === '발행완료') actionText = '처리완료(발행)';  // 이미 발행됨
-          else if (_linkedInv) actionText = '세금계산서 요청됨';                                  // 요청·검토중
+          else if (_linkedInv && _linkedInv.status !== '취소') actionText = '세금계산서 요청됨';    // 요청·검토중 (취소는 제외)
           else actionText = '세금계산서 발행필요';
         }
         const actionDone = actionText.startsWith('처리완료');

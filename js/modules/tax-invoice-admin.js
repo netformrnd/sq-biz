@@ -56,10 +56,15 @@ const TaxInvoiceAdminModule = {
 
     // 중복 감지: 같은 거래처(정규화)+합계금액+발행년월 이 2건 이상이면 '중복 의심'
     // (발행 년월까지 봐서, 다른 달의 정상 반복매출은 중복으로 안 잡음)
+    // 거래처명은 표기 차이(단체명:, 입주자대표회의, 아파트, ㈜ 등)를 걷어내고 '핵심 이름'만 비교
+    //  → 위하고 붙여넣기(INV-)와 앱 발행(TIR-)이 이름 표기만 달라 못 잡던 중복을 잡기 위함
     const _ym = (d) => { const m = String(d || '').match(/(\d{4})[-.\/]?(\d{1,2})/); return m ? m[1] + '-' + m[2].padStart(2, '0') : ''; };
-    const _dupKey = (i) => ((i.partnerCompanyName || '')
-        .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
-        .replace(/주식회사|유한회사/g, '').toLowerCase())
+    const _coreName = (s) => (s || '')
+      .replace(/단체명\s*[:：]?/g, '')
+      .replace(/주식회사|유한회사|입주자대표회의|입주자대표|대표회의|관리사무소|관리단|입주자|아파트/g, '')
+      .replace(/[(（)）㈜\s&·.,\-_/]/g, '')
+      .toLowerCase();
+    const _dupKey = (i) => _coreName(i.partnerCompanyName)
       + '|' + (Number(i.totalAmount) || 0)
       + '|' + _ym(i.issueDate || i.createdAt);
     const _dupCount = {};

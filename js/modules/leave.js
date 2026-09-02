@@ -163,6 +163,9 @@ const LeaveModule = {
                 <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openPendingList()">
                   ⏳ 승인대기 ${pendingCount + cancelReqCount > 0 ? `<span class="badge badge-warning" style="margin-left:6px;">${pendingCount + cancelReqCount}</span>` : ''}
                 </button>
+                <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openSpecialLeaves()" title="유산·사산휴가/육아휴직/병가 등 (관리자 전용, 담당자에게 안 보임)">
+                  🗂️ 특별휴가·휴직
+                </button>
                 <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openMigrateModal()" title="기존 연차 시스템에서 데이터 이관">
                   📥 데이터 이관
                 </button>
@@ -903,6 +906,132 @@ const LeaveModule = {
       status: 'approved',
       cancelReason: null
     }, { successMsg: '취소 요청 반려됨', logAction: '연차취소반려' });
+  },
+
+  // ===== 관리자 전용: 특별휴가·휴직 (유산·사산휴가/육아휴직/병가 등) =====
+  //  담당자 화면(내 신청 내역)엔 안 뜨고, 관리자만 확인 — 민감 항목 보호 + 연차 미차감
+  SPECIAL_LEAVE_TYPES: ['유산·사산 휴가', '육아휴직', '배우자 출산휴가', '병가', '가족돌봄휴가', '기타'],
+
+  _daysBetween(s, e) {
+    if (!s || !e) return '';
+    const a = new Date(s), b = new Date(e);
+    if (isNaN(a) || isNaN(b)) return '';
+    return Math.floor((b - a) / (24 * 3600 * 1000)) + 1;
+  },
+
+  async openSpecialLeaves() {
+    if (!Auth.isAdmin()) return;
+    const list = (await DB.getAll('specialLeaves')).sort((a, b) => (b.startDate || '').localeCompare(a.startDate || ''));
+    this._specialLeaves = list;
+    const uname = (id) => { const u = this.users.find(x => String(x.id) === String(id)); return u ? u.displayName : '(퇴사/미지정)'; };
+    const rows = list.length === 0
+      ? '<tr><td colspan="6" style="padding:24px;text-align:center;color:#94a3b8;">기록 없음</td></tr>'
+      : list.map(r => `
+        <tr style="border-bottom:1px solid #F1F5F9;">
+          <td style="padding:9px;font-weight:600;">${Utils.escapeHtml(uname(r.userId))}</td>
+          <td style="padding:9px;">${Utils.escapeHtml(r.type || '-')}</td>
+          <td style="padding:9px;font-family:monospace;">${Utils.formatDate(r.startDate)} ~ ${Utils.formatDate(r.endDate)}${this._daysBetween(r.startDate, r.endDate) !== '' ? ` <span style="color:#64748b;">(${this._daysBetween(r.startDate, r.endDate)}일)</span>` : ''}</td>
+          <td style="padding:9px;text-align:center;"><span style="padding:1px 8px;border-radius:4px;font-size:11px;font-weight:700;background:${r.paid === '무급' ? 'rgba(148,163,184,.2)' : 'rgba(16,185,129,.15)'};color:${r.paid === '무급' ? '#475569' : '#059669'};">${r.paid || '유급'}</span></td>
+          <td style="padding:9px;font-size:0.85rem;color:#64748b;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${Utils.escapeHtml(r.note || '')}">${Utils.escapeHtml(r.note || '-')}</td>
+          <td style="padding:9px;text-align:right;white-space:nowrap;">
+            <button class="btn btn-ghost btn-sm" onclick="LeaveModule._openSpecialLeaveForm('${r.id}')" title="수정">✏️</button>
+            <button class="btn btn-ghost btn-sm text-danger" onclick="LeaveModule._deleteSpecialLeave('${r.id}')" title="삭제">🗑️</button>
+          </td>
+        </tr>`).join('');
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>🗂️ 특별휴가·휴직 관리 <span class="text-xs text-muted" style="font-weight:400;">관리자 전용 · 담당자에게 안 보임 · 연차 미차감</span></h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div style="margin-bottom:12px;text-align:right;">
+          <button class="btn btn-primary btn-sm" onclick="LeaveModule._openSpecialLeaveForm()">+ 기록 추가</button>
+        </div>
+        <div style="overflow-x:auto;border:1px solid var(--color-border);border-radius:8px;">
+          <table style="width:100%;border-collapse:collapse;min-width:640px;">
+            <thead><tr style="background:#F8FAFC;">
+              <th style="padding:9px;text-align:left;font-size:0.82rem;color:#64748B;">대상</th>
+              <th style="padding:9px;text-align:left;font-size:0.82rem;color:#64748B;">유형</th>
+              <th style="padding:9px;text-align:left;font-size:0.82rem;color:#64748B;">기간</th>
+              <th style="padding:9px;text-align:center;font-size:0.82rem;color:#64748B;">유급</th>
+              <th style="padding:9px;text-align:left;font-size:0.82rem;color:#64748B;">비고</th>
+              <th style="padding:9px;"></th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button></div>
+    `, { size: 'modal-lg' });
+  },
+
+  _openSpecialLeaveForm(id) {
+    const r = id ? (this._specialLeaves || []).find(x => String(x.id) === String(id)) : null;
+    const userOpts = this.users.map(u => `<option value="${u.id}" ${r && String(r.userId) === String(u.id) ? 'selected' : ''}>${Utils.escapeHtml(u.displayName)}</option>`).join('');
+    const typeOpts = this.SPECIAL_LEAVE_TYPES.map(t => `<option value="${t}" ${r && r.type === t ? 'selected' : ''}>${t}</option>`).join('');
+    Utils.openModal(`
+      <div class="modal-header"><h3>${r ? '특별휴가·휴직 수정' : '특별휴가·휴직 추가'}</h3><button class="modal-close" onclick="Utils.closeModal()">&times;</button></div>
+      <div class="modal-body">
+        <div class="form-group"><label class="form-label">대상자 <span class="required">*</span></label>
+          <select id="slUser" class="form-input">${userOpts}</select></div>
+        <div class="form-group"><label class="form-label">유형 <span class="required">*</span></label>
+          <select id="slType" class="form-input">${typeOpts}</select></div>
+        <div class="form-row" style="display:flex;gap:10px;">
+          <div class="form-group" style="flex:1;"><label class="form-label">시작일 <span class="required">*</span></label>
+            <input type="date" id="slStart" class="form-input" value="${r ? (r.startDate || '') : ''}"></div>
+          <div class="form-group" style="flex:1;"><label class="form-label">종료일 <span class="required">*</span></label>
+            <input type="date" id="slEnd" class="form-input" value="${r ? (r.endDate || '') : ''}"></div>
+        </div>
+        <div class="form-group"><label class="form-label">유급 여부</label>
+          <select id="slPaid" class="form-input">
+            <option value="유급" ${!r || r.paid === '유급' ? 'selected' : ''}>유급</option>
+            <option value="무급" ${r && r.paid === '무급' ? 'selected' : ''}>무급</option>
+          </select></div>
+        <div class="form-group"><label class="form-label">비고 (대상 자녀·복직예정일 등)</label>
+          <textarea id="slNote" class="form-input" rows="2">${r ? Utils.escapeHtml(r.note || '') : ''}</textarea></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="LeaveModule.openSpecialLeaves()">← 목록</button>
+        <button class="btn btn-primary" onclick="LeaveModule._saveSpecialLeave(${r ? `'${r.id}'` : 'null'})">저장</button>
+      </div>
+    `);
+  },
+
+  async _saveSpecialLeave(id) {
+    const userId = document.getElementById('slUser').value;
+    const type = document.getElementById('slType').value;
+    const startDate = document.getElementById('slStart').value;
+    const endDate = document.getElementById('slEnd').value;
+    const paid = document.getElementById('slPaid').value;
+    const note = document.getElementById('slNote').value.trim();
+    if (!userId || !type || !startDate || !endDate) { Utils.showToast('대상자·유형·기간을 입력해 주세요.', 'error'); return; }
+    if (endDate < startDate) { Utils.showToast('종료일이 시작일보다 빠릅니다.', 'error'); return; }
+    const user = Auth.currentUser();
+    try {
+      if (id) {
+        const cur = await DB.get('specialLeaves', id);
+        await DB.update('specialLeaves', { ...cur, userId, type, startDate, endDate, paid, note, updatedAt: new Date().toISOString() });
+      } else {
+        await DB.add('specialLeaves', {
+          userId, type, startDate, endDate, paid, note,
+          createdBy: user.id, createdByName: user.displayName,
+          createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
+        });
+      }
+      await DB.log(id ? 'UPDATE' : 'CREATE', 'specialLeave', id || null, `특별휴가·휴직 ${id ? '수정' : '등록'}: ${type} (${startDate}~${endDate})`);
+      Utils.showToast('저장 완료', 'success');
+      this.openSpecialLeaves();
+    } catch (e) { Utils.showToast('저장 실패: ' + e.message, 'error'); }
+  },
+
+  async _deleteSpecialLeave(id) {
+    if (!confirm('이 특별휴가·휴직 기록을 삭제할까요?')) return;
+    try {
+      await DB.delete('specialLeaves', id);
+      await DB.log('DELETE', 'specialLeave', id, '특별휴가·휴직 삭제');
+      Utils.showToast('삭제 완료', 'success');
+      this.openSpecialLeaves();
+    } catch (e) { Utils.showToast('삭제 실패: ' + e.message, 'error'); }
   },
 
   // ===== 관리자: 팀원 연차 관리 =====

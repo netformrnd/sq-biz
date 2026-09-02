@@ -3,7 +3,7 @@
    ============================================ */
 
 const DB_NAME = 'sq_architects_db';
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 const DB = {
   db: null,
@@ -156,6 +156,14 @@ const DB = {
           const store = db.createObjectStore('partnerAliases', { keyPath: 'id', autoIncrement: true });
           store.createIndex('depositKey', 'depositKey', { unique: false });
           store.createIndex('companyKey', 'companyKey', { unique: false });
+          store.createIndex('createdAt', 'createdAt', { unique: false });
+        }
+
+        // 특별휴가·휴직 (유산·사산휴가/육아휴직/병가 등, 관리자 전용) — v9
+        if (!db.objectStoreNames.contains('specialLeaves')) {
+          const store = db.createObjectStore('specialLeaves', { keyPath: 'id', autoIncrement: true });
+          store.createIndex('userId', 'userId', { unique: false });
+          store.createIndex('startDate', 'startDate', { unique: false });
           store.createIndex('createdAt', 'createdAt', { unique: false });
         }
       };

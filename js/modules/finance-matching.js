@@ -492,12 +492,24 @@ const FinanceMatchingModule = {
     return [];
   },
 
+  // 세금계산서에 실제로 할당된 매칭금액 (합산입금 대응)
+  //  - matchedAllocations[depositId]가 있으면 그 금액, 없으면 입금 전액(기존 매칭 호환)
+  _invoiceMatchedAmount(invoice, depositMap) {
+    const alloc = invoice.matchedAllocations || {};
+    let amt = 0;
+    for (const id of this._getInvoiceMatchedIds(invoice)) {
+      if (alloc[id] !== undefined && alloc[id] !== null) amt += Number(alloc[id]) || 0;
+      else { const dd = depositMap ? depositMap[String(id)] : null; if (dd) amt += (dd.amount || 0); }
+    }
+    return amt;
+  },
+
   // 세금계산서의 매칭 상태 판별 (미매칭/부분입금/완전매칭)
   _getInvoiceMatchStatus(invoice, depositMap) {
     const ids = this._getInvoiceMatchedIds(invoice);
     if (ids.length === 0) return { status: 'unmatched', matchedAmount: 0, count: 0 };
     const deposits = ids.map(id => depositMap ? depositMap[id] : null).filter(Boolean);
-    const matchedAmount = deposits.reduce((s, d) => s + (d.amount || 0), 0);
+    const matchedAmount = this._invoiceMatchedAmount(invoice, depositMap);
     const diff = Math.abs(matchedAmount - (invoice.totalAmount || 0));
     const status = diff < 10 ? 'full' : (matchedAmount > 0 ? 'partial' : 'unmatched');
     return { status, matchedAmount, count: ids.length, deposits };
@@ -678,6 +690,25 @@ const FinanceMatchingModule = {
             </div>
             <button class="btn btn-primary" onclick="FinanceMatchingModule._matchFromDetailSelect('${d.id}')">🔗 선택한 세금계산서와 매칭</button>
             ${unmatchedInvoices.length === 0 ? '<div class="text-xs text-muted mt-2">매칭 가능한 발행완료 세금계산서가 없습니다.</div>' : ''}
+
+            ${unmatchedInvoices.length > 1 ? `
+              <div style="margin-top:16px;padding-top:14px;border-top:1px dashed var(--color-border);">
+                <div class="text-xs text-muted" style="margin-bottom:8px;">🧩 <strong>합산 입금</strong> — 이 입금 하나가 여러 세금계산서에 해당하면 아래에서 <strong>여러 개 체크</strong>하세요 (금액 자동 배분)</div>
+                <div style="max-height:180px;overflow-y:auto;border:1px solid var(--color-border);border-radius:8px;padding:6px;">
+                  ${unmatchedInvoices.map(i => {
+                    const info = this._getInvoiceMatchStatus(i, depositMap);
+                    const rem = (i.totalAmount || 0) - info.matchedAmount;
+                    return `<label style="display:flex;align-items:center;gap:8px;padding:5px 6px;font-size:0.86rem;cursor:pointer;">
+                      <input type="checkbox" class="split-inv" value="${i.id}" data-rem="${rem}" onchange="FinanceMatchingModule._onSplitToggle(${d.amount})">
+                      <span style="flex:1;min-width:0;">${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.escapeHtml(i.requestNumber)}</span>
+                      <span class="fw-semibold">${Utils.formatCurrency(rem)}</span>
+                    </label>`;
+                  }).join('')}
+                </div>
+                <div id="splitSum" class="text-xs" style="margin-top:8px;color:var(--color-text-muted);">선택 합계: ₩0 / 입금액 ${Utils.formatCurrency(d.amount)}</div>
+                <button class="btn btn-primary btn-sm" style="margin-top:8px;" onclick="FinanceMatchingModule._splitMatchFromDetail('${d.id}')">🧩 선택한 세금계산서들과 나눠 매칭</button>
+              </div>
+            ` : ''}
           `}
         </fieldset>
       </div>
@@ -685,6 +716,83 @@ const FinanceMatchingModule = {
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  // 합산입금: 체크한 세금계산서들의 남은금액 합계를 실시간 표시
+  _onSplitToggle(depAmount) {
+    const boxes = document.querySelectorAll('.split-inv:checked');
+    let sum = 0; boxes.forEach(b => sum += Number(b.dataset.rem) || 0);
+    const el = document.getElementById('splitSum');
+    if (!el) return;
+    let tail = '';
+    if (sum > 0) {
+      if (Math.abs(sum - depAmount) < 10) tail = ' <span style="color:#059669;font-weight:700;">✓ 딱 맞아요</span>';
+      else if (sum > depAmount) tail = ' <span style="color:#dc2626;font-weight:700;">초과</span>';
+      else tail = ' <span style="color:#b45309;font-weight:700;">부족</span>';
+    }
+    el.innerHTML = `선택 합계: <strong>${Utils.formatCurrency(sum)}</strong> / 입금액 ${Utils.formatCurrency(depAmount)}${tail}`;
+  },
+
+  // 합산입금 나눠 매칭: 한 입금을 여러 세금계산서에 금액별로 배분해서 연결
+  async _splitMatchFromDetail(depositId) {
+    const boxes = Array.from(document.querySelectorAll('.split-inv:checked'));
+    if (boxes.length < 2) { Utils.showToast('나눠 매칭은 세금계산서를 2개 이상 선택하세요.', 'error'); return; }
+    const deposit = await DB.get('deposits', depositId);
+    if (!deposit) return;
+
+    const allDeposits = await DB.getAll('deposits');
+    const depositMap = {}; allDeposits.forEach(x => { depositMap[String(x.id)] = x; });
+
+    const picked = [];
+    let sumRem = 0;
+    for (const b of boxes) {
+      const inv = await DB.get('taxInvoiceRequests', b.value);
+      if (!inv) continue;
+      const rem = (inv.totalAmount || 0) - this._invoiceMatchedAmount(inv, depositMap);
+      if (rem <= 0) continue;
+      picked.push({ inv, rem });
+      sumRem += rem;
+    }
+    if (picked.length < 2) { Utils.showToast('매칭 가능한 세금계산서가 부족합니다.', 'error'); return; }
+
+    const lines = picked.map(x => `• ${x.inv.partnerCompanyName} ${Utils.formatCurrency(x.rem)}`).join('\n');
+    const matchNote = Math.abs(sumRem - deposit.amount) < 10 ? '\n✅ 금액이 딱 맞습니다' : '\n⚠️ 선택 합계와 입금액이 다릅니다 (입금액 한도로 배분)';
+    const ok = window.confirm(`💰 입금: ${deposit.depositorName} ${Utils.formatCurrency(deposit.amount)}\n\n아래 ${picked.length}건에 나눠 매칭합니다:\n${lines}\n\n선택 합계: ${Utils.formatCurrency(sumRem)}${matchNote}\n\n진행할까요?`);
+    if (!ok) return;
+
+    const user = Auth.currentUser();
+    let allocated = 0;
+    const linkedInvIds = [];
+    for (const { inv, rem } of picked) {
+      const alloc = Math.min(rem, deposit.amount - allocated);
+      if (alloc <= 0) break;
+      const ids = this._getInvoiceMatchedIds(inv).filter(x => String(x) !== String(deposit.id));
+      inv.matchedDepositIds = [...ids, String(deposit.id)];
+      inv.matchedDepositId = String(inv.matchedDepositIds[0]);
+      inv.matchedAllocations = inv.matchedAllocations || {};
+      inv.matchedAllocations[String(deposit.id)] = alloc;
+      inv.updatedAt = new Date().toISOString();
+      await DB.update('taxInvoiceRequests', inv);
+      await DB.add('matchingLog', {
+        invoiceId: inv.id, depositId: deposit.id, matchedAmount: alloc,
+        matchedBy: user.id, matchedByName: user.displayName,
+        matchedAt: new Date().toISOString(), memo: '합산입금 나눠매칭'
+      });
+      if (window.PartnerAlias) { try { await PartnerAlias.learn(deposit.depositorName, inv.partnerCompanyName); } catch (e) { /* 무시 */ } }
+      linkedInvIds.push(String(inv.id));
+      allocated += alloc;
+    }
+
+    deposit.matchedInvoiceIds = linkedInvIds;
+    deposit.matchedInvoiceId = linkedInvIds[0] || null;
+    deposit.matchStatus = '매칭완료';
+    deposit.updatedAt = new Date().toISOString();
+    await DB.update('deposits', deposit);
+    await DB.log('MATCH', 'matching', null, `합산입금 나눠매칭: ${deposit.depositorName} → ${linkedInvIds.length}건 (${allocated})`);
+
+    Utils.closeModal();
+    Utils.showToast(`🧩 나눠 매칭 완료: ${linkedInvIds.length}건 (${Utils.formatCurrency(allocated)})`, 'success', 8000);
+    await this.render();
   },
 
   async _matchFromDetail(depositId, invoiceId) {
@@ -883,11 +991,7 @@ const FinanceMatchingModule = {
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
 
     const invMatched = {};
-    for (const inv of invoices) {
-      let amt = 0;
-      for (const id of this._getInvoiceMatchedIds(inv)) { const dd = depositMap[String(id)]; if (dd) amt += (dd.amount || 0); }
-      invMatched[String(inv.id)] = amt;
-    }
+    for (const inv of invoices) invMatched[String(inv.id)] = this._invoiceMatchedAmount(inv, depositMap);
 
     let linked = 0, ambiguous = 0;
     for (const dep of deposits) {
@@ -945,8 +1049,7 @@ const FinanceMatchingModule = {
     const depositMap = {};
     allDeposits.forEach(d => { depositMap[String(d.id)] = d; });
 
-    let already = 0;
-    for (const id of this._getInvoiceMatchedIds(invoice)) { const dd = depositMap[String(id)]; if (dd) already += (dd.amount || 0); }
+    const already = this._invoiceMatchedAmount(invoice, depositMap);
     const remaining = (invoice.totalAmount || 0) - already;
     if (remaining <= 0) return { linked: 0, ambiguous: 0 };
 
@@ -1037,11 +1140,7 @@ const FinanceMatchingModule = {
 
     // 세금계산서별 현재 매칭금액 (실시간 갱신용)
     const invMatched = {};
-    for (const inv of allInvoices) {
-      let amt = 0;
-      for (const id of this._getInvoiceMatchedIds(inv)) { const dd = depositMap[String(id)]; if (dd) amt += (dd.amount || 0); }
-      invMatched[String(inv.id)] = amt;
-    }
+    for (const inv of allInvoices) invMatched[String(inv.id)] = this._invoiceMatchedAmount(inv, depositMap);
 
     let matchedCount = 0;
     const lines = [];
@@ -1400,20 +1499,23 @@ const FinanceMatchingModule = {
     const confirmed = await Utils.confirm('이 매칭을 해제하시겠습니까?', '매칭 해제');
     if (!confirmed) return;
 
-    const invoiceId = deposit.matchedInvoiceId;
-    if (invoiceId) {
+    // 이 입금이 연결된 세금계산서 전부 (합산입금은 여러 건일 수 있음)
+    const invoiceIds = Array.isArray(deposit.matchedInvoiceIds) && deposit.matchedInvoiceIds.length > 0
+      ? deposit.matchedInvoiceIds.map(String)
+      : (deposit.matchedInvoiceId ? [String(deposit.matchedInvoiceId)] : []);
+    for (const invoiceId of invoiceIds) {
       const invoice = await DB.get('taxInvoiceRequests', invoiceId);
-      if (invoice) {
-        // 배열에서 해당 deposit id 제거
-        const ids = this._getInvoiceMatchedIds(invoice).filter(x => String(x) !== String(depositId));
-        invoice.matchedDepositIds = ids;
-        invoice.matchedDepositId = ids[0] || null;
-        invoice.updatedAt = new Date().toISOString();
-        await DB.update('taxInvoiceRequests', invoice);
-      }
+      if (!invoice) continue;
+      const ids = this._getInvoiceMatchedIds(invoice).filter(x => String(x) !== String(depositId));
+      invoice.matchedDepositIds = ids;
+      invoice.matchedDepositId = ids[0] || null;
+      if (invoice.matchedAllocations) { delete invoice.matchedAllocations[String(depositId)]; }  // 할당 정리
+      invoice.updatedAt = new Date().toISOString();
+      await DB.update('taxInvoiceRequests', invoice);
     }
     deposit.matchStatus = '미매칭';
     deposit.matchedInvoiceId = null;
+    deposit.matchedInvoiceIds = [];
     deposit.updatedAt = new Date().toISOString();
     await DB.update('deposits', deposit);
 

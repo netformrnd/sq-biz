@@ -1153,7 +1153,7 @@ const LeaveModule = {
     if (!confirm(`${Utils.formatDate(r.date)} · ${this.leaveTypes[r.type]?.label || r.type} 연차를 취소할까요?\n(취소하면 연차가 복원됩니다)`)) return;
     try {
       await DB.update('leaveRequests', { id: reqId, status: 'cancelled', cancelReason: '관리자 취소', cancelApprovedAt: new Date().toISOString() });
-      await DB.log('연차관리자취소', 'leaveRequests', reqId);
+      try { await DB.log('연차관리자취소', 'leaveRequests', reqId, '관리자 직접 취소'); } catch (le) { console.warn('[연차] 취소 로그 실패(무시):', le); }
       Utils.showToast('연차 취소 완료 (복원됨)', 'success');
       await this.loadData();
       this.render();

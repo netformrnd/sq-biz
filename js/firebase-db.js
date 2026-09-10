@@ -301,11 +301,14 @@ const FirebaseDB = {
   // 감사 로그
   async log(action, entityType, entityId, details) {
     const user = Auth.currentUser();
+    // Firebase는 undefined 값을 거부하므로 모두 null로 안전 처리
     await this.add('auditLog', {
-      action, entityType, entityId,
+      action: action ?? null,
+      entityType: entityType ?? null,
+      entityId: entityId ?? null,
       userId: user ? user.id : null,
       userName: user ? user.displayName : 'System',
-      details: typeof details === 'object' ? JSON.stringify(details) : details,
+      details: details === undefined ? null : (typeof details === 'object' ? JSON.stringify(details) : details),
       timestamp: new Date().toISOString()
     });
   },

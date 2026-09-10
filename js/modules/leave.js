@@ -1056,6 +1056,7 @@ const LeaveModule = {
               </div>
               <div class="d-flex gap-2">
                 <button class="btn btn-primary btn-sm" onclick="LeaveModule.openEditBalance('${u.id}')">편집</button>
+                ${reqCount > 0 ? `<button class="btn btn-ghost btn-sm" onclick="LeaveModule.openUserRequests('${u.id}')" title="이 사람의 연차 신청내역 보기·개별 취소">📋 신청내역</button>` : ''}
                 ${reqCount > 0 ? `<button class="btn btn-ghost btn-sm text-danger" onclick="LeaveModule.clearUserRequests('${u.id}')" title="이 사람의 연차 신청내역 모두 삭제">🗑️ 초기화</button>` : ''}
                 <button class="btn btn-ghost btn-sm" onclick="LeaveModule.toggleLeaveEnabled('${u.id}', false)" title="연차 대상 제외">제외</button>
               </div>
@@ -1098,6 +1099,66 @@ const LeaveModule = {
         <button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>
       </div>
     `, { size: 'modal-lg' });
+  },
+
+  // 관리자: 특정 팀원의 연차 신청내역 보기 + 개별 취소(연차 복원)
+  openUserRequests(userId) {
+    if (!Auth.isAdmin()) return;
+    const u = (this.allUsers || []).find(x => String(x.id) === String(userId)) || this.users.find(x => String(x.id) === String(userId));
+    const reqs = this.requests.filter(r => String(r.userId) === String(userId))
+      .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    const statusLabel = { pending: '⏳ 대기', approved: '✅ 승인', rejected: '❌ 반려', 'cancel-requested': '🔄 취소요청중', cancelled: '취소됨' };
+    const rows = reqs.length === 0
+      ? '<tr><td colspan="5" style="padding:24px;text-align:center;color:#94a3b8;">신청 내역 없음</td></tr>'
+      : reqs.map(r => {
+        const days = this.leaveTypes[r.type]?.days;
+        const canCancel = r.status === 'approved' || r.status === 'pending' || r.status === 'cancel-requested';
+        const timeInfo = (r.type !== 'full' && r.type !== 'prenatal' && r.startTime) ? ` <span style="color:#64748b;">${r.startTime}~${r.endTime}</span>` : '';
+        const dim = (r.status === 'cancelled' || r.status === 'rejected') ? 'opacity:.5;' : '';
+        return `<tr style="border-bottom:1px solid #F1F5F9;${dim}">
+          <td style="padding:8px;font-family:monospace;">${Utils.formatDate(r.date)}${timeInfo}</td>
+          <td style="padding:8px;">${this.leaveTypes[r.type]?.label || r.type}</td>
+          <td style="padding:8px;text-align:right;font-family:monospace;">${days != null ? days + '일' : '-'}</td>
+          <td style="padding:8px;text-align:center;">${statusLabel[r.status] || r.status}</td>
+          <td style="padding:8px;text-align:right;">${canCancel ? `<button class="btn btn-ghost btn-sm text-danger" onclick="LeaveModule.adminCancelRequest('${r.id}','${userId}')" title="이 연차를 취소하고 연차를 복원합니다">연차 취소</button>` : ''}</td>
+        </tr>`;
+      }).join('');
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📋 ${Utils.escapeHtml(u ? u.displayName : '')}님 연차 신청내역</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="text-xs text-muted" style="margin-bottom:10px;">승인된 연차를 <strong>취소</strong>하면 연차가 <strong>복원</strong>됩니다. (예: 유급 특별휴가 기간과 겹친 연차 정리)</div>
+        <div style="overflow-x:auto;border:1px solid var(--color-border);border-radius:8px;">
+          <table style="width:100%;border-collapse:collapse;min-width:520px;">
+            <thead><tr style="background:#F8FAFC;">
+              <th style="padding:8px;text-align:left;font-size:0.82rem;color:#64748B;">날짜</th>
+              <th style="padding:8px;text-align:left;font-size:0.82rem;color:#64748B;">종류</th>
+              <th style="padding:8px;text-align:right;font-size:0.82rem;color:#64748B;">차감</th>
+              <th style="padding:8px;text-align:center;font-size:0.82rem;color:#64748B;">상태</th>
+              <th style="padding:8px;"></th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="LeaveModule.openManageUsers()">← 팀원 관리</button></div>
+    `, { size: 'modal-lg' });
+  },
+
+  async adminCancelRequest(reqId, userId) {
+    const r = this.requests.find(x => String(x.id) === String(reqId));
+    if (!r) return;
+    if (!confirm(`${Utils.formatDate(r.date)} · ${this.leaveTypes[r.type]?.label || r.type} 연차를 취소할까요?\n(취소하면 연차가 복원됩니다)`)) return;
+    try {
+      await DB.update('leaveRequests', { id: reqId, status: 'cancelled', cancelReason: '관리자 취소', cancelApprovedAt: new Date().toISOString() });
+      await DB.log('연차관리자취소', 'leaveRequests', reqId);
+      Utils.showToast('연차 취소 완료 (복원됨)', 'success');
+      await this.loadData();
+      this.render();
+      if (userId) this.openUserRequests(userId);
+    } catch (e) { Utils.showToast('취소 실패: ' + e.message, 'error'); }
   },
 
   async clearUserRequests(userId) {

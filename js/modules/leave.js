@@ -169,10 +169,10 @@ const LeaveModule = {
                 <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openMigrateModal()" title="기존 연차 시스템에서 데이터 이관">
                   📥 데이터 이관
                 </button>
+                <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openReport()">
+                  📊 리포트
+                </button>
               ` : ''}
-              <button class="btn btn-ghost btn-sm" onclick="LeaveModule.openReport()">
-                📊 리포트
-              </button>
               <button class="btn btn-primary btn-sm" onclick="LeaveModule.refresh()">
                 🔄 새로고침
               </button>
@@ -211,15 +211,15 @@ const LeaveModule = {
 
           <!-- 사이드 -->
           <div style="display:flex;flex-direction:column;gap:var(--sp-4);">
-            <!-- 팀원 현황 -->
-            <div class="card">
+            <!-- 팀원 현황 (관리자 전용: 동료 잔여·태아검진 등 민감정보 보호) -->
+            ${isAdmin ? `<div class="card">
               <div class="card-header" style="padding:var(--sp-3) var(--sp-4);">
                 <div style="font-weight:700;font-size:0.9rem;">👥 팀원 연차 현황</div>
               </div>
               <div class="card-body" style="padding:var(--sp-2);">
                 ${this._renderTeamList()}
               </div>
-            </div>
+            </div>` : ''}
 
             <!-- 내 신청내역 -->
             <div class="card">
@@ -342,7 +342,8 @@ const LeaveModule = {
         const uIdx = this.users.findIndex(u => String(u.id) === String(r.userId));
         const uObj = uIdx >= 0 ? this.users[uIdx] : { displayName: r.userName };
         const color = this._colorForUser(uObj, uIdx);
-        const typeLabel = this.leaveTypes[r.type]?.label || r.type;
+        // 태아검진 같은 민감 항목은 관리자만 실제 라벨, 직원 화면엔 '휴가'로 표시
+        const typeLabel = (!Auth.isAdmin() && r.type === 'prenatal') ? '휴가' : (this.leaveTypes[r.type]?.label || r.type);
         const statusCls = r.status === 'pending' ? ' pending' : (r.status === 'cancel-requested' ? ' cancel-requested' : '');
         return `<div class="leave-entry${statusCls}" style="border-left-color:${color};background:${color}15;" title="${Utils.escapeHtml(r.userName)} - ${typeLabel}">${Utils.escapeHtml(r.userName)} ${typeLabel}</div>`;
       }).join('');
@@ -1312,8 +1313,9 @@ const LeaveModule = {
     }
   },
 
-  // ===== 리포트 =====
+  // ===== 리포트 (관리자 전용) =====
   openReport() {
+    if (!Auth.isAdmin()) { Utils.showToast('관리자만 볼 수 있습니다.', 'error'); return; }
     let html = `
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:20px;">
         <div style="text-align:center;padding:14px;background:#F0F9FF;border-radius:8px;">

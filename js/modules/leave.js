@@ -402,7 +402,10 @@ const LeaveModule = {
 
   _renderMyRequests() {
     const user = Auth.currentUser();
+    const isAdmin = Auth.isAdmin();
     const mine = this.requests.filter(r => String(r.userId) === String(user.id))
+      // 본인(직원)이 볼 때는 태아검진 항목 숨김 (민감 항목 배려). 관리자는 그대로 봄.
+      .filter(r => isAdmin || r.type !== 'prenatal')
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     if (mine.length === 0) return '<div class="text-center text-muted" style="padding:20px;">신청 내역 없음</div>';
 

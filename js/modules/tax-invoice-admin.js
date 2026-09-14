@@ -528,6 +528,18 @@ const TaxInvoiceAdminModule = {
         ${item.cancelledAt ? `<div class="text-xs text-muted" style="margin-top:4px;">취소일: ${Utils.formatDate(item.cancelledAt)}${item.cancelledByName ? ' · ' + Utils.escapeHtml(item.cancelledByName) : ''}</div>` : ''}
       </div>`;
     }
+    // 수정 이력 (담당자가 수정한 사유·변경내용을 관리자도 확인)
+    if (Array.isArray(item.editHistory) && item.editHistory.length > 0) {
+      rejectInfo += `<div class="mt-4" style="padding:var(--sp-3);background:#fff7ed;border:1px solid #fdba74;border-radius:var(--radius-sm);">
+        <strong style="color:#b45309;">✏️ 수정 이력 (${item.editHistory.length}건)</strong>${item.needsReissue ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;">🔧 수정발행 필요</span>' : ''}
+        ${item.editHistory.slice().reverse().map(h => `
+          <div style="margin-top:8px;padding-top:8px;border-top:1px dashed #fed7aa;">
+            <div class="text-xs" style="color:#9a3412;font-weight:700;">${Utils.escapeHtml(h.editorName || '-')} · ${Utils.formatDateTime(h.editedAt)}</div>
+            <div class="text-sm" style="margin-top:2px;">사유: ${Utils.escapeHtml(h.reason || '-')}</div>
+            ${Array.isArray(h.changes) && h.changes.length > 0 ? `<div class="text-xs text-muted" style="margin-top:2px;">${h.changes.map(c => `${Utils.escapeHtml(c.label)}: ${Utils.escapeHtml(String(c.before))} → ${Utils.escapeHtml(String(c.after))}`).join('<br>')}</div>` : ''}
+          </div>`).join('')}
+      </div>`;
+    }
 
     // 하단 액션 버튼 (상태에 따라)
     let footerBtns = `<button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button>`;

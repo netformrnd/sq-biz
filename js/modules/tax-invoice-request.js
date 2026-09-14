@@ -1293,9 +1293,11 @@ const TaxInvoiceRequestModule = {
     if (changes.length === 0) { Utils.showToast('변경된 내용이 없습니다.', 'warning'); return; }
 
     const user = Auth.currentUser();
+    const wasIssued = item.status === '발행완료';   // 발행 후 수정이면 수정발행 필요
     Object.assign(item, newVals);
     item.taxAmount = Math.round(newAmount * 0.1);
     item.totalAmount = newAmount + item.taxAmount;
+    if (wasIssued) item.needsReissue = true;   // 관리자 화면에 '수정발행 필요' 표시용
     if (!Array.isArray(item.editHistory)) item.editHistory = [];
     item.editHistory.push({
       editedAt: new Date().toISOString(),
@@ -1318,8 +1320,19 @@ const TaxInvoiceRequestModule = {
       return;
     }
 
+    // 관리자 알림: 세금계산서 수정 (발행완료 건이면 수정발행 필요) — 발행요청처럼 잔디 알림
+    try {
+      if (window.JandiWebhook) {
+        const r = await JandiWebhook.notifyEdit(item, changes, modReason, wasIssued);
+        if (r && r.ok === false && r.error !== 'no-url') {
+          Utils.showToast('⚠️ 잔디 수정 알림 전송 실패 (수정은 저장됨)', 'warning', 4000);
+        }
+      }
+    } catch (e) { console.warn('[Jandi] 수정 알림 예외:', e); }
+    if (window.App && App.updateNotificationBadges) App.updateNotificationBadges();
+
     Utils.closeModal();
-    Utils.showToast('수정되었습니다.', 'success');
+    Utils.showToast(wasIssued ? '수정되었습니다. (발행완료 건 → 수정발행 필요, 관리자 알림 발송)' : '수정되었습니다.', 'success', 5000);
     // 갱신된 상세 다시 표시
     await this._showDetail(id);
   },

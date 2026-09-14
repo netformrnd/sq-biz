@@ -224,7 +224,7 @@ const TaxInvoiceAdminModule = {
         const fullReason = item.reason || '-';
         return `
           <tr ${rowClass} oncontextmenu="TaxInvoiceAdminModule._showContextMenu(event, '${item.id}', '${item.status}')">
-            <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(item.requestNumber)}${item.needsReissue ? ` <span onclick="event.stopPropagation();TaxInvoiceAdminModule._clearReissue('${item.id}')" title="발행 후 수정됨 — 홈택스 수정발행이 필요합니다. 수정발행을 마쳤으면 클릭해서 표시를 지우세요." style="cursor:pointer;display:inline-block;margin-left:4px;padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;">🔧 수정발행필요</span>` : ''}</td>
             <td>${Utils.formatDate(item.issueDate || item.createdAt)}</td>
             <td>${depositDateCell}</td>
             <td>${depositorCell}</td>
@@ -385,6 +385,21 @@ const TaxInvoiceAdminModule = {
   _toggleUnpaid() {
     this.filterUnpaid = !this.filterUnpaid;
     this.render();
+  },
+
+  // 수정발행 완료 처리 → '수정발행필요' 표시 제거
+  async _clearReissue(id) {
+    if (!confirm('이 건의 수정발행을 완료하셨나요?\n확인하면 "🔧 수정발행필요" 표시가 사라집니다.')) return;
+    try {
+      const item = await DB.get('taxInvoiceRequests', id);
+      if (!item) return;
+      item.needsReissue = false;
+      item.updatedAt = new Date().toISOString();
+      await DB.update('taxInvoiceRequests', item);
+      await DB.log('UPDATE', 'taxInvoice', id, '수정발행 완료 처리 (needsReissue 해제)');
+      Utils.showToast('수정발행필요 표시를 지웠습니다.', 'success');
+      await this.render();
+    } catch (e) { Utils.showToast('처리 실패: ' + e.message, 'error'); }
   },
 
   // ===== 검토하기: 상태를 검토중으로 변경 + 상세 팝업 열기 =====

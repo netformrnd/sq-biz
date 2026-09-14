@@ -154,6 +154,23 @@ const JandiWebhook = {
     );
   },
 
+  // 세금계산서 수정 알림 (이미 발행된 건이면 '수정발행 필요' 강조)
+  async notifyEdit(item, changes, reason, wasIssued) {
+    const changeLines = (changes || []).map(c => `· ${c.label}: ${c.before} → ${c.after}`).join('\n');
+    const head = wasIssued ? '🔧 세금계산서 수정발행 요청 (발행완료 건 수정됨)' : '✏️ 세금계산서 수정';
+    const note = wasIssued ? '\n⚠️ 이미 발행된 건입니다 — 홈택스 수정발행이 필요할 수 있습니다.' : '';
+    return await this.send(
+      head,
+      `요청번호: ${item.requestNumber}\n` +
+      `거래처: ${item.partnerCompanyName || '-'}\n` +
+      `수정자: ${item.lastModifiedByName || item.requesterName || '-'}\n` +
+      `사유: ${reason || '-'}\n` +
+      (changeLines ? `변경내용:\n${changeLines}` : '') +
+      note,
+      wasIssued ? '#DC2626' : '#D97706'
+    );
+  },
+
   // 상태 변경 알림
   async notifyStatusChange(item, newStatus) {
     const colorMap = {

@@ -26,25 +26,45 @@ const TaxInvoiceRequestModule = {
         </div>
         <div class="card-body">
           <form id="taxInvoiceForm">
+            <!-- 작성 안내 (접기/펼치기) -->
+            <details style="margin-bottom:var(--sp-4);border:1px solid #bae6fd;border-radius:8px;background:#f0f9ff;">
+              <summary style="cursor:pointer;padding:10px 14px;font-weight:700;color:#0369a1;">❓ 작성 안내 (처음이면 눌러보세요)</summary>
+              <div style="padding:0 14px 14px 14px;font-size:0.88rem;line-height:1.7;color:#334155;">
+                <b>1. 발행 사유</b> — 어떤 건인지 간단히 적어요.<br>
+                <b>2. 이번 발행 금액</b> — 이번에 끊을 금액 하나만 입력.
+                <span style="color:#0369a1;">계약서 금액이 <b>부가세 포함</b>이면 "부가세 포함"을, <b>별도</b>면 "부가세 별도"를 선택</span>하면 공급가액·세액·합계가 자동 계산돼요.<br>
+                <b>3. 계약 연결(선택)</b> —<br>
+                &nbsp;&nbsp;• <b>연결 안 함</b>: 계약 없이 이번 한 건만 발행<br>
+                &nbsp;&nbsp;• <b>신규 계약</b>: 처음 등록하는 계약. 단지명·계약건명 + 계약금/중도금/잔금(계약 전체)을 적고, <b>이번 발행 단계</b>를 고르면 그 금액이 위 "이번 발행 금액"에 자동 입력돼요.<br>
+                &nbsp;&nbsp;• <b>기존 계약의 중도금/잔금</b>: 이미 등록된 계약에서 이번 단계만 선택 (금액 자동)<br>
+                <b>4. 요청</b> — 아래 "미리보기"에서 <b>[프로젝트·단계] 공급가·세액·합계</b>를 확인하고 요청!
+              </div>
+            </details>
+
             <!-- 발행 사유 -->
             <div class="form-group">
               <label for="reason">발행 사유 <span class="required">*</span></label>
               <textarea id="reason" class="form-control" rows="3" placeholder="세금계산서 발행 사유를 입력하세요" required></textarea>
             </div>
 
-            <!-- 금액 -->
-            <div class="form-row">
-              <div class="form-group">
-                <label for="amount">공급가액 <span class="required">*</span></label>
-                <input type="number" id="amount" class="form-control" placeholder="0" min="0" required>
+            <!-- 이번 발행 금액 (부가세 별도/포함 선택 → 자동 계산) -->
+            <div class="form-group">
+              <label for="amount">이번 발행 금액 <span class="required">*</span></label>
+              <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+                <input type="number" id="amount" class="form-control" placeholder="0" min="0" required style="flex:1;min-width:150px;">
+                <label style="display:flex;align-items:center;gap:5px;font-size:0.9rem;white-space:nowrap;cursor:pointer;"><input type="radio" name="vatMode" value="exclude" checked onchange="TaxInvoiceRequestModule._recalcAmount()"> 부가세 별도</label>
+                <label style="display:flex;align-items:center;gap:5px;font-size:0.9rem;white-space:nowrap;cursor:pointer;"><input type="radio" name="vatMode" value="include" onchange="TaxInvoiceRequestModule._recalcAmount()"> 부가세 포함</label>
               </div>
-              <div class="form-group">
-                <label>세액 (자동계산)</label>
-                <input type="text" id="taxAmount" class="form-control" readonly value="₩0">
-              </div>
-              <div class="form-group">
-                <label>합계금액</label>
-                <input type="text" id="totalAmount" class="form-control" readonly value="₩0" style="font-weight:700;">
+              <div class="hint" style="margin-top:4px;">계약서 금액이 부가세 포함이면 "부가세 포함"을 선택하세요. (공급가액·세액 자동 계산)</div>
+            </div>
+
+            <!-- 자동 계산 미리보기 -->
+            <div style="margin-bottom:var(--sp-4);padding:12px 14px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:8px;">
+              <div id="pvSummary" class="text-sm" style="color:#0369a1;margin-bottom:8px;"></div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+                <div><div class="text-xs text-muted">공급가액</div><div class="fw-bold" id="pvSupply" style="font-size:1.05rem;">₩0</div></div>
+                <div><div class="text-xs text-muted">세액</div><div class="fw-semibold" id="pvTax">₩0</div></div>
+                <div><div class="text-xs text-muted">합계금액</div><div class="fw-bold" id="pvTotal" style="font-size:1.05rem;color:var(--color-primary);">₩0</div></div>
               </div>
             </div>
 
@@ -105,12 +125,12 @@ const TaxInvoiceRequestModule = {
                 </div>
                 <div class="form-group">
                   <label for="contractPhase">이번 발행 단계 <span class="required">*</span></label>
-                  <select id="contractPhase" class="form-control">
+                  <select id="contractPhase" class="form-control" onchange="TaxInvoiceRequestModule._onPhaseChange()">
                     <option value="downPayment">계약금</option>
                     <option value="interimPayment">중도금</option>
                     <option value="finalPayment">잔금</option>
                   </select>
-                  <div class="hint">이번 세금계산서가 어느 단계인지 선택 (그 단계에 위 공급가액이 연결됩니다)</div>
+                  <div class="hint">단계를 고르면 그 금액이 위 "이번 발행 금액"에 자동 입력됩니다.</div>
                 </div>
               </div>
 
@@ -124,10 +144,10 @@ const TaxInvoiceRequestModule = {
                 </div>
                 <div class="form-group">
                   <label for="contractExistingPhase">결제 단계 <span class="required">*</span></label>
-                  <select id="contractExistingPhase" class="form-control">
+                  <select id="contractExistingPhase" class="form-control" onchange="TaxInvoiceRequestModule._onPhaseChange()">
                     <option value="">-- 계약을 먼저 선택하세요 --</option>
                   </select>
-                  <div class="hint">이미 발행된 단계는 표시되지 않습니다.</div>
+                  <div class="hint">단계를 고르면 그 금액이 위 "이번 발행 금액"에 자동 입력됩니다.</div>
                 </div>
               </div>
             </fieldset>
@@ -264,17 +284,64 @@ const TaxInvoiceRequestModule = {
     }
   },
 
+  // 부가세 별도/포함 → 공급가액·세액·합계 자동 계산 + 미리보기
+  _recalcAmount() {
+    const raw = Number(document.getElementById('amount')?.value) || 0;
+    const mode = document.querySelector('input[name="vatMode"]:checked')?.value || 'exclude';
+    let supply, tax, total;
+    if (mode === 'include') { supply = Math.round(raw / 1.1); tax = raw - supply; total = raw; }
+    else { supply = raw; tax = Math.round(raw * 0.1); total = supply + tax; }
+    const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = Utils.formatCurrency(v); };
+    set('pvSupply', supply); set('pvTax', tax); set('pvTotal', total);
+    const proj = (document.getElementById('projectName')?.value || '').trim();
+    const phaseLabel = this._currentPhaseLabel();
+    const sumEl = document.getElementById('pvSummary');
+    if (sumEl) {
+      const tag = [proj, phaseLabel].filter(Boolean).join(' · ');
+      sumEl.innerHTML = tag ? `이번 발행 → <strong>${Utils.escapeHtml(tag)}</strong>` : '이번에 발행할 금액을 입력하세요';
+    }
+    return { supply, tax, total };
+  },
+
+  _currentPhaseLabel() {
+    const L = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+    const mode = document.querySelector('input[name="contractMode"]:checked')?.value;
+    if (mode === 'new') return L[document.getElementById('contractPhase')?.value] || '';
+    if (mode === 'existing') return L[document.getElementById('contractExistingPhase')?.value] || '';
+    return '';
+  },
+
+  // 계약 단계 선택 시 그 단계 금액을 '이번 발행 금액'에 자동 입력
+  _onPhaseChange() {
+    const mode = document.querySelector('input[name="contractMode"]:checked')?.value;
+    let amt = 0;
+    if (mode === 'new') {
+      const map = { downPayment: 'contractDownAmt', interimPayment: 'contractInterimAmt', finalPayment: 'contractFinalAmt' };
+      const k = document.getElementById('contractPhase')?.value;
+      amt = Number(document.getElementById(map[k])?.value) || 0;
+    } else if (mode === 'existing') {
+      const opt = document.getElementById('contractExistingPhase')?.selectedOptions?.[0];
+      amt = Number(opt?.dataset?.amt) || 0;
+    }
+    if (amt > 0) {
+      const el = document.getElementById('amount');
+      if (el) el.value = amt;
+      // 계약 금액은 보통 부가세 별도(공급가액) 기준으로 입력하므로 '별도'로 맞춤 (사용자가 바꿀 수 있음)
+      const excl = document.querySelector('input[name="vatMode"][value="exclude"]');
+      if (excl) excl.checked = true;
+    }
+    this._recalcAmount();
+  },
+
   _bindFormEvents() {
     const form = document.getElementById('taxInvoiceForm');
     const amountInput = document.getElementById('amount');
 
-    // 금액 자동계산
-    amountInput.addEventListener('input', () => {
-      const amount = Number(amountInput.value) || 0;
-      const tax = Math.round(amount * 0.1);
-      document.getElementById('taxAmount').value = Utils.formatCurrency(tax);
-      document.getElementById('totalAmount').value = Utils.formatCurrency(amount + tax);
-    });
+    // 금액 자동계산 (부가세 별도/포함 반영) + 미리보기
+    amountInput.addEventListener('input', () => this._recalcAmount());
+    const projEl = document.getElementById('projectName');
+    if (projEl) projEl.addEventListener('input', () => this._recalcAmount());
+    this._recalcAmount();
 
     // ※ 사업자등록증 파일 업로드/드래그 기능 제거 (화면캡쳐 Ctrl+V 만 사용)
 
@@ -374,7 +441,7 @@ const TaxInvoiceRequestModule = {
       const amt = Number(p.amount) || 0;
       if (amt <= 0) continue;
       if (p.invoiceId) continue; // 이미 발행된 단계는 제외
-      options.push(`<option value="${k}">${labels[k]} (${Utils.formatCurrency(amt)})</option>`);
+      options.push(`<option value="${k}" data-amt="${amt}">${labels[k]} (${Utils.formatCurrency(amt)})</option>`);
     }
     phaseSel.innerHTML = options.length > 0
       ? options.join('')
@@ -383,6 +450,9 @@ const TaxInvoiceRequestModule = {
     // 기존 계약에 이미 발행된 세금계산서가 있으면 그 거래처 정보를 자동으로 불러옴
     // (사업자등록증을 다시 첨부하지 않아도 거래처 정보가 채워짐)
     await this._autofillPartnerFromContract(c);
+
+    // 첫 단계 금액을 '이번 발행 금액'에 자동 반영
+    this._onPhaseChange();
   },
 
   // 계약에 연결된 (이전) 세금계산서에서 거래처 정보를 가져와 폼에 채움
@@ -762,7 +832,10 @@ const TaxInvoiceRequestModule = {
   async _submitForm(skipDupCheck) {
     const user = Auth.currentUser();
     const reason = document.getElementById('reason').value.trim();
-    const amount = Number(document.getElementById('amount').value) || 0;
+    // 부가세 별도/포함 → 공급가액(amount) 산출
+    const rawAmount = Number(document.getElementById('amount').value) || 0;
+    const _vatMode = document.querySelector('input[name="vatMode"]:checked')?.value || 'exclude';
+    const amount = _vatMode === 'include' ? Math.round(rawAmount / 1.1) : rawAmount;   // 공급가액
 
     const partnerRegNumber = document.getElementById('partnerRegNumber').value.trim();
     const partnerCompanyName = document.getElementById('partnerCompanyName').value.trim();
@@ -815,7 +888,7 @@ const TaxInvoiceRequestModule = {
       if (_dups.length > 0) { this._showDupWarning(_dups); return; }
     }
 
-    const taxAmount = Math.round(amount * 0.1);
+    const taxAmount = _vatMode === 'include' ? (rawAmount - amount) : Math.round(amount * 0.1);
     const requestNumber = await DB.generateRequestNumber();
 
     // 첨부파일 준비 (사업자등록증)
@@ -973,7 +1046,9 @@ const TaxInvoiceRequestModule = {
 
     // ── 2단계: 잔디 알림 전송 (문서 저장 실패와 무관하게 우선 발송)
     try {
-      const r = await JandiWebhook.notifyNewRequest({ ...data, id });
+      const _phaseLabelMap = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+      const _phaseLabel = contractLink ? (_phaseLabelMap[contractLink.phaseKey] || '') : '';
+      const r = await JandiWebhook.notifyNewRequest({ ...data, id, phaseLabel: _phaseLabel });
       if (r && !r.ok && r.error !== 'no-url') {
         console.warn('[Jandi] 알림 결과:', r);
         Utils.showToast('⚠️ 잔디 알림 전송 실패 (요청은 정상 등록됨)', 'warning', 4000);

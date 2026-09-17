@@ -143,12 +143,15 @@ const JandiWebhook = {
 
   // 세금계산서 발행 요청 알림
   async notifyNewRequest(item) {
+    const projPhase = [item.projectName, item.phaseLabel].filter(Boolean).join(' · ');
     return await this.send(
-      '📝 세금계산서 발행 요청',
+      `📝 세금계산서 발행 요청${projPhase ? ' · ' + projPhase : ''}`,
       `요청번호: ${item.requestNumber}\n` +
       `요청자: ${item.requesterName}\n` +
       `거래처: ${item.partnerCompanyName || '-'}\n` +
-      `금액: ${Utils.formatCurrency(item.totalAmount)}\n` +
+      (projPhase ? `프로젝트/단계: ${projPhase}\n` : '') +
+      `공급가액: ${Utils.formatCurrency(item.amount)}\n` +
+      `합계금액: ${Utils.formatCurrency(item.totalAmount)}\n` +
       `사유: ${item.reason || '-'}`,
       '#2563EB'
     );

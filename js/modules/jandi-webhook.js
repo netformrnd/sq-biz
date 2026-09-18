@@ -9,6 +9,7 @@ const JandiWebhook = {
   SETTINGS_COLLECTION: 'appSettings',
   SETTINGS_DOC_ID: 'jandi',
   _cachedUrl: null,
+  _cachedLeaveUrl: null,   // 연차 알림 전용 웹훅 URL (담당자 토픽)
   _loadedFromCloud: false,
   _loadPromise: null,
 
@@ -21,6 +22,7 @@ const JandiWebhook = {
     this._loadPromise = (async () => {
       try {
         const doc = await DB.get(this.SETTINGS_COLLECTION, this.SETTINGS_DOC_ID);
+        if (doc && doc.leaveWebhookUrl !== undefined) this._cachedLeaveUrl = doc.leaveWebhookUrl || '';
         if (doc && doc.webhookUrl) {
           this._cachedUrl = doc.webhookUrl;
           localStorage.setItem(this.STORAGE_KEY, doc.webhookUrl);
@@ -68,6 +70,21 @@ const JandiWebhook = {
     this._loadedFromCloud = true;
   },
 
+  // 연차 알림 웹훅 URL. rawOnly=true면 연차 전용값만(설정 입력칸용), 아니면 없을 때 세금계산서 URL로 폴백
+  getLeaveWebhookUrl(rawOnly) {
+    const raw = this._cachedLeaveUrl || '';
+    if (rawOnly) return raw;
+    return raw || this.getWebhookUrl();
+  },
+
+  // 연차 알림 웹훅 URL 저장 (appSettings/jandi 문서에 병합)
+  async setLeaveWebhookUrl(url) {
+    const trimmed = (url || '').trim();
+    await DB.update(this.SETTINGS_COLLECTION, { id: this.SETTINGS_DOC_ID, leaveWebhookUrl: trimmed });
+    this._cachedLeaveUrl = trimmed;
+    this._loadedFromCloud = true;
+  },
+
   // 잔디 웹훅 활성화 여부
   isEnabled() {
     return !!this.getWebhookUrl();
@@ -76,12 +93,16 @@ const JandiWebhook = {
   // 잔디로 알림 전송 (CORS 우회 - 다중 프록시 폴백)
   // 반환: { ok: boolean, via?: string, status?: number, error?: string }
   async send(title, body, color = '#2563EB') {
-    // 캐시가 비어있으면 Firestore에서 자동 로드 (다른 PC에서 등록한 URL도 사용 가능)
+    if (!this._loadedFromCloud) await this.loadFromCloud();
+    return await this.sendTo(this.getWebhookUrl(), title, body, color);
+  },
+
+  // 특정 웹훅 URL로 전송 (세금계산서/연차 등 채널 분리용)
+  async sendTo(url, title, body, color = '#2563EB') {
     if (!this._loadedFromCloud) {
       await this.loadFromCloud();
     }
 
-    const url = this.getWebhookUrl();
     if (!url) {
       console.warn('[Jandi] webhook URL 미설정 (Firestore appSettings/jandi 문서를 확인하세요)');
       return { ok: false, error: 'no-url' };
@@ -154,6 +175,22 @@ const JandiWebhook = {
       `합계금액: ${Utils.formatCurrency(item.totalAmount)}\n` +
       `사유: ${item.reason || '-'}`,
       '#2563EB'
+    );
+  },
+
+  // 연차 신청 알림 (연차 담당자 토픽으로)
+  async notifyLeaveRequest(info) {
+    if (!this._loadedFromCloud) await this.loadFromCloud();
+    const url = this.getLeaveWebhookUrl();
+    return await this.sendTo(
+      url,
+      `🌴 연차 신청 · ${info.userName || ''}`,
+      `신청자: ${info.userName || '-'}\n` +
+      `날짜: ${info.date || '-'}${info.timeInfo || ''}\n` +
+      `종류: ${info.typeLabel || '-'}\n` +
+      (info.reason ? `사유: ${info.reason}\n` : '') +
+      `→ 승인 대기중입니다. (연차 신청 화면에서 승인/반려)`,
+      '#0EA5E9'
     );
   },
 

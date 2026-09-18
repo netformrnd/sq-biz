@@ -180,12 +180,21 @@ const SettingsModule = {
             잔디 토픽 설정 → 서비스 연동 → Incoming Webhook 추가 → 웹훅 URL을 아래에 입력하세요.
           </p>
           <div class="form-group" style="max-width:600px;">
-            <label for="jandiUrl">잔디 웹훅 URL</label>
+            <label for="jandiUrl">📝 세금계산서 알림 웹훅 URL</label>
             <div class="d-flex gap-2">
               <input type="url" id="jandiUrl" class="form-control" placeholder="https://wh.jandi.com/connect-api/webhook/..." value="${Utils.escapeHtml(JandiWebhook.getWebhookUrl())}">
               <button class="btn btn-primary" onclick="SettingsModule._saveJandiUrl()">저장</button>
               <button class="btn btn-secondary" onclick="SettingsModule._testJandi()">테스트</button>
             </div>
+          </div>
+          <div class="form-group" style="max-width:600px;">
+            <label for="jandiLeaveUrl">🌴 연차 알림 웹훅 URL <span class="text-xs text-muted">(연차 담당자 토픽 · 비우면 위 URL로 발송)</span></label>
+            <div class="d-flex gap-2">
+              <input type="url" id="jandiLeaveUrl" class="form-control" placeholder="연차 담당자 토픽의 웹훅 URL (담당자 바뀌면 이 URL만 교체)" value="${Utils.escapeHtml(JandiWebhook.getLeaveWebhookUrl(true))}">
+              <button class="btn btn-primary" onclick="SettingsModule._saveLeaveJandiUrl()">저장</button>
+              <button class="btn btn-secondary" onclick="SettingsModule._testLeaveJandi()">테스트</button>
+            </div>
+            <div class="text-xs text-muted mt-1">연차 신청이 등록되면 이 토픽으로 알림이 갑니다. 담당자가 바뀌면 새 담당자 토픽 URL로 바꿔주세요.</div>
           </div>
           <div class="text-sm mt-2">
             상태: ${JandiWebhook.isEnabled()
@@ -518,6 +527,26 @@ const SettingsModule = {
     } else {
       Utils.showToast('❌ 테스트 전송 실패: 모든 CORS 프록시 차단. F12 콘솔의 [Jandi] 로그를 확인하세요.', 'error', 8000);
     }
+  },
+
+  async _saveLeaveJandiUrl() {
+    const url = document.getElementById('jandiLeaveUrl').value.trim();
+    try {
+      await JandiWebhook.setLeaveWebhookUrl(url);
+      await this.render();
+      Utils.showToast(url ? '연차 알림 웹훅 URL이 저장되었습니다.' : '연차 전용 URL을 지웠습니다. (세금계산서 URL로 발송)', 'success');
+    } catch (e) {
+      console.error('[Jandi] 연차 URL 저장 실패:', e);
+      Utils.showToast('저장 실패: ' + e.message, 'warning', 7000);
+    }
+  },
+
+  async _testLeaveJandi() {
+    const url = document.getElementById('jandiLeaveUrl').value.trim() || JandiWebhook.getWebhookUrl();
+    if (!url) { Utils.showToast('연차 알림 URL(또는 세금계산서 URL)을 먼저 입력·저장하세요.', 'error'); return; }
+    const r = await JandiWebhook.sendTo(url, '🌴 연차 알림 테스트', '연차 담당자 알림 채널 테스트입니다. 이 메시지가 보이면 정상 연동된 상태입니다.', '#0EA5E9');
+    if (r && r.ok) Utils.showToast(`연차 테스트 알림 전송 완료 (${r.via}).`, 'success');
+    else Utils.showToast('❌ 연차 테스트 전송 실패. URL을 확인하세요.', 'error', 6000);
   },
 
   async _exportBackup() {

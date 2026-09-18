@@ -745,6 +745,16 @@ const LeaveModule = {
       };
       await DB.add('leaveRequests', req);
       await DB.log('연차신청', 'leaveRequests', null, { date, type });
+      // 연차 담당자에게 잔디 알림
+      try {
+        if (window.JandiWebhook) {
+          const timeInfo = (type !== 'full' && type !== 'prenatal' && this.selectedStart) ? ` (${this.selectedStart}~${this.selectedEnd})` : '';
+          await JandiWebhook.notifyLeaveRequest({
+            userName: user.displayName, date,
+            typeLabel: this.leaveTypes[type]?.label || type, timeInfo, reason
+          });
+        }
+      } catch (e) { console.warn('[Jandi] 연차 알림 실패:', e); }
       Utils.showToast('연차 신청 완료', 'success');
       Utils.closeModal();
       await this.refresh();

@@ -5,22 +5,15 @@
 const App = {
   async init() {
     try {
+      /* 넷폼 라운지 로그인 확인 → 권한 확인 → 이 앱 입장권 발급 (2026-09-23)
+         실패하면 LoungeAuth 가 안내 화면을 띄우므로 여기서 멈춘다. */
+      if (!(await LoungeAuth.boot())) return;
+
       await DB.open();
 
-      // 초기 관리자 계정 확인
-      const hasAdmin = await Auth.hasAdminAccount();
-      if (!hasAdmin) {
-        this.showSetupScreen();
-        return;
-      }
-
-      // 세션 확인
-      const user = Auth.currentUser();
-      if (user) {
-        this.showApp(user);
-      } else {
-        this.showLoginScreen();
-      }
+      const user = await LoungeAuth.applySession();
+      if (!user) { LoungeAuth.gate('error', '사용자 정보를 만들지 못했습니다.'); return; }
+      this.showApp(user);
     } catch (err) {
       console.error('앱 초기화 오류:', err);
       document.body.innerHTML = `
@@ -67,35 +60,9 @@ const App = {
     };
   },
 
-  // 로그인 화면
+  // 로그인 화면 — 자체 로그인은 폐지됐다. 넷폼 라운지 안내 화면으로 대체 (2026-09-23)
   showLoginScreen() {
-    document.getElementById('loginScreen').style.display = 'flex';
-    document.getElementById('appShell').classList.remove('active');
-    document.getElementById('setupScreen').classList.remove('active');
-
-    const form = document.getElementById('loginForm');
-    const errorEl = document.getElementById('loginError');
-    errorEl.textContent = '';
-
-    form.onsubmit = async (e) => {
-      e.preventDefault();
-      errorEl.textContent = '';
-
-      const username = form.querySelector('#loginUsername').value.trim();
-      const password = form.querySelector('#loginPassword').value;
-
-      if (!username || !password) {
-        errorEl.textContent = '아이디와 비밀번호를 입력해주세요.';
-        return;
-      }
-
-      try {
-        const session = await Auth.login(username, password);
-        this.showApp(session);
-      } catch (err) {
-        errorEl.textContent = err.message;
-      }
-    };
+    LoungeAuth.gate('login');
   },
 
   // 메인 앱 표시

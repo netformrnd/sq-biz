@@ -150,9 +150,9 @@ const Auth = {
   logout() {
     sessionStorage.removeItem(this.SESSION_KEY);
     this._stopActivityTimer();
-    window.location.hash = '#/login';
-    document.getElementById('appShell').classList.remove('active');
-    document.getElementById('loginScreen').style.display = 'flex';
+    /* 자체 로그인 화면이 없어졌으므로(넷폼 라운지 경유) 라운지로 돌려보낸다. 라운지 로그인은 유지된다. */
+    try { firebase.auth(firebase.app('sqbiz')).signOut(); } catch (e) {}
+    window.location.href = (window.LoungeAuth && LoungeAuth.LOUNGE_URL) || 'https://netformrnd.github.io/nf_lounge/';
   },
 
   // 비활동 감지
@@ -170,12 +170,14 @@ const Auth = {
       document.addEventListener(evt, Utils.debounce(updateActivity, 5000), { passive: true });
     });
 
-    this._activityTimer = setInterval(() => {
+    this._activityTimer = setInterval(async () => {
       const session = this.currentUser();
-      if (!session) {
-        this.logout();
-        Utils.showToast('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
-      }
+      if (session) return;
+      /* 자리를 비워 세션이 만료돼도 라운지 로그인이 살아 있으면 조용히 다시 만든다 */
+      const again = window.LoungeAuth ? await LoungeAuth.reauth() : null;
+      if (again) return;
+      this.logout();
+      Utils.showToast('세션이 만료되었습니다. 다시 로그인해주세요.', 'warning');
     }, 60000); // 1분마다 확인
   },
 

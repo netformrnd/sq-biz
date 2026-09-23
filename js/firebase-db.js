@@ -60,8 +60,10 @@ const FirebaseDB = {
       await this._loadScript('https://www.gstatic.com/firebasejs/10.7.0/firebase-firestore-compat.js');
     }
 
-    this.app = firebase.initializeApp(config);
-    this.db = firebase.firestore();
+    /* 기본 앱 자리는 넷폼 라운지(mgmtny)가 쓴다 — 같은 도메인의 라운지 로그인 세션을 그대로 쓰기 위해서다.
+       이 앱의 데이터는 'sqbiz' 이름으로 따로 연결한다. (2026-09-23) */
+    try { this.app = firebase.app('sqbiz'); } catch (e) { this.app = firebase.initializeApp(config, 'sqbiz'); }
+    this.db = firebase.firestore(this.app);
     this.initialized = true;
     console.log('[Firebase] 초기화 완료');
   },

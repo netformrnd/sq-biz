@@ -133,14 +133,13 @@ const LoungeAuth = {
       return n;
     };
 
-    add('div', 'font-size:36px;margin-bottom:12px;', '🔒');
-    add('div', 'font-size:12px;color:#7D8A9A;margin-bottom:8px;', '(주) 넷폼');
-    add('div', 'font-size:17px;font-weight:700;color:#0F172A;margin-bottom:10px;',
+    add('div', 'font-size:36px;margin-bottom:14px;', '🔒');
+    add('div', 'font-size:17px;font-weight:700;color:#0F172A;margin-bottom:10px;word-break:keep-all;',
       reason === 'denied' ? '접근 권한이 없습니다' : '넷폼 라운지에서 로그인해 주세요');
-    add('div', 'font-size:13px;color:#64748B;line-height:1.7;margin-bottom:22px;',
+    add('div', 'font-size:13px;color:#64748B;line-height:1.7;margin-bottom:22px;word-break:keep-all;',
       reason === 'denied'
-        ? '스퀘어건축 업무관리 열람 권한이 없는 계정입니다. 경영관리팀에 요청해 주세요.'
-        : '스퀘어건축 업무관리는 넷폼 라운지를 통해서만 이용할 수 있습니다.');
+        ? '열람 권한이 없는 계정입니다.\n경영관리팀에 요청해 주세요.'
+        : '스퀘어건축 업무관리는\n넷폼 라운지를 통해서만 이용할 수 있습니다.').style.whiteSpace = 'pre-line';
 
     if (reason !== 'denied') {
       const a = document.createElement('a');

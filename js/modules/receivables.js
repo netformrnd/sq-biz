@@ -32,9 +32,22 @@ const ReceivablesModule = {
     return [];
   },
 
+  // 입금내역 제외 키워드(비매출: 석민·환급·수수료·결산 등)를 대사에서도 제외
+  _excludeKw() {
+    const u = (window.Auth && Auth.currentUser) ? Auth.currentUser() : null;
+    const raw = ((u && u.depositExcludeFilter) || '').trim();
+    return raw ? raw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) : [];
+  },
+  _excluded(name, kws) {
+    if (!kws || !kws.length) return false;
+    const n = (name || '').toLowerCase();
+    return kws.some(k => k && n.includes(k));
+  },
+
   async render() {
-    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
-    const deposits = await DB.getAll('deposits');
+    const kws = this._excludeKw();
+    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
+    const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
     const depositMap = {};
     deposits.forEach(d => { depositMap[String(d.id)] = d; });
 
@@ -121,6 +134,7 @@ const ReceivablesModule = {
       <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
         <strong>차변</strong>=세금계산서 발행 · <strong>대변</strong>=입금 · <strong>잔액</strong>=차변−대변
         <span class="text-muted"> (양수=미수 / 음수=미발행·선수). 세금계산서·입금·매칭 데이터로 자동 계산됩니다.</span>
+        ${kws.length ? `<div class="text-xs" style="margin-top:4px;color:#b45309;">🚫 제외(비매출): ${Utils.escapeHtml(kws.join(', '))} — 입금내역 제외 키워드가 대사에서도 빠집니다. (수정: 사용자 관리 → 본인 편집 → 입금내역 제외 키워드)</div>` : ''}
       </div>
 
       <div class="summary-cards">
@@ -191,8 +205,9 @@ const ReceivablesModule = {
   },
 
   async _buildLedger() {
-    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
-    const deposits = await DB.getAll('deposits');
+    const kws = this._excludeKw();
+    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
+    const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
     const depositMap = {};
     deposits.forEach(d => { depositMap[String(d.id)] = d; });
 

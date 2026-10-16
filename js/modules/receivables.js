@@ -150,6 +150,7 @@ const ReceivablesModule = {
               <input type="text" class="form-control" id="arSearch" placeholder="거래처 검색..." value="${Utils.escapeHtml(this.searchText)}">
             </div>
             ${this.filterMode !== 'all' ? `<button class="btn btn-ghost btn-sm" onclick="ReceivablesModule._setFilter('all')">✕ 필터 해제</button>` : ''}
+            <button class="btn btn-primary btn-sm" onclick="ReceivablesModule._openLedger()" title="세금계산서 발행일·입금일을 건별로 펼쳐 상대방에게 보낼 명세">📋 건별 명세 (확인요청용)</button>
           </div>
           <div class="toolbar-right text-sm text-muted">총 ${rows.length}곳 · 잔액합계 ${Utils.formatCurrency(totBal)}</div>
         </div>
@@ -178,6 +179,129 @@ const ReceivablesModule = {
     `;
 
     Utils.bindSearchInput(document.getElementById('arSearch'), (v) => { this.searchText = v; this.render(); });
+  },
+
+  // ===== 건별 명세 (확인요청용): 세금계산서 발행일·입금일을 한 줄씩 펼침 =====
+  _ledgerKey(s) {
+    return (s || '').toString()
+      .replace(/[(（]\s*[주유]\s*[)）]/g, '')
+      .replace(/주식회사|유한회사/g, '')
+      .replace(/[（）()㈜\s&·.,\-_/]/g, '')
+      .toLowerCase().trim();
+  },
+
+  async _buildLedger() {
+    const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료');
+    const deposits = await DB.getAll('deposits');
+    const depositMap = {};
+    deposits.forEach(d => { depositMap[String(d.id)] = d; });
+
+    const groups = {};
+    const g = (name) => {
+      const k = this._ledgerKey(name) || '(거래처 미상)';
+      if (!groups[k]) groups[k] = { name: (name || '').trim() || '(거래처 미상)', txns: [] };
+      return groups[k];
+    };
+    const counted = new Set();
+
+    for (const inv of invoices) {
+      const r = g(inv.partnerCompanyName);
+      r.txns.push({ type: '세금계산서', date: (inv.issueDate || inv.createdAt || '').slice(0, 10), debit: Number(inv.totalAmount) || 0, credit: 0, ref: inv.requestNumber || '' });
+      for (const did of this._matchedIds(inv)) {
+        const dep = depositMap[did];
+        if (dep) { counted.add(did); r.txns.push({ type: '입금', date: (dep.depositDate || '').slice(0, 10), debit: 0, credit: Number(dep.amount) || 0, ref: dep.depositorName || '' }); }
+      }
+    }
+    for (const dep of deposits) {
+      if (counted.has(String(dep.id))) continue;
+      if (dep.matchStatus === '매칭완료') continue;
+      if ((dep.actionRequired || '').startsWith('처리완료')) continue;
+      const r = g(dep.depositorName);
+      r.txns.push({ type: '입금', date: (dep.depositDate || '').slice(0, 10), debit: 0, credit: Number(dep.amount) || 0, ref: dep.depositorName || '' });
+    }
+
+    const out = Object.values(groups).map(grp => {
+      grp.txns.sort((a, b) => (a.date || '').localeCompare(b.date || ''));
+      let bal = 0;
+      grp.txns.forEach(t => { bal += t.debit - t.credit; t.balance = bal; });
+      grp.debit = grp.txns.reduce((s, t) => s + t.debit, 0);
+      grp.credit = grp.txns.reduce((s, t) => s + t.credit, 0);
+      grp.balance = grp.debit - grp.credit;
+      return grp;
+    }).filter(grp => grp.debit !== 0 || grp.credit !== 0)
+      .sort((a, b) => b.balance - a.balance);
+    return out;
+  },
+
+  async _openLedger() {
+    const groups = await this._buildLedger();
+    this._lastLedger = groups;
+    const fmt = (n) => n ? Utils.formatCurrency(n) : '';
+    const blocks = groups.map(grp => {
+      const rows = grp.txns.map(t => `
+        <tr>
+          <td>${Utils.escapeHtml(t.date || '-')}</td>
+          <td style="text-align:center;"><span style="padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;background:${t.type === '세금계산서' ? 'rgba(16,185,129,.15);color:#059669' : 'rgba(37,99,235,.12);color:#2563eb'};">${t.type}</span></td>
+          <td style="text-align:right;font-family:monospace;">${fmt(t.debit)}</td>
+          <td style="text-align:right;font-family:monospace;">${fmt(t.credit)}</td>
+          <td style="text-align:right;font-family:monospace;font-weight:700;color:${t.balance > 0 ? '#b45309' : (t.balance < 0 ? '#2563eb' : '#059669')};">${Utils.formatCurrency(t.balance)}</td>
+          <td class="text-xs text-muted">${Utils.escapeHtml(t.ref || '')}</td>
+        </tr>`).join('');
+      const badge = grp.balance > 0 ? '미수' : (grp.balance < 0 ? '미발행/선수' : '완료');
+      return `
+        <div style="margin-bottom:16px;border:1px solid var(--color-border);border-radius:8px;overflow:hidden;">
+          <div style="padding:8px 12px;background:#f8fafc;font-weight:700;display:flex;justify-content:space-between;">
+            <span>${Utils.escapeHtml(grp.name)}</span>
+            <span>발행 ${Utils.formatCurrency(grp.debit)} · 입금 ${Utils.formatCurrency(grp.credit)} · 잔액 <span style="color:${grp.balance > 0 ? '#b45309' : (grp.balance < 0 ? '#2563eb' : '#059669')};">${Utils.formatCurrency(grp.balance)}</span> (${badge})</span>
+          </div>
+          <table style="width:100%;border-collapse:collapse;font-size:0.86rem;">
+            <thead><tr style="background:#fff;border-bottom:1px solid var(--color-border);">
+              <th style="padding:6px 8px;text-align:left;color:#64748b;font-size:0.8rem;">날짜</th>
+              <th style="padding:6px 8px;text-align:center;color:#64748b;font-size:0.8rem;">구분</th>
+              <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:0.8rem;">세금계산서 발행액</th>
+              <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:0.8rem;">입금액</th>
+              <th style="padding:6px 8px;text-align:right;color:#64748b;font-size:0.8rem;">잔액</th>
+              <th style="padding:6px 8px;text-align:left;color:#64748b;font-size:0.8rem;">비고</th>
+            </tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>`;
+    }).join('');
+
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>📋 거래처별 건별 명세 <span class="text-xs text-muted" style="font-weight:400;">세금계산서 발행일·입금일 포함 · 확인요청용</span></h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:72vh;overflow-y:auto;">
+        <div style="margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+          <div class="text-sm text-muted">거래처별로 세금계산서(발행일)와 입금(입금일)을 날짜순으로 펼쳤습니다. 상대방이 날짜로 대사할 수 있어요.</div>
+          <button class="btn btn-success btn-sm" onclick="ReceivablesModule._exportLedger()">📥 엑셀(CSV) 내보내기</button>
+        </div>
+        ${groups.length === 0 ? '<div class="text-center text-muted" style="padding:30px;">내역 없음</div>' : blocks}
+      </div>
+      <div class="modal-footer"><button class="btn btn-secondary" onclick="Utils.closeModal()">닫기</button></div>
+    `, { size: 'modal-lg' });
+  },
+
+  _exportLedger() {
+    const groups = this._lastLedger || [];
+    const header = ['거래처', '날짜', '구분', '세금계산서 발행액', '입금액', '잔액', '비고'];
+    const lines = [header];
+    groups.forEach(grp => {
+      grp.txns.forEach(t => lines.push([grp.name, t.date, t.type, t.debit || '', t.credit || '', t.balance, t.ref || '']));
+      lines.push([grp.name + ' 소계', '', '', grp.debit, grp.credit, grp.balance, grp.balance > 0 ? '미수' : (grp.balance < 0 ? '미발행/선수' : '완료')]);
+    });
+    const esc = (c) => { const s = String(c == null ? '' : c); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const csv = lines.map(r => r.map(esc).join(',')).join('\r\n');
+    const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `거래처별_건별명세_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+    Utils.showToast('엑셀(CSV) 파일을 내려받았습니다.', 'success');
   }
 };
 

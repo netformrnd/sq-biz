@@ -32,11 +32,30 @@ const ReceivablesModule = {
     return [];
   },
 
-  // 입금내역 제외 키워드(비매출: 석민·환급·수수료·결산 등)를 대사에서도 제외
-  _excludeKw() {
-    const u = (window.Auth && Auth.currentUser) ? Auth.currentUser() : null;
-    const raw = ((u && u.depositExcludeFilter) || '').trim();
-    return raw ? raw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) : [];
+  // 대사 제외 키워드(비매출: 석민·환급·수수료·결산 등)
+  //  우선순위: ① 대사 전용 전역설정(appSettings/receivablesExclude)
+  //           ② 없으면 모든 사용자의 입금내역 제외 키워드 합집합(기존 설정 승계)
+  //  → 로그인 계정이 바뀌어도 일관되게 적용
+  async _loadExcludeKw() {
+    let raw = '';
+    try {
+      const doc = await DB.get('appSettings', 'receivablesExclude');
+      if (doc && typeof doc.keywords === 'string') raw = doc.keywords.trim();
+      this._hasGlobal = !!(doc && doc.keywords !== undefined);
+    } catch (e) { this._hasGlobal = false; }
+
+    if (!raw) {
+      // 전역설정 없음 → 전 사용자 입금제외 키워드 합집합
+      try {
+        const users = await DB.getAll('users');
+        const set = new Set();
+        users.forEach(u => (u.depositExcludeFilter || '').split(',').forEach(k => { const t = k.trim(); if (t) set.add(t); }));
+        raw = Array.from(set).join(', ');
+      } catch (e) { /* 무시 */ }
+    }
+    this._excludeRaw = raw;
+    this._kws = raw ? raw.split(',').map(k => k.trim().toLowerCase()).filter(Boolean) : [];
+    return this._kws;
   },
   _excluded(name, kws) {
     if (!kws || !kws.length) return false;
@@ -44,8 +63,18 @@ const ReceivablesModule = {
     return kws.some(k => k && n.includes(k));
   },
 
+  async _saveExcludeKw() {
+    const v = (document.getElementById('arExcludeKw')?.value || '').trim();
+    try {
+      await DB.update('appSettings', { id: 'receivablesExclude', keywords: v });
+      await DB.log('UPDATE', 'appSettings', 'receivablesExclude', `대사 제외 키워드: ${v}`);
+      Utils.showToast('대사 제외 키워드를 저장했습니다.', 'success');
+      await this.render();
+    } catch (e) { Utils.showToast('저장 실패: ' + e.message, 'error'); }
+  },
+
   async render() {
-    const kws = this._excludeKw();
+    const kws = await this._loadExcludeKw();
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
     const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
     const depositMap = {};
@@ -134,7 +163,12 @@ const ReceivablesModule = {
       <div style="background:var(--color-info-light);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius-sm);margin-bottom:var(--sp-3);font-size:var(--font-size-sm);">
         <strong>차변</strong>=세금계산서 발행 · <strong>대변</strong>=입금 · <strong>잔액</strong>=차변−대변
         <span class="text-muted"> (양수=미수 / 음수=미발행·선수). 세금계산서·입금·매칭 데이터로 자동 계산됩니다.</span>
-        ${kws.length ? `<div class="text-xs" style="margin-top:4px;color:#b45309;">🚫 제외(비매출): ${Utils.escapeHtml(kws.join(', '))} — 입금내역 제외 키워드가 대사에서도 빠집니다. (수정: 사용자 관리 → 본인 편집 → 입금내역 제외 키워드)</div>` : ''}
+        <div style="margin-top:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+          <span class="text-xs" style="color:#b45309;white-space:nowrap;">🚫 제외(비매출) 키워드:</span>
+          <input type="text" id="arExcludeKw" class="form-control" style="flex:1;min-width:220px;max-width:520px;height:30px;font-size:0.82rem;" placeholder="예: 석민, 환급, 수수료, 결산, 코스콤, 허지은" value="${Utils.escapeHtml(this._excludeRaw || '')}">
+          <button class="btn btn-sm btn-primary" onclick="ReceivablesModule._saveExcludeKw()">저장</button>
+          <span class="text-xs text-muted">이 단어가 들어간 거래처·입금은 대사/건별명세에서 제외돼요 (쉼표로 구분).</span>
+        </div>
       </div>
 
       <div class="summary-cards">
@@ -205,7 +239,7 @@ const ReceivablesModule = {
   },
 
   async _buildLedger() {
-    const kws = this._excludeKw();
+    const kws = await this._loadExcludeKw();
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
     const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
     const depositMap = {};

@@ -28,11 +28,57 @@ const DashboardModule = {
     const matchedDeposits = deposits.filter(d => d.matchStatus === '매칭완료').length;
     const unmatchedDeposits = deposits.filter(d => d.matchStatus !== '매칭완료').length;
 
+    // ── 관리자 "할 일 / 확인할 것" 계산 ──
+    const depositMap = {};
+    deposits.forEach(d => { depositMap[String(d.id)] = d; });
+    const _invMatched = (inv) => {
+      const ids = Array.isArray(inv.matchedDepositIds) && inv.matchedDepositIds.length ? inv.matchedDepositIds.map(String) : (inv.matchedDepositId ? [String(inv.matchedDepositId)] : []);
+      const alloc = inv.matchedAllocations || {};
+      let amt = 0;
+      ids.forEach(id => { if (alloc[id] != null) amt += Number(alloc[id]) || 0; else { const dd = depositMap[id]; if (dd) amt += dd.amount || 0; } });
+      return amt;
+    };
+    const unpaidInvs = invoices.filter(i => i.status === '발행완료' && (i.totalAmount || 0) - _invMatched(i) >= 10);
+    const unpaidAmt = unpaidInvs.reduce((s, i) => s + ((i.totalAmount || 0) - _invMatched(i)), 0);
+    const needInvoiceDeps = deposits.filter(d => d.matchStatus !== '매칭완료' && !((d.actionRequired || '').startsWith('처리완료')));
+    const needInvoiceAmt = needInvoiceDeps.reduce((s, d) => s + (d.amount || 0), 0);
+    const reissueCount = invoices.filter(i => i.needsReissue).length;
+    let leavePending = 0;
+    try { const _lv = await DB.getAll('leaveRequests'); leavePending = _lv.filter(r => r.status === 'pending' || r.status === 'cancel-requested').length; } catch (e) { /* 무시 */ }
+
     let html = '';
 
     if (isAdmin) {
+      // 관리자 "할 일 / 확인할 것" — 건수 있는 것만, 클릭하면 해당 화면(필터 적용)으로 이동
+      const todos = [];
+      if (pending + reviewing > 0) todos.push({ icon: '📝', cls: 'blue', label: '세금계산서 요청 처리', val: `${pending + reviewing}건`, sub: `요청 ${pending} · 검토중 ${reviewing}`, onclick: `TaxInvoiceAdminModule.filterStatus='all';Router.navigate('/tax-invoice/admin')` });
+      if (needInvoiceDeps.length > 0) todos.push({ icon: '💰', cls: 'orange', label: '입금됐는데 발행 안 됨', val: `${needInvoiceDeps.length}건`, sub: Utils.formatCurrency(needInvoiceAmt), onclick: `FinanceMatchingModule.depositFilter='unmatched';Router.navigate('/finance')` });
+      if (unpaidInvs.length > 0) todos.push({ icon: '🧾', cls: 'orange', label: '발행했는데 미입금(미수)', val: `${unpaidInvs.length}건`, sub: Utils.formatCurrency(unpaidAmt), onclick: `TaxInvoiceAdminModule.filterStatus='all';TaxInvoiceAdminModule.filterUnpaid=true;Router.navigate('/tax-invoice/admin')` });
+      if (reissueCount > 0) todos.push({ icon: '🔧', cls: 'orange', label: '수정발행 필요', val: `${reissueCount}건`, sub: '발행 후 수정됨', onclick: `TaxInvoiceAdminModule.filterStatus='발행완료';Router.navigate('/tax-invoice/admin')` });
+      if (leavePending > 0) todos.push({ icon: '🌴', cls: 'cyan', label: '연차 승인대기', val: `${leavePending}건`, sub: '', onclick: `Router.navigate('/leave')` });
+
+      const todoHtml = `
+        <div class="card mb-4" style="border-left:4px solid var(--color-primary);">
+          <div class="card-header"><h3>📌 할 일 / 확인할 것</h3></div>
+          <div class="card-body">
+            ${todos.length === 0
+              ? '<div class="text-muted" style="padding:var(--sp-2);">✅ 지금 바로 처리할 일이 없어요.</div>'
+              : `<div class="summary-cards">
+                  ${todos.map(t => `
+                    <div class="summary-card" style="cursor:pointer;" onclick="${t.onclick}" title="${Utils.escapeHtml(t.label)}">
+                      <div class="card-icon ${t.cls}">${t.icon}</div>
+                      <div class="card-info">
+                        <div class="card-label">${t.label}</div>
+                        <div class="card-value">${t.val}</div>
+                        ${t.sub ? `<div class="card-sub">${t.sub}</div>` : ''}
+                      </div>
+                    </div>`).join('')}
+                </div>`}
+          </div>
+        </div>`;
+
       // 관리자 대시보드
-      html = `
+      html = todoHtml + `
         <div class="summary-cards">
           <div class="summary-card" style="cursor:pointer;" onclick="Router.navigate('/tax-invoice/admin')" title="요청 관리로 이동">
             <div class="card-icon blue">📝</div>
@@ -93,20 +139,6 @@ const DashboardModule = {
         </div>
       `;
 
-      // 대기 중인 요청이 있으면 알림
-      if (pending > 0) {
-        html = `
-          <div class="card mb-4" style="border-left:4px solid var(--color-warning);background:var(--color-warning-light);">
-            <div class="card-body d-flex items-center justify-between">
-              <div>
-                <strong>⚠️ 처리 대기 중인 세금계산서 발행 요청이 ${pending}건 있습니다.</strong>
-                <p class="text-sm text-muted mt-2">요청 관리에서 확인하고 처리해 주세요.</p>
-              </div>
-              <button class="btn btn-warning btn-sm" onclick="Router.navigate('/tax-invoice/admin')">요청 관리</button>
-            </div>
-          </div>
-        ` + html;
-      }
     } else {
       // 직원 대시보드
       const myInvoices = invoices.filter(i => i.requesterId === user.id);

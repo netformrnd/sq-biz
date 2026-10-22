@@ -48,7 +48,18 @@ const FinanceMatchingModule = {
     this.container = container;
     this.selectedDepositId = null;
     this.selectedInvoiceId = null;
+    this.depositSearch = '';   // 재진입 시 검색어 초기화 (이전 검색이 남아 혼란 방지)
     await this.render();
+  },
+
+  // 대시보드 등에서 미매칭만 걸고 진입 (월 전체 + 검색 초기화 → 항상 보이게)
+  openUnmatched() {
+    this.depositFilter = 'unmatched';
+    this.depositMonth = 'all';
+    this.depositSearch = '';
+    this.hideCompleted = false;
+    this.depDupFilter = false;
+    Router.navigate('/finance');
   },
 
   async render() {

@@ -9,11 +9,25 @@ const TaxInvoiceAdminModule = {
   hideCompleted: false,
   filterDup: false,
   filterUnpaid: false,
+  filterReissue: false,
   searchText: '',
 
   async init(container) {
     this.container = container;
+    this.searchText = '';   // 재진입 시 검색어 초기화 (이전 검색이 남아 혼란 방지)
     await this.render();
+  },
+
+  // 대시보드 등에서 필터 걸고 진입 (기간 전체 + 검색 초기화 → 항상 보이게)
+  openFiltered(opts = {}) {
+    this.filterStatus = opts.status || 'all';
+    this.filterUnpaid = !!opts.unpaid;
+    this.filterReissue = !!opts.reissue;
+    this.filterDup = false;
+    this.hideCompleted = false;
+    this.searchText = '';
+    if (window.DateFilter) DateFilter._filters['taxInvoices'] = { preset: 'all', start: null, end: null };
+    Router.navigate('/tax-invoice/admin');
   },
 
   _sort(field) {
@@ -73,12 +87,16 @@ const TaxInvoiceAdminModule = {
     };
     const isUnpaid = (i) => i.status === '발행완료' && (i.totalAmount || 0) - _matchedTotal(i) >= 10;
     const unpaidCount = items.filter(isUnpaid).length;
+    const reissueCount = all.filter(i => i.needsReissue).length;   // 수정발행 필요(기간 무관)
 
     // 상태 필터
     let filtered;
     if (this.filterStatus === 'all') filtered = items;
     else if (this.filterStatus === '당일') filtered = items.filter(i => isToday(i.issueDate) || isToday(i.createdAt));
     else filtered = items.filter(i => i.status === this.filterStatus);
+
+    // 수정발행 필요만 보기 — 기간/상태 무관하게 전체에서 needsReissue만 (가려지지 않게)
+    if (this.filterReissue) filtered = all.filter(i => i.needsReissue);
 
     // 중복 의심만 보기
     if (this.filterDup) filtered = filtered.filter(isDup);
@@ -277,7 +295,10 @@ const TaxInvoiceAdminModule = {
         ${counts['취소'] > 0 ? `<div class="tab-item ${this.filterStatus === '취소' ? 'active' : ''}" onclick="TaxInvoiceAdminModule._setFilter('취소')">
           🚫 취소 <span class="text-muted">(${counts['취소']})</span>
         </div>` : ''}
-        <button onclick="TaxInvoiceAdminModule._toggleUnpaid()" title="발행했는데 입금이 안 된(미수금) 세금계산서만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterUnpaid ? '#d97706' : '#e2e8f0'};background:${this.filterUnpaid ? '#fef3c7' : '#F1F5F9'};color:${this.filterUnpaid ? '#b45309' : 'inherit'};font-weight:${this.filterUnpaid ? '700' : '400'};">
+        ${reissueCount > 0 || this.filterReissue ? `<button onclick="TaxInvoiceAdminModule._toggleReissue()" title="발행 후 수정돼서 홈택스 수정발행이 필요한 건만 보기" style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterReissue ? '#dc2626' : '#e2e8f0'};background:${this.filterReissue ? '#fee2e2' : '#F1F5F9'};color:${this.filterReissue ? '#b91c1c' : 'inherit'};font-weight:${this.filterReissue ? '700' : '400'};">
+          🔧 수정발행 필요 ${reissueCount > 0 ? `(${reissueCount})` : ''}
+        </button>` : ''}
+        <button onclick="TaxInvoiceAdminModule._toggleUnpaid()" title="발행했는데 입금이 안 된(미수금) 세금계산서만 보기" style="${reissueCount > 0 || this.filterReissue ? '' : 'margin-left:auto;'}display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterUnpaid ? '#d97706' : '#e2e8f0'};background:${this.filterUnpaid ? '#fef3c7' : '#F1F5F9'};color:${this.filterUnpaid ? '#b45309' : 'inherit'};font-weight:${this.filterUnpaid ? '700' : '400'};">
           💰 미입금만 ${unpaidCount > 0 ? `(${unpaidCount})` : ''}
         </button>
         <button onclick="TaxInvoiceAdminModule._toggleDup()" title="같은 거래처+금액이 2건 이상인 중복 의심 건만 보기" style="display:flex;align-items:center;gap:6px;font-size:0.85rem;cursor:pointer;padding:6px 12px;border-radius:6px;border:1px solid ${this.filterDup ? '#dc2626' : '#e2e8f0'};background:${this.filterDup ? '#fee2e2' : '#F1F5F9'};color:${this.filterDup ? '#b91c1c' : 'inherit'};font-weight:${this.filterDup ? '700' : '400'};">
@@ -384,6 +405,11 @@ const TaxInvoiceAdminModule = {
 
   _toggleUnpaid() {
     this.filterUnpaid = !this.filterUnpaid;
+    this.render();
+  },
+
+  _toggleReissue() {
+    this.filterReissue = !this.filterReissue;
     this.render();
   },
 

@@ -51,10 +51,10 @@ const DashboardModule = {
     if (isAdmin) {
       // 관리자 "할 일 / 확인할 것" — 건수 있는 것만, 클릭하면 해당 화면(필터 적용)으로 이동
       const todos = [];
-      if (pending + reviewing > 0) todos.push({ icon: '📝', cls: 'blue', label: '세금계산서 요청 처리', val: `${pending + reviewing}건`, sub: `요청 ${pending} · 검토중 ${reviewing}`, onclick: `TaxInvoiceAdminModule.filterStatus='all';Router.navigate('/tax-invoice/admin')` });
-      if (needInvoiceDeps.length > 0) todos.push({ icon: '💰', cls: 'orange', label: '입금됐는데 발행 안 됨', val: `${needInvoiceDeps.length}건`, sub: Utils.formatCurrency(needInvoiceAmt), onclick: `FinanceMatchingModule.depositFilter='unmatched';Router.navigate('/finance')` });
-      if (unpaidInvs.length > 0) todos.push({ icon: '🧾', cls: 'orange', label: '발행했는데 미입금(미수)', val: `${unpaidInvs.length}건`, sub: Utils.formatCurrency(unpaidAmt), onclick: `TaxInvoiceAdminModule.filterStatus='all';TaxInvoiceAdminModule.filterUnpaid=true;Router.navigate('/tax-invoice/admin')` });
-      if (reissueCount > 0) todos.push({ icon: '🔧', cls: 'orange', label: '수정발행 필요', val: `${reissueCount}건`, sub: '발행 후 수정됨', onclick: `TaxInvoiceAdminModule.filterStatus='발행완료';Router.navigate('/tax-invoice/admin')` });
+      if (pending + reviewing > 0) todos.push({ icon: '📝', cls: 'blue', label: '세금계산서 요청 처리', val: `${pending + reviewing}건`, sub: `요청 ${pending} · 검토중 ${reviewing}`, onclick: `TaxInvoiceAdminModule.openFiltered({status:'요청'})` });
+      if (needInvoiceDeps.length > 0) todos.push({ icon: '💰', cls: 'orange', label: '입금됐는데 발행 안 됨', val: `${needInvoiceDeps.length}건`, sub: Utils.formatCurrency(needInvoiceAmt), onclick: `FinanceMatchingModule.openUnmatched()` });
+      if (unpaidInvs.length > 0) todos.push({ icon: '🧾', cls: 'orange', label: '발행했는데 미입금(미수)', val: `${unpaidInvs.length}건`, sub: Utils.formatCurrency(unpaidAmt), onclick: `TaxInvoiceAdminModule.openFiltered({unpaid:true})` });
+      if (reissueCount > 0) todos.push({ icon: '🔧', cls: 'orange', label: '수정발행 필요', val: `${reissueCount}건`, sub: '발행 후 수정됨', onclick: `TaxInvoiceAdminModule.openFiltered({reissue:true})` });
       if (leavePending > 0) todos.push({ icon: '🌴', cls: 'cyan', label: '연차 승인대기', val: `${leavePending}건`, sub: '', onclick: `Router.navigate('/leave')` });
 
       const todoHtml = `

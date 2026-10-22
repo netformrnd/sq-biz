@@ -47,6 +47,28 @@ const TaxInvoiceRequestModule = {
               <textarea id="reason" class="form-control" rows="3" placeholder="세금계산서 발행 사유를 입력하세요" required></textarea>
             </div>
 
+            <!-- 요청 경로 (구두/전화 요청도 자료로 남기기) -->
+            <div class="form-group">
+              <label for="requestChannel">요청 경로</label>
+              <select id="requestChannel" class="form-control" onchange="TaxInvoiceRequestModule._onChannelChange()">
+                <option value="시스템">시스템(직접 작성)</option>
+                <option value="구두">구두 요청</option>
+                <option value="전화">전화 요청</option>
+                <option value="메일">메일 요청</option>
+                <option value="기타">기타</option>
+              </select>
+            </div>
+            <div id="verbalReqArea" class="form-row" style="display:none;">
+              <div class="form-group">
+                <label for="verbalRequester">요청자 <span class="required">*</span> <span class="text-xs text-muted">(구두/전화로 전달한 분)</span></label>
+                <input type="text" id="verbalRequester" class="form-control" placeholder="예: 홍길동 대표">
+              </div>
+              <div class="form-group">
+                <label for="verbalRequestDate">요청 받은 날</label>
+                <input type="date" id="verbalRequestDate" class="form-control" value="${Utils.today ? Utils.today() : ''}">
+              </div>
+            </div>
+
             <!-- 이번 발행 금액 (부가세 별도/포함 선택 → 자동 계산) -->
             <div class="form-group">
               <label for="amount">이번 발행 금액 <span class="required">*</span></label>
@@ -282,6 +304,13 @@ const TaxInvoiceRequestModule = {
         + `<span class="text-muted">※ 입금액은 참고용입니다. 공급가액이 맞는지 확인 후 입력하고, 거래처 정보도 확인해 주세요.</span>`;
       form.insertBefore(banner, form.firstChild);
     }
+  },
+
+  // 요청 경로: 구두/전화/메일/기타 선택 시 요청자·요청일 칸 표시
+  _onChannelChange() {
+    const v = document.getElementById('requestChannel')?.value;
+    const area = document.getElementById('verbalReqArea');
+    if (area) area.style.display = (v && v !== '시스템') ? 'flex' : 'none';
   },
 
   // 부가세 별도/포함 → 공급가액·세액·합계 자동 계산 + 미리보기
@@ -877,6 +906,16 @@ const TaxInvoiceRequestModule = {
       return;
     }
 
+    // 요청 경로 (구두/전화 등은 요청자 기록 필수)
+    const requestChannel = document.getElementById('requestChannel')?.value || '시스템';
+    const verbalRequester = (document.getElementById('verbalRequester')?.value || '').trim();
+    const verbalRequestDate = document.getElementById('verbalRequestDate')?.value || '';
+    if (requestChannel !== '시스템' && !verbalRequester) {
+      Utils.showToast(`${requestChannel} 요청이면 요청자를 적어주세요. (자료로 남습니다)`, 'error');
+      document.getElementById('verbalRequester')?.focus();
+      return;
+    }
+
     // ── 중복 요청 자동 경고 (누구나 검색 안 해도 시스템이 잡아줌) ──
     // 같은 업체+금액(월 무시) 또는 같은 입금건에 이미 요청/발행된 게 있으면 그 자리에서 경고
     if (!skipDupCheck) {
@@ -961,6 +1000,9 @@ const TaxInvoiceRequestModule = {
       partnerBusinessType: document.getElementById('partnerBusinessType').value.trim(),
       partnerBusinessItem: document.getElementById('partnerBusinessItem').value.trim(),
       attachments,
+      requestChannel,
+      verbalRequester: requestChannel !== '시스템' ? verbalRequester : '',
+      verbalRequestDate: requestChannel !== '시스템' ? verbalRequestDate : '',
       projectName: document.getElementById('projectName').value.trim(),
       memo: document.getElementById('memo').value.trim(),
       // 계약 연결 정보 (없으면 null)
@@ -1227,6 +1269,11 @@ const TaxInvoiceRequestModule = {
           <label class="text-xs text-muted">발행 사유</label>
           <div>${Utils.escapeHtml(item.reason)}</div>
         </div>
+
+        ${item.requestChannel && item.requestChannel !== '시스템' ? `
+        <div class="mb-4" style="padding:8px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:0.88rem;color:#b45309;">
+          📞 <strong>${Utils.escapeHtml(item.requestChannel)} 요청</strong>${item.verbalRequester ? ` · 요청자: <strong>${Utils.escapeHtml(item.verbalRequester)}</strong>` : ''}${item.verbalRequestDate ? ` · 요청일: ${Utils.formatDate(item.verbalRequestDate)}` : ''}
+        </div>` : ''}
 
         <fieldset>
           <legend>거래처 정보</legend>

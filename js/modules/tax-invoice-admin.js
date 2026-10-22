@@ -596,10 +596,14 @@ const TaxInvoiceAdminModule = {
       </div>
       <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
         <!-- 요청 정보 -->
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-4);padding-bottom:var(--sp-3);border-bottom:1px solid var(--color-border);">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--sp-2);padding-bottom:var(--sp-3);border-bottom:1px solid var(--color-border);">
           <span class="text-sm text-muted">요청자: <strong>${Utils.escapeHtml(item.requesterName || '-')}</strong></span>
           <span class="text-sm text-muted">요청일: ${Utils.formatDateTime(item.createdAt)}</span>
         </div>
+        ${item.requestChannel && item.requestChannel !== '시스템' ? `
+        <div style="margin-bottom:var(--sp-4);padding:8px 12px;background:#fff7ed;border:1px solid #fdba74;border-radius:8px;font-size:0.88rem;color:#b45309;">
+          📞 <strong>${Utils.escapeHtml(item.requestChannel)} 요청</strong>${item.verbalRequester ? ` · 요청자: <strong>${Utils.escapeHtml(item.verbalRequester)}</strong>` : ''}${item.verbalRequestDate ? ` · 요청일: ${Utils.formatDate(item.verbalRequestDate)}` : ''}
+        </div>` : ''}
 
         <!-- 금액 -->
         <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:var(--sp-4);margin-bottom:var(--sp-5);padding:var(--sp-4);background:var(--color-surface-hover);border-radius:var(--radius-md);">

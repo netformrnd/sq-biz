@@ -1839,7 +1839,7 @@ const FinanceMatchingModule = {
     return { dateIdx: 0, nameIdx: 4, withdrawIdx: 1, depositIdx: 2, balanceIdx: 3, format: 'bank' };
   },
 
-  _parseBankStatement() {
+  async _parseBankStatement() {
     const raw = document.getElementById('bankStatementArea').value.trim();
     if (!raw) {
       Utils.showToast('데이터를 붙여넣기 하세요.', 'error');
@@ -1973,8 +1973,34 @@ const FinanceMatchingModule = {
     }
 
     this._detectedFormat = detectedFormat;
-    Utils.showToast(`[${detectedFormat}] 입금 ${deposits.length}건, 송금 ${withdrawals.length}건 인식`, 'success');
+    await this._flagBankDuplicates();   // 이미 있는 건(같은 날짜+금액) 자동 체크해제
+    const _dupN = deposits.filter(r => r.dup).length + withdrawals.filter(r => r.dup).length;
+    Utils.showToast(`[${detectedFormat}] 입금 ${deposits.length}건, 송금 ${withdrawals.length}건 인식${_dupN > 0 ? ` · 🔁 이미 있음 ${_dupN}건 자동 체크해제` : ''}`, 'success', 6000);
     this._renderBankParseResult();
+  },
+
+  // 붙여넣은 내역 중 이미 등록된 건(같은 날짜+금액)을 '중복 의심'으로 표시 + 체크 해제
+  //  → 재붙여넣기/이름·잔액 표기차이로 생기던 중복을 애초에 차단 (나중에 중복정리 불필요)
+  async _flagBankDuplicates() {
+    try {
+      const existingDeps = await DB.getAll('deposits');
+      const existingWds = await DB.getAll('transferRecords');
+      const _k = (date, amt) => `${(date || '').slice(0, 10)}|${Number(amt) || 0}`;
+      const depSet = new Set((existingDeps || []).map(d => _k(d.depositDate, d.amount)));
+      const wdSet = new Set((existingWds || []).map(t => _k(t.transferDate, t.amount)));
+      // 붙여넣기 내부 중복(같은 묶음에 같은 날짜+금액 2개)도 두 번째부터 표시
+      const seenDep = new Set(), seenWd = new Set();
+      this._bankParsed.deposits.forEach(r => {
+        const k = _k(r.date, r.amount);
+        if (depSet.has(k) || seenDep.has(k)) { r.dup = true; r.selected = false; }
+        seenDep.add(k);
+      });
+      this._bankParsed.withdrawals.forEach(r => {
+        const k = _k(r.date, r.amount);
+        if (wdSet.has(k) || seenWd.has(k)) { r.dup = true; r.selected = false; }
+        seenWd.add(k);
+      });
+    } catch (e) { console.warn('[통장붙여넣기] 중복확인 실패:', e); }
   },
 
   _renderBankParseResult() {
@@ -1987,10 +2013,10 @@ const FinanceMatchingModule = {
     depTbody.innerHTML = deposits.length === 0
       ? '<tr><td colspan="4" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">입금 내역 없음</td></tr>'
       : deposits.map((r, i) => `
-          <tr>
+          <tr style="${r.dup ? 'background:#fef2f2;' : ''}">
             <td><input type="checkbox" data-type="dep" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('dep', ${i}, this.checked)"></td>
             <td>${Utils.escapeHtml(r.date)}</td>
-            <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(r.name)}${r.dup ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 날짜+금액이 이미 있음 — 중복 의심(기본 제외)">🔁 이미있음</span>' : ''}</td>
             <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
           </tr>
         `).join('');
@@ -1999,10 +2025,10 @@ const FinanceMatchingModule = {
     wdTbody.innerHTML = withdrawals.length === 0
       ? '<tr><td colspan="4" class="text-center" style="padding:var(--sp-4);color:var(--color-text-muted);">송금 내역 없음</td></tr>'
       : withdrawals.map((r, i) => `
-          <tr>
+          <tr style="${r.dup ? 'background:#fef2f2;' : ''}">
             <td><input type="checkbox" data-type="wd" data-idx="${i}" ${r.selected ? 'checked' : ''} onchange="FinanceMatchingModule._toggleBankRow('wd', ${i}, this.checked)"></td>
             <td>${Utils.escapeHtml(r.date)}</td>
-            <td class="fw-medium">${Utils.escapeHtml(r.name)}</td>
+            <td class="fw-medium">${Utils.escapeHtml(r.name)}${r.dup ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 날짜+금액이 이미 있음 — 중복 의심(기본 제외)">🔁 이미있음</span>' : ''}</td>
             <td class="text-right amount">${Utils.formatCurrency(r.amount)}</td>
           </tr>
         `).join('');

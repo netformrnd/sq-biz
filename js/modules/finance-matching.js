@@ -2738,7 +2738,12 @@ const FinanceMatchingModule = {
 
       Utils.closeModal();
       Utils.showToast('세금계산서가 등록되었습니다.', 'success');
-      await this.render();
+      // 현재 화면만 안전하게 새로고침 (개별등록은 보통 '세금계산서 발행' 화면에서 호출됨)
+      const _isMounted = (m) => m && m.container && document.body.contains(m.container);
+      try {
+        if (window.TaxInvoiceAdminModule && _isMounted(TaxInvoiceAdminModule)) await TaxInvoiceAdminModule.render();
+        else if (_isMounted(this)) await this.render();
+      } catch (re) { console.warn('[개별등록] 화면 새로고침 생략:', re); }
     } catch (e) {
       Utils.showToast('등록 실패: ' + e.message, 'error');
     }

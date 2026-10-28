@@ -313,6 +313,12 @@ const TaxInvoiceRequestModule = {
     if (area) area.style.display = (v && v !== '시스템') ? 'flex' : 'none';
   },
 
+  _onEditChannelChange() {
+    const v = document.getElementById('editRequestChannel')?.value;
+    const area = document.getElementById('editVerbalReqArea');
+    if (area) area.style.display = (v && v !== '시스템') ? 'flex' : 'none';
+  },
+
   // 부가세 별도/포함 → 공급가액·세액·합계 자동 계산 + 미리보기
   _recalcAmount() {
     const raw = Number(document.getElementById('amount')?.value) || 0;
@@ -1329,6 +1335,20 @@ const TaxInvoiceRequestModule = {
           <textarea id="editReason" class="form-control" rows="2">${v(item.reason)}</textarea>
         </div>
         <div class="form-group">
+          <label>요청 경로</label>
+          <select id="editRequestChannel" class="form-control" onchange="TaxInvoiceRequestModule._onEditChannelChange()">
+            <option value="시스템" ${!item.requestChannel || item.requestChannel === '시스템' ? 'selected' : ''}>시스템(직접 작성)</option>
+            <option value="구두" ${item.requestChannel === '구두' ? 'selected' : ''}>구두 요청</option>
+            <option value="전화" ${item.requestChannel === '전화' ? 'selected' : ''}>전화 요청</option>
+            <option value="메일" ${item.requestChannel === '메일' ? 'selected' : ''}>메일 요청</option>
+            <option value="기타" ${item.requestChannel === '기타' ? 'selected' : ''}>기타</option>
+          </select>
+        </div>
+        <div id="editVerbalReqArea" class="form-row" style="display:${item.requestChannel && item.requestChannel !== '시스템' ? 'flex' : 'none'};">
+          <div class="form-group"><label>요청자 <span class="text-xs text-muted">(구두/전화로 전달한 분)</span></label><input type="text" id="editVerbalRequester" class="form-control" value="${v(item.verbalRequester)}"></div>
+          <div class="form-group"><label>요청 받은 날</label><input type="date" id="editVerbalRequestDate" class="form-control" value="${v(item.verbalRequestDate)}"></div>
+        </div>
+        <div class="form-group">
           <label>공급가액 <span class="required">*</span></label>
           <input type="number" id="editAmount" class="form-control" min="0" value="${Number(item.amount) || 0}">
           <div class="hint">세액·합계는 저장 시 자동 재계산됩니다.</div>
@@ -1374,6 +1394,7 @@ const TaxInvoiceRequestModule = {
     if (!modReason) { Utils.showToast('수정 사유를 입력해 주세요.', 'error'); document.getElementById('editModReason')?.focus(); return; }
 
     const newAmount = Number(document.getElementById('editAmount').value) || 0;
+    const _channel = getV('editRequestChannel') || '시스템';
     const newVals = {
       reason: getV('editReason'),
       amount: newAmount,
@@ -1385,7 +1406,9 @@ const TaxInvoiceRequestModule = {
       partnerBusinessType: getV('editPartnerBusinessType'),
       partnerBusinessItem: getV('editPartnerBusinessItem'),
       projectName: getV('editProjectName'),
-      memo: getV('editMemo')
+      memo: getV('editMemo'),
+      requestChannel: _channel,
+      verbalRequester: _channel !== '시스템' ? getV('editVerbalRequester') : ''
     };
 
     // 필수값 검증
@@ -1403,7 +1426,8 @@ const TaxInvoiceRequestModule = {
       partnerCompanyName: '상호', partnerRegNumber: '사업자등록번호',
       partnerRepName: '대표자', partnerEmail: '이메일',
       partnerAddress: '주소', partnerBusinessType: '업태', partnerBusinessItem: '종목',
-      projectName: '프로젝트', memo: '비고'
+      projectName: '프로젝트', memo: '비고',
+      requestChannel: '요청 경로', verbalRequester: '구두 요청자'
     };
     const fmt = (k, val) => k === 'amount' ? Utils.formatCurrency(Number(val) || 0) : String(val == null ? '' : val);
     const changes = [];
@@ -1416,10 +1440,14 @@ const TaxInvoiceRequestModule = {
 
     const user = Auth.currentUser();
     const wasIssued = item.status === '발행완료';   // 발행 후 수정이면 수정발행 필요
+    // 실제 계산서 내용(금액·거래처 등)이 바뀐 경우만 '수정발행 필요' — 메타정보(요청경로·비고·프로젝트)만 바꾼 건 제외
+    const _metaOnly = ['projectName', 'memo', 'requestChannel', 'verbalRequester'];
+    const contentChanged = changes.some(c => !_metaOnly.includes(c.field));
     Object.assign(item, newVals);
+    item.verbalRequestDate = _channel !== '시스템' ? (document.getElementById('editVerbalRequestDate')?.value || '') : '';
     item.taxAmount = Math.round(newAmount * 0.1);
     item.totalAmount = newAmount + item.taxAmount;
-    if (wasIssued) item.needsReissue = true;   // 관리자 화면에 '수정발행 필요' 표시용
+    if (wasIssued && contentChanged) item.needsReissue = true;   // 관리자 화면에 '수정발행 필요' 표시용
     if (!Array.isArray(item.editHistory)) item.editHistory = [];
     item.editHistory.push({
       editedAt: new Date().toISOString(),
@@ -1442,10 +1470,10 @@ const TaxInvoiceRequestModule = {
       return;
     }
 
-    // 관리자 알림: 세금계산서 수정 (발행완료 건이면 수정발행 필요) — 발행요청처럼 잔디 알림
+    // 관리자 알림: 실제 내용(금액·거래처 등)이 바뀐 경우만 — 메타정보(요청경로 등)만 바꾼 건 조용히
     try {
-      if (window.JandiWebhook) {
-        const r = await JandiWebhook.notifyEdit(item, changes, modReason, wasIssued);
+      if (window.JandiWebhook && contentChanged) {
+        const r = await JandiWebhook.notifyEdit(item, changes.filter(c => !_metaOnly.includes(c.field)), modReason, wasIssued);
         if (r && r.ok === false && r.error !== 'no-url') {
           Utils.showToast('⚠️ 잔디 수정 알림 전송 실패 (수정은 저장됨)', 'warning', 4000);
         }
@@ -1454,7 +1482,7 @@ const TaxInvoiceRequestModule = {
     if (window.App && App.updateNotificationBadges) App.updateNotificationBadges();
 
     Utils.closeModal();
-    Utils.showToast(wasIssued ? '수정되었습니다. (발행완료 건 → 수정발행 필요, 관리자 알림 발송)' : '수정되었습니다.', 'success', 5000);
+    Utils.showToast((wasIssued && contentChanged) ? '수정되었습니다. (발행완료 건 → 수정발행 필요, 관리자 알림 발송)' : '수정되었습니다.', 'success', 5000);
     // 갱신된 상세 다시 표시
     await this._showDetail(id);
   },

@@ -2639,12 +2639,32 @@ const FinanceMatchingModule = {
           <label>프로젝트명 / 비고</label>
           <input type="text" id="invProjectName" class="form-control" placeholder="현장명 또는 비고">
         </div>
+        <div class="form-group">
+          <label>요청 경로 <span class="text-xs text-muted">(구두/전화로 받은 발행이면 선택)</span></label>
+          <select id="invRequestChannel" class="form-control" onchange="FinanceMatchingModule._onInvChannelChange()">
+            <option value="시스템">직접 등록(기본)</option>
+            <option value="구두">구두 요청</option>
+            <option value="전화">전화 요청</option>
+            <option value="메일">메일 요청</option>
+            <option value="기타">기타</option>
+          </select>
+        </div>
+        <div id="invVerbalArea" class="form-row" style="display:none;">
+          <div class="form-group"><label>요청자 <span class="text-xs text-muted">(구두/전화로 전달한 분)</span></label><input type="text" id="invVerbalRequester" class="form-control" placeholder="예: 홍길동 대표"></div>
+          <div class="form-group"><label>요청 받은 날</label><input type="date" id="invVerbalRequestDate" class="form-control"></div>
+        </div>
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
         <button class="btn btn-primary" onclick="FinanceMatchingModule._saveInvoiceAdd()">등록</button>
       </div>
     `);
+  },
+
+  _onInvChannelChange() {
+    const v = document.getElementById('invRequestChannel')?.value;
+    const area = document.getElementById('invVerbalArea');
+    if (area) area.style.display = (v && v !== '시스템') ? 'flex' : 'none';
   },
 
   _onInvSupplyChange() {
@@ -2665,9 +2685,16 @@ const FinanceMatchingModule = {
     let total = Number(document.getElementById('invTotalAmount').value) || 0;
     if (!total) total = supply + tax;
     const projectName = document.getElementById('invProjectName').value.trim();
+    const requestChannel = document.getElementById('invRequestChannel')?.value || '시스템';
+    const verbalRequester = (document.getElementById('invVerbalRequester')?.value || '').trim();
+    const verbalRequestDate = document.getElementById('invVerbalRequestDate')?.value || '';
 
     if (!issueDate || !partnerCompany || !supply) {
       Utils.showToast('작성일자, 공급받는자 상호, 공급가액을 입력하세요.', 'error');
+      return;
+    }
+    if (requestChannel !== '시스템' && !verbalRequester) {
+      Utils.showToast(`${requestChannel} 요청이면 요청자를 적어주세요. (자료로 남습니다)`, 'error');
       return;
     }
 
@@ -2701,10 +2728,13 @@ const FinanceMatchingModule = {
         matchedDepositId: null,
         requesterId: user.id,
         requesterName: user.displayName,
+        requestChannel,
+        verbalRequester: requestChannel !== '시스템' ? verbalRequester : '',
+        verbalRequestDate: requestChannel !== '시스템' ? verbalRequestDate : '',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString()
       });
-      await DB.log('CREATE', 'taxInvoiceRequests', null, `세금계산서 개별 등록: ${partnerCompany} ${Utils.formatCurrency(total)}`);
+      await DB.log('CREATE', 'taxInvoiceRequests', null, `세금계산서 개별 등록: ${partnerCompany} ${Utils.formatCurrency(total)}${requestChannel !== '시스템' ? ` (${requestChannel} 요청: ${verbalRequester})` : ''}`);
 
       Utils.closeModal();
       Utils.showToast('세금계산서가 등록되었습니다.', 'success');

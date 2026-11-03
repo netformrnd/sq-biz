@@ -80,7 +80,7 @@ const ContractsModule = {
   _matchFilter(c) {
     const fin = this._contractFinance(c);
     switch (this._filter) {
-      case 'active': return c.status === '진행중' || (c.status !== '완료' && c.status !== '보류');
+      case 'active': return this._effectiveStatus(c) === '진행중';
       case 'paid':   return fin.totalAmount > 0 && fin.paid >= fin.totalAmount;
       case 'unpaid': return fin.unpaid > 0;
       case 'all':
@@ -122,17 +122,20 @@ const ContractsModule = {
   },
 
   // 진행률 계산: 결제단계 중 발급일 있는 단계 비율
+  // 수금률 = 실제 입금(매칭)된 금액 ÷ 총계약금액 (돈 기준). 100% = 수금 완료
   _progress(contract) {
-    let total = 0, done = 0;
-    for (const key of this.PHASE_KEYS) {
-      const p = this._normalizePhase(contract[key]);
-      if (p.amount > 0) {
-        total++;
-        if (p.invoiceId) done++;
-      }
-    }
-    if (total === 0) return 0;
-    return Math.round((done / total) * 100);
+    const fin = this._contractFinance(contract);
+    if (fin.totalAmount <= 0) return 0;
+    return Math.min(100, Math.round((fin.paid / fin.totalAmount) * 100));
+  },
+
+  // 표시용 상태: 수동 '보류'는 그대로 존중, 미수금 0(수금완료)이면 자동 '완료',
+  // 그 외에는 저장된 상태(기본 '진행중'). 저장 데이터는 바꾸지 않고 화면·엑셀 표시만 보정.
+  _effectiveStatus(c) {
+    if (c.status === '보류') return '보류';
+    const fin = this._contractFinance(c);
+    if (fin.totalAmount > 0 && fin.unpaid === 0) return '완료';
+    return c.status || '진행중';
   },
 
   _sort(field) {
@@ -156,7 +159,7 @@ const ContractsModule = {
     }
 
     // 필터별 건수
-    const countActive = allRaw.filter(c => c.status === '진행중' || (c.status !== '완료' && c.status !== '보류')).length;
+    const countActive = allRaw.filter(c => this._effectiveStatus(c) === '진행중').length;
     const countPaid = allRaw.filter(c => {
       const f = this._contractFinance(c);
       return f.totalAmount > 0 && f.paid >= f.totalAmount;
@@ -189,8 +192,8 @@ const ContractsModule = {
             <td>${this._phaseCell(c.finalPayment, fin)}</td>
             <td class="text-center">
               <div style="display:flex;flex-direction:column;align-items:center;gap:2px;">
-                ${this._statusBadge(c.status)}
-                <span class="text-xs text-muted">${progress}%</span>
+                ${this._statusBadge(this._effectiveStatus(c))}
+                <span class="text-xs text-muted" title="수금률 = 입금액 ÷ 계약금액">${progress}%</span>
               </div>
             </td>
           </tr>
@@ -285,6 +288,7 @@ const ContractsModule = {
   async _showDetail(id) {
     const c = await DB.get('contracts', id);
     if (!c) return;
+    await this._loadCaches();
     const isAdmin = Auth.isAdmin();
 
     const phaseHtml = this.PHASE_KEYS.map(key => {
@@ -319,7 +323,7 @@ const ContractsModule = {
           <div><strong>단지명:</strong> ${Utils.escapeHtml(c.complexName || '-')}</div>
           <div><strong>발주처:</strong> ${Utils.escapeHtml(c.clientName || '-')}</div>
           <div><strong>계약일:</strong> ${c.contractDate ? Utils.formatDate(c.contractDate) : '-'}</div>
-          <div><strong>진행상태:</strong> ${this._statusBadge(c.status)}</div>
+          <div><strong>진행상태:</strong> ${this._statusBadge(this._effectiveStatus(c))}</div>
           ${c.siteAddress ? `<div style="grid-column:1/-1;"><strong>현장소재지:</strong> ${Utils.escapeHtml(c.siteAddress)}</div>` : ''}
         </div>
 
@@ -332,7 +336,7 @@ const ContractsModule = {
           </div>
           <div class="summary-card">
             <div class="card-info">
-              <div class="card-label">진행률</div>
+              <div class="card-label">수금률</div>
               <div class="card-value">${this._progress(c)}%</div>
             </div>
           </div>
@@ -871,6 +875,7 @@ const ContractsModule = {
       await this._loadCaches();
       const fin = this._contractFinance(c);
       const progress = this._progress(c);
+      const effStatus = this._effectiveStatus(c);
 
       const today = new Date();
       const dateStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
@@ -954,7 +959,7 @@ const ContractsModule = {
 
   <div class="project-title">
     <h2>${esc(c.complexName)} / ${esc(c.contractName)}</h2>
-    <div class="sub">발주처: ${esc(c.clientName || '-')} · 진행률: ${progress}% · 진행상태: ${esc(c.status || '진행중')}</div>
+    <div class="sub">발주처: ${esc(c.clientName || '-')} · 수금률: ${progress}% · 진행상태: ${esc(effStatus)}</div>
   </div>
 
   <h3>📋 계약 정보</h3>
@@ -969,8 +974,8 @@ const ContractsModule = {
       <td>계약일</td><td>${c.contractDate || '-'}</td>
     </tr>
     <tr>
-      <td>진행상태</td><td><span class="status-badge status-${esc(c.status || '진행중')}">${esc(c.status || '진행중')}</span></td>
-      <td>진행률</td><td>${progress}%</td>
+      <td>진행상태</td><td><span class="status-badge status-${esc(effStatus)}">${esc(effStatus)}</span></td>
+      <td>수금률</td><td>${progress}%</td>
     </tr>
   </table>
 
@@ -979,7 +984,7 @@ const ContractsModule = {
     <div class="card"><div class="lbl">총 계약금액</div><div class="val">${fmt(c.totalAmount)}</div></div>
     <div class="card paid"><div class="lbl">입금 완료</div><div class="val">${fmt(fin.paid)}</div></div>
     <div class="card unpaid"><div class="lbl">미수금</div><div class="val">${fmt(fin.unpaid)}</div></div>
-    <div class="card"><div class="lbl">진행률</div><div class="val">${progress}%</div></div>
+    <div class="card"><div class="lbl">수금률</div><div class="val">${progress}%</div></div>
   </div>
 
   <h3>📊 결제 단계별 상세</h3>
@@ -1041,7 +1046,7 @@ const ContractsModule = {
         '계약금', '계약금 발급일', '계약금 입금일',
         '중도금', '중도금 발급일', '중도금 입금일',
         '잔금', '잔금 발급일', '잔금 입금일',
-        '총입금', '미수금', '진행상태', '진행률', '비고'
+        '총입금', '미수금', '진행상태', '수금률', '비고'
       ];
       const COL_COUNT = HEADERS.length;
       // 금액 컬럼: 5(총계약금액), 6(계약금), 9(중도금), 12(잔금), 15(총입금), 16(미수금)
@@ -1072,7 +1077,7 @@ const ContractsModule = {
             fp.amount || 0, fpS.issueDate || '', fpS.depositDate || '',
             fin.paid,
             fin.unpaid,
-            c.status || '진행중',
+            this._effectiveStatus(c),
             `${this._progress(c)}%`,
             c.memo || ''
           ];
@@ -1264,8 +1269,8 @@ const ContractsModule = {
         <td>${phases[1]}</td>
         <td>${phases[2]}</td>
         <td class="text-center">
-          <span class="st st-${esc(c.status || '진행중')}">${esc(c.status || '진행중')}</span>
-          <div class="prog">${progress}%</div>
+          <span class="st st-${esc(this._effectiveStatus(c))}">${esc(this._effectiveStatus(c))}</span>
+          <div class="prog" title="수금률">${progress}%</div>
         </td>
       </tr>`;
     }).join('');

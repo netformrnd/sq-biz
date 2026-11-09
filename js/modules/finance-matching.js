@@ -129,6 +129,11 @@ const FinanceMatchingModule = {
       for (const did of ids) { if (!depInvoiceMap[did]) depInvoiceMap[did] = inv; }
     }
 
+    // 표시용 매칭 판정: 입금의 matchStatus가 '매칭완료'거나, 이 입금에 발행완료 세금계산서가 연결돼 있으면 '매칭된 것'으로 표시.
+    //  (요청→발행 경로로 연결된 건은 세금계산서 쪽에만 연결이 걸려 입금 matchStatus가 '미매칭'으로 남는 문제 보정 — 저장 데이터는 변경하지 않음)
+    const _effMatched = (d) => d.matchStatus === '매칭완료'
+      || (depInvoiceMap[String(d.id)] && depInvoiceMap[String(d.id)].status === '발행완료');
+
     // 처리 완료 판별: 매칭완료 이거나, 처리완료(현금영수증/대상외 등) 표시됐거나,
     // 이 입금으로 세금계산서가 이미 발행완료된 건 → '미매칭(발행 대기)'에서 제외
     const isHandled = (d) => d.matchStatus === '매칭완료'
@@ -137,7 +142,7 @@ const FinanceMatchingModule = {
 
     // 필터
     let filtered = [...allDeposits];
-    if (this.depositFilter === 'matched') filtered = filtered.filter(d => d.matchStatus === '매칭완료');
+    if (this.depositFilter === 'matched') filtered = filtered.filter(d => _effMatched(d));
     if (this.depositFilter === 'unmatched') filtered = filtered.filter(d => !isHandled(d));
     if (this.depositMonth !== 'all') filtered = filtered.filter(d => (d.depositDate || '').slice(0, 7) === this.depositMonth);
     if (this.hideCompleted) filtered = filtered.filter(d => !isHandled(d));
@@ -179,10 +184,10 @@ const FinanceMatchingModule = {
     const monthlyEntries = Object.entries(monthlySummary).sort((a, b) => b[0].localeCompare(a[0]));
 
     // 요약 통계
-    const matchedCount = filtered.filter(d => d.matchStatus === '매칭완료').length;
+    const matchedCount = filtered.filter(d => _effMatched(d)).length;
     const unmatchedCount = filtered.filter(d => !isHandled(d)).length;   // 발행 대기(처리완료 제외)
     const totalAmount = filtered.reduce((s, d) => s + (d.amount || 0), 0);
-    const matchedAmount = filtered.filter(d => d.matchStatus === '매칭완료').reduce((s, d) => s + (d.amount || 0), 0);
+    const matchedAmount = filtered.filter(d => _effMatched(d)).reduce((s, d) => s + (d.amount || 0), 0);
     const unmatchedAmount = filtered.filter(d => !isHandled(d)).reduce((s, d) => s + (d.amount || 0), 0);
 
     const sortInd = (f) => this.sortField === f ? (this.sortDir === 'asc' ? '↑' : '↓') : '⇅';
@@ -202,6 +207,7 @@ const FinanceMatchingModule = {
     } else {
       tableRows = filtered.map(d => {
         const matched = d.matchStatus === '매칭완료';
+        const effMatched = _effMatched(d);   // 표시용(발행완료 세금계산서 연결 포함)
         // 처리사항 자동 판별 — 이 입금에 연결된 세금계산서가 있으면 그 상태를 우선 반영
         let actionText = d.actionRequired || '';
         if (!actionText) {
@@ -217,8 +223,8 @@ const FinanceMatchingModule = {
           : 'background:rgba(245,158,11,.15);color:#b45309;';
 
         // 상태 배지 (매칭완료 중 부분입금이면 '부분매칭 · 남은금액' 표시)
-        let statusLabel = matched ? '매칭완료' : (d.matchStatus || '미매칭');
-        let statusStyle = matched
+        let statusLabel = effMatched ? '매칭완료' : (d.matchStatus || '미매칭');
+        let statusStyle = effMatched
           ? 'background:rgba(16,185,129,.15);color:#065F46;'
           : 'background:rgba(148,163,184,.2);color:#475569;';
         let statusExtra = '';
@@ -236,7 +242,7 @@ const FinanceMatchingModule = {
         }
 
         return `
-          <tr ${matched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
+          <tr ${effMatched ? 'style="background:rgba(16,185,129,.04);"' : ''} oncontextmenu="FinanceMatchingModule._showDepositContextMenu(event, '${d.id}')">
             <td>${Utils.formatDate(d.depositDate)}</td>
             <td class="fw-medium">${Utils.escapeHtml(d.depositorName || '-')}${isDepDup(d) ? ' <span style="padding:1px 6px;background:#fee2e2;color:#b91c1c;border-radius:4px;font-size:10px;font-weight:700;" title="같은 날짜+금액+입금처 2건 이상 (중복 의심)">🔁중복?</span>' : ''}</td>
             <td class="text-right amount">${Utils.formatCurrency(d.amount)}</td>

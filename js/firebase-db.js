@@ -155,15 +155,16 @@ const FirebaseDB = {
     return v && (v instanceof Blob || (typeof File !== 'undefined' && v instanceof File));
   },
 
-  // _blobs 컬렉션 단일 문서 1MB 제한. base64 인코딩 후 ~1MB 안에 들어가도록 raw 700KB로 컷.
-  // (700KB raw → ~933KB base64, Firestore 오버헤드 포함 ~950KB)
-  MAX_BLOB_BYTES: 700 * 1024,
+  // Firestore 단일 문서 1MB 제한 → 큰 파일은 base64를 여러 청크 문서로 쪼개 저장(아래 uploadBlob).
+  // 전체 파일 한도 10MB. 청크 1개 = base64 700KB 문자열(문서당 1MB 안쪽).
+  MAX_BLOB_BYTES: 10 * 1024 * 1024,
+  BLOB_CHUNK_CHARS: 700 * 1024,
 
   // Blob → _blobs 컬렉션에 저장 후 참조 객체 반환 ({ __blobRef: id })
   async _encodeBlobToRef(blob) {
     if (blob.size > this.MAX_BLOB_BYTES) {
       const mb = (blob.size / 1024 / 1024).toFixed(2);
-      throw new Error(`첨부파일 용량 초과 (${mb}MB). 한 파일당 최대 700KB까지 가능합니다. PDF는 압축 후 다시 시도해 주세요.`);
+      throw new Error(`첨부파일 용량 초과 (${mb}MB). 한 파일당 최대 10MB까지 가능합니다. 더 크면 압축 후 다시 시도해 주세요.`);
     }
     const blobId = await this.uploadBlob(blob);
     return { __blobRef: blobId };
@@ -191,7 +192,7 @@ const FirebaseDB = {
     for (const { blob, name } of blobsToCheck) {
       if (blob.size > this.MAX_BLOB_BYTES) {
         const mb = (blob.size / 1024 / 1024).toFixed(2);
-        throw new Error(`첨부파일 용량 초과: ${name || '파일'} (${mb}MB). 한 파일당 최대 700KB까지 가능합니다. PDF는 압축 후 다시 시도해 주세요.`);
+        throw new Error(`첨부파일 용량 초과: ${name || '파일'} (${mb}MB). 한 파일당 최대 10MB까지 가능합니다. 더 크면 압축 후 다시 시도해 주세요.`);
       }
     }
 
@@ -263,15 +264,36 @@ const FirebaseDB = {
   },
 
   // ===== 파일 업로드 (base64로 별도 컬렉션) =====
+  // 작은 파일: _blobs 단일 문서. 큰 파일: 부모 문서(메타)+ chunks 서브컬렉션으로 분할 저장.
   async uploadBlob(blob) {
     await this.open();
     const base64 = await this._blobToBase64(blob);
+    const CHUNK = this.BLOB_CHUNK_CHARS;
+
+    // 작은 파일 → 기존 방식(단일 문서)
+    if (base64.length <= CHUNK) {
+      const ref = await this.db.collection('_blobs').add({
+        data: base64,
+        type: blob.type,
+        size: blob.size,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+      return ref.id;
+    }
+
+    // 큰 파일 → base64를 청크로 쪼개 서브컬렉션에 저장 (Firestore 1MB/문서 회피)
+    const chunks = [];
+    for (let i = 0; i < base64.length; i += CHUNK) chunks.push(base64.slice(i, i + CHUNK));
     const ref = await this.db.collection('_blobs').add({
-      data: base64,
+      chunked: true,
+      chunkCount: chunks.length,
       type: blob.type,
       size: blob.size,
       createdAt: firebase.firestore.FieldValue.serverTimestamp()
     });
+    for (let i = 0; i < chunks.length; i++) {
+      await this.db.collection('_blobs').doc(ref.id).collection('chunks').doc(String(i)).set({ data: chunks[i] });
+    }
     return ref.id;
   },
 
@@ -280,6 +302,15 @@ const FirebaseDB = {
     const doc = await this.db.collection('_blobs').doc(blobId).get();
     if (!doc.exists) return null;
     const data = doc.data();
+    if (data.chunked) {
+      const snap = await this.db.collection('_blobs').doc(blobId).collection('chunks').get();
+      const base64 = snap.docs
+        .map(d => ({ i: Number(d.id), data: d.data().data }))
+        .sort((a, b) => a.i - b.i)
+        .map(p => p.data)
+        .join('');
+      return this._base64ToBlob(base64, data.type);
+    }
     return this._base64ToBlob(data.data, data.type);
   },
 

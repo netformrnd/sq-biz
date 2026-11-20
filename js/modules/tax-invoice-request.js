@@ -151,8 +151,9 @@ const TaxInvoiceRequestModule = {
                     <option value="downPayment">계약금</option>
                     <option value="interimPayment">중도금</option>
                     <option value="finalPayment">잔금</option>
+                    <option value="downAndFinal">계약금 + 잔금 (한 번에 발행)</option>
                   </select>
-                  <div class="hint">단계를 고르면 그 금액이 위 "이번 발행 금액"에 자동 입력됩니다.</div>
+                  <div class="hint">단계를 고르면 그 금액이 위 "이번 발행 금액"에 자동 입력됩니다. (계약금+잔금은 두 금액 합계)</div>
                 </div>
               </div>
 
@@ -339,7 +340,7 @@ const TaxInvoiceRequestModule = {
   },
 
   _currentPhaseLabel() {
-    const L = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+    const L = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금', downAndFinal: '계약금+잔금' };
     const mode = document.querySelector('input[name="contractMode"]:checked')?.value;
     if (mode === 'new') return L[document.getElementById('contractPhase')?.value] || '';
     if (mode === 'existing') return L[document.getElementById('contractExistingPhase')?.value] || '';
@@ -353,7 +354,11 @@ const TaxInvoiceRequestModule = {
     if (mode === 'new') {
       const map = { downPayment: 'contractDownAmt', interimPayment: 'contractInterimAmt', finalPayment: 'contractFinalAmt' };
       const k = document.getElementById('contractPhase')?.value;
-      amt = Number(document.getElementById(map[k])?.value) || 0;
+      if (k === 'downAndFinal') {
+        amt = (Number(document.getElementById('contractDownAmt')?.value) || 0) + (Number(document.getElementById('contractFinalAmt')?.value) || 0);
+      } else {
+        amt = Number(document.getElementById(map[k])?.value) || 0;
+      }
     } else if (mode === 'existing') {
       const opt = document.getElementById('contractExistingPhase')?.selectedOptions?.[0];
       amt = Number(opt?.dataset?.amt) || 0;
@@ -477,6 +482,12 @@ const TaxInvoiceRequestModule = {
       if (amt <= 0) continue;
       if (p.invoiceId) continue; // 이미 발행된 단계는 제외
       options.push(`<option value="${k}" data-amt="${amt}">${labels[k]} (${Utils.formatCurrency(amt)})</option>`);
+    }
+    // 계약금 + 잔금이 둘 다 아직 미발행이면 '한 번에 발행' 옵션 추가
+    const _dp = c.downPayment || {}, _fp = c.finalPayment || {};
+    const _dpAmt = Number(_dp.amount) || 0, _fpAmt = Number(_fp.amount) || 0;
+    if (_dpAmt > 0 && !_dp.invoiceId && _fpAmt > 0 && !_fp.invoiceId) {
+      options.push(`<option value="downAndFinal" data-amt="${_dpAmt + _fpAmt}">계약금+잔금 한 번에 (${Utils.formatCurrency(_dpAmt + _fpAmt)})</option>`);
     }
     phaseSel.innerHTML = options.length > 0
       ? options.join('')
@@ -976,7 +987,12 @@ const TaxInvoiceRequestModule = {
         return;
       }
       // 이번 발행 단계 금액이 비어있으면 이번 세금계산서 합계로 자동 설정
-      if (phaseAmts[phaseKey] <= 0) phaseAmts[phaseKey] = amount + taxAmount;
+      if (phaseKey === 'downAndFinal') {
+        // 계약금+잔금 동시: 두 금액이 모두 비어있으면 이번 합계를 계약금에 반영
+        if ((phaseAmts.downPayment + phaseAmts.finalPayment) <= 0) phaseAmts.downPayment = amount + taxAmount;
+      } else if (phaseAmts[phaseKey] <= 0) {
+        phaseAmts[phaseKey] = amount + taxAmount;
+      }
       const totalAmount = downAmt + interimAmt + finalAmt || (amount + taxAmount);
       contractLink = { mode: 'new', complexName, contractName, totalAmount, phaseKey, phaseAmts };
     } else if (contractMode === 'existing') {
@@ -1047,7 +1063,12 @@ const TaxInvoiceRequestModule = {
             interimPayment: { amount: Number(pa.interimPayment) || 0, invoiceId: null },
             finalPayment: { amount: Number(pa.finalPayment) || 0, invoiceId: null }
           };
-          phases[contractLink.phaseKey].invoiceId = id;   // 이번 발행 단계에 이 세금계산서 연결
+          if (contractLink.phaseKey === 'downAndFinal') {
+            phases.downPayment.invoiceId = id;            // 계약금+잔금 동시 → 두 단계에 연결
+            phases.finalPayment.invoiceId = id;
+          } else {
+            phases[contractLink.phaseKey].invoiceId = id;   // 이번 발행 단계에 이 세금계산서 연결
+          }
           const newContract = {
             complexName: contractLink.complexName,
             contractName: contractLink.contractName,
@@ -1075,9 +1096,14 @@ const TaxInvoiceRequestModule = {
           // 기존 계약의 phase에 invoiceId 설정
           const c = await DB.get('contracts', contractLink.contractId);
           if (c) {
-            const phase = c[contractLink.phaseKey] || { amount: 0, invoiceId: null };
-            phase.invoiceId = id;
-            c[contractLink.phaseKey] = phase;
+            if (contractLink.phaseKey === 'downAndFinal') {
+              const dp = c.downPayment || { amount: 0, invoiceId: null }; dp.invoiceId = id; c.downPayment = dp;
+              const fp = c.finalPayment || { amount: 0, invoiceId: null }; fp.invoiceId = id; c.finalPayment = fp;
+            } else {
+              const phase = c[contractLink.phaseKey] || { amount: 0, invoiceId: null };
+              phase.invoiceId = id;
+              c[contractLink.phaseKey] = phase;
+            }
             c.updatedAt = new Date().toISOString();
             c.updatedBy = user.id;
             c.updatedByName = user.displayName;
@@ -1094,7 +1120,7 @@ const TaxInvoiceRequestModule = {
 
     // ── 2단계: 잔디 알림 전송 (문서 저장 실패와 무관하게 우선 발송)
     try {
-      const _phaseLabelMap = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+      const _phaseLabelMap = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금', downAndFinal: '계약금+잔금' };
       const _phaseLabel = contractLink ? (_phaseLabelMap[contractLink.phaseKey] || '') : '';
       const r = await JandiWebhook.notifyNewRequest({ ...data, id, phaseLabel: _phaseLabel });
       if (r && !r.ok && r.error !== 'no-url') {
@@ -1217,7 +1243,7 @@ const TaxInvoiceRequestModule = {
       try {
         const c = await DB.get('contracts', item.linkedContractId);
         if (c) {
-          const phaseLabels = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금' };
+          const phaseLabels = { downPayment: '계약금', interimPayment: '중도금', finalPayment: '잔금', downAndFinal: '계약금+잔금' };
           const phaseLabel = phaseLabels[item.linkedContractPhase] || item.linkedContractPhase || '-';
           contractLinkHtml = `
             <div class="mt-4" style="padding:var(--sp-3);background:#EFF6FF;border-left:4px solid var(--color-primary);border-radius:var(--radius-sm);">

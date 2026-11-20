@@ -334,7 +334,7 @@ const DocumentsModule = {
       </div>
       <div class="modal-footer">
         <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
-        <button class="btn btn-primary" onclick="DocumentsModule._saveUpload()">업로드</button>
+        <button class="btn btn-primary" id="docUploadBtn" onclick="DocumentsModule._saveUpload()">업로드</button>
       </div>
     `);
   },
@@ -364,25 +364,37 @@ const DocumentsModule = {
       { files: otherFiles, category: '기타' }
     ];
 
+    // 업로드 중 표시 (용량 큰 PDF는 몇 초 걸림) + 중복 클릭 방지
+    const btn = document.getElementById('docUploadBtn');
+    if (btn) { btn.disabled = true; btn.textContent = '업로드 중…'; }
+
     const categorySummary = [];
-    for (const group of uploadGroups) {
-      if (group.files.length === 0) continue;
-      for (const file of group.files) {
-        await DB.add('documents', {
-          companyName: company,
-          regNumber: regNum,
-          fileName: file.name,
-          fileType: file.type,
-          fileData: file,
-          category: group.category,
-          relatedInvoiceId: null,
-          relatedRequestNumber: null,
-          registeredBy: user.id,
-          registeredByName: user.displayName,
-          createdAt: new Date().toISOString()
-        });
+    try {
+      for (const group of uploadGroups) {
+        if (group.files.length === 0) continue;
+        for (const file of group.files) {
+          await DB.add('documents', {
+            companyName: company,
+            regNumber: regNum,
+            fileName: file.name,
+            fileType: file.type,
+            fileData: file,
+            category: group.category,
+            relatedInvoiceId: null,
+            relatedRequestNumber: null,
+            registeredBy: user.id,
+            registeredByName: user.displayName,
+            createdAt: new Date().toISOString()
+          });
+        }
+        categorySummary.push(`${group.category} ${group.files.length}건`);
       }
-      categorySummary.push(`${group.category} ${group.files.length}건`);
+    } catch (e) {
+      // 용량 초과 등 실패 → 명확히 안내하고 모달은 열어둬서 다시 시도 가능하게
+      console.error('[문서 업로드] 실패:', e);
+      if (btn) { btn.disabled = false; btn.textContent = '업로드'; }
+      Utils.showToast('업로드 실패: ' + (e && e.message ? e.message : '알 수 없는 오류'), 'error', 7000);
+      return;
     }
 
     await DB.log('CREATE', 'document', null, `문서 업로드: ${company} (${categorySummary.join(', ')})`);

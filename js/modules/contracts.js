@@ -386,7 +386,13 @@ const ContractsModule = {
     const invoices = (await DB.getAll('taxInvoiceRequests'))
       .filter(i => i.status === '발행완료')
       .sort((a, b) => (b.issueDate || b.createdAt || '').localeCompare(a.issueDate || a.createdAt || ''));
-    this._linkCtx = { contractId, phaseKey, invoices };
+    // 이 계약에서 이미 다른 단계에 연결된 세금계산서 맵 (중복 연결 경고용)
+    const linkedByInv = {};
+    this.PHASE_KEYS.forEach(k => {
+      const iv = c[k] && c[k].invoiceId;
+      if (iv) { (linkedByInv[String(iv)] = linkedByInv[String(iv)] || []).push(this.PHASE_LABELS[k]); }
+    });
+    this._linkCtx = { contractId, phaseKey, invoices, linkedByInv };
     const label = this.PHASE_LABELS[phaseKey] || '';
     const defaultQ = c.clientName || c.complexName || '';
     Utils.openModal(`
@@ -423,17 +429,20 @@ const ContractsModule = {
     }
     list = list.slice(0, 50);
     if (list.length === 0) { el.innerHTML = '<div class="text-muted text-sm" style="padding:12px;">일치하는 발행완료 세금계산서가 없습니다.</div>'; return; }
+    const linkedByInv = this._linkCtx.linkedByInv || {};
     el.innerHTML = list.map(i => {
       const matched = (i.matchedDepositId || (Array.isArray(i.matchedDepositIds) && i.matchedDepositIds.length));
       const depTag = matched ? '<span style="color:#059669;font-weight:700;">● 입금 매칭됨</span>' : '<span class="text-muted">○ 미입금</span>';
+      const already = linkedByInv[String(i.id)];
+      const alreadyTag = already ? `<span style="display:inline-block;margin-left:6px;padding:1px 7px;border-radius:4px;font-size:11px;font-weight:700;background:#fef3c7;color:#b45309;">✓ 이미 ${already.join('·')}에 연결됨</span>` : '';
       return `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--color-border);border-radius:8px;margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid ${already ? '#fcd34d' : 'var(--color-border)'};border-radius:8px;margin-bottom:8px;${already ? 'background:#fffbeb;' : ''}">
           <div style="min-width:0;">
-            <div class="fw-medium">${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.formatCurrency(i.totalAmount || 0)}</div>
+            <div class="fw-medium">${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.formatCurrency(i.totalAmount || 0)}${alreadyTag}</div>
             <div class="text-xs text-muted">${Utils.escapeHtml(i.requestNumber || '')} · 발행 ${i.issueDate ? Utils.formatDate(i.issueDate) : '-'} · ${depTag}</div>
             ${i.reason ? `<div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px;">${Utils.escapeHtml(i.reason)}</div>` : ''}
           </div>
-          <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="ContractsModule._linkPhaseInvoice('${i.id}')">연결</button>
+          <button class="btn btn-sm ${already ? 'btn-secondary' : 'btn-primary'}" style="white-space:nowrap;" onclick="ContractsModule._linkPhaseInvoice('${i.id}')" title="${already ? '이미 다른 단계에 연결된 세금계산서입니다. 중도금+잔금을 한 장으로 발행한 경우에만 연결하세요.' : ''}">연결</button>
         </div>`;
     }).join('');
   },

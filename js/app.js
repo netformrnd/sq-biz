@@ -200,7 +200,8 @@ const App = {
     // 프로젝트 관리 (대림프로젝트 정산관리 + 아파트 스퀘어 수금 관리)
     const showOutsourcing = hasPerm('outsourcing');
     const showContracts = hasPerm('contracts');
-    if (showOutsourcing || showContracts) {
+    const showSiteRec = hasPerm('site-receivables');
+    if (showOutsourcing || showContracts || showSiteRec) {
       html += `<div class="nav-section"><div class="nav-section-title">프로젝트 관리</div>`;
       if (showOutsourcing) {
         html += `
@@ -215,6 +216,14 @@ const App = {
           <div class="nav-item" data-path="/contracts" onclick="Router.navigate('/contracts')">
             <span class="nav-icon">📋</span>
             <span>아파트 스퀘어 수금 관리</span>
+          </div>
+        `;
+      }
+      if (showSiteRec) {
+        html += `
+          <div class="nav-item" data-path="/site-receivables" onclick="Router.navigate('/site-receivables')">
+            <span class="nav-icon">🏢</span>
+            <span>현장 미수 현황</span>
           </div>
         `;
       }
@@ -336,6 +345,11 @@ const App = {
     Router.register('/receivables', {
       module: 'ReceivablesModule',
       title: '거래처별 대사',
+      roles: ['admin', 'employee']
+    });
+    Router.register('/site-receivables', {
+      module: 'SiteReceivablesModule',
+      title: '현장 미수 현황',
       roles: ['admin', 'employee']
     });
     Router.register('/transfers/my', {

@@ -63,6 +63,13 @@ const ReceivablesModule = {
     return kws.some(k => k && n.includes(k));
   },
 
+  // 포함(현장 전용 보기)용: incKws가 있으면 그 키워드가 든 거래처만 통과 (없으면 전체 통과)
+  _includeMatch(name, incKws) {
+    if (!incKws || !incKws.length) return true;
+    const n = (name || '').toLowerCase();
+    return incKws.some(k => k && n.includes(k));
+  },
+
   async _saveExcludeKw() {
     const v = (document.getElementById('arExcludeKw')?.value || '').trim();
     try {
@@ -73,7 +80,9 @@ const ReceivablesModule = {
     } catch (e) { Utils.showToast('저장 실패: ' + e.message, 'error'); }
   },
 
-  async render() {
+  // 거래처별 발행-입금 집계 (대사 핵심 로직 — 다른 화면에서도 공용으로 재사용)
+  //  incKws: 포함 키워드 배열(현장 전용 보기). 있으면 그 키워드가 든 거래처만 반환.
+  async _aggregate(incKws) {
     const kws = await this._loadExcludeKw();
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
     const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
@@ -118,6 +127,12 @@ const ReceivablesModule = {
     let rows = Object.values(map)
       .map(r => ({ ...r, balance: r.debit - r.credit }))
       .filter(r => r.debit !== 0 || r.credit !== 0);
+    if (incKws && incKws.length) rows = rows.filter(r => this._includeMatch(r.name, incKws));
+    return rows;
+  },
+
+  async render() {
+    let rows = await this._aggregate(null);
 
     // 필터
     if (this.filterMode === 'outstanding') rows = rows.filter(r => r.balance > 0);
@@ -238,7 +253,7 @@ const ReceivablesModule = {
       .toLowerCase().trim();
   },
 
-  async _buildLedger() {
+  async _buildLedger(incKws) {
     const kws = await this._loadExcludeKw();
     const invoices = (await DB.getAll('taxInvoiceRequests')).filter(i => i.status === '발행완료' && !this._excluded(i.partnerCompanyName, kws));
     const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
@@ -277,13 +292,13 @@ const ReceivablesModule = {
       grp.credit = grp.txns.reduce((s, t) => s + t.credit, 0);
       grp.balance = grp.debit - grp.credit;
       return grp;
-    }).filter(grp => grp.debit !== 0 || grp.credit !== 0)
+    }).filter(grp => (grp.debit !== 0 || grp.credit !== 0) && this._includeMatch(grp.name, incKws))
       .sort((a, b) => b.balance - a.balance);
     return out;
   },
 
-  async _openLedger() {
-    const groups = await this._buildLedger();
+  async _openLedger(incKws) {
+    const groups = await this._buildLedger(incKws);
     this._lastLedger = groups;
     const fmt = (n) => n ? Utils.formatCurrency(n) : '';
     const blocks = groups.map(grp => {

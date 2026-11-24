@@ -300,6 +300,10 @@ const ContractsModule = {
           <strong>${label}</strong> <span class="text-muted">(미설정)</span>
         </div>`;
       }
+      const linkBtn = isAdmin ? (status.invoice
+        ? `<button class="btn btn-ghost btn-sm" style="color:#b91c1c;white-space:nowrap;" onclick="ContractsModule._unlinkPhaseInvoice('${c.id}','${key}')" title="이 단계의 세금계산서 연결 해제">연결 해제</button>`
+        : `<button class="btn btn-sm" style="background:#eff6ff;border:1px solid #2563eb;color:#1d4ed8;font-weight:700;white-space:nowrap;" onclick="ContractsModule._openLinkInvoice('${c.id}','${key}')">📄 세금계산서 연결</button>`
+      ) : '';
       const invInfo = status.invoice ? `
         <div style="margin-left:var(--sp-4);font-size:var(--font-size-sm);">
           📄 <strong>세금계산서</strong>: ${Utils.escapeHtml(status.invoice.requestNumber || '-')}
@@ -308,7 +312,10 @@ const ContractsModule = {
         </div>
       ` : `<div style="margin-left:var(--sp-4);font-size:var(--font-size-sm);" class="text-muted">⏳ 세금계산서 미연결</div>`;
       return `<div class="mb-3" style="padding:var(--sp-3);background:var(--color-bg-light);border-radius:var(--radius-sm);">
-        <strong>${label}</strong>: ${Utils.formatCurrency(phase.amount)}
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:var(--sp-2);">
+          <span><strong>${label}</strong>: ${Utils.formatCurrency(phase.amount)}</span>
+          ${linkBtn}
+        </div>
         ${invInfo}
       </div>`;
     }).join('');
@@ -368,6 +375,117 @@ const ContractsModule = {
   async _deleteFromDetail(id) {
     Utils.closeModal();
     setTimeout(() => this._delete(id), 100);
+  },
+
+  // ===== 계약 단계 ↔ 세금계산서 사후 연결 =====
+  // (발행요청 때 계약을 안 걸고 따로 발행한 세금계산서를, 나중에 계약 단계에 연결)
+  async _openLinkInvoice(contractId, phaseKey) {
+    const c = await DB.get('contracts', contractId);
+    if (!c) return;
+    await this._loadCaches();
+    const invoices = (await DB.getAll('taxInvoiceRequests'))
+      .filter(i => i.status === '발행완료')
+      .sort((a, b) => (b.issueDate || b.createdAt || '').localeCompare(a.issueDate || a.createdAt || ''));
+    this._linkCtx = { contractId, phaseKey, invoices };
+    const label = this.PHASE_LABELS[phaseKey] || '';
+    const defaultQ = c.clientName || c.complexName || '';
+    Utils.openModal(`
+      <div class="modal-header">
+        <h3>${Utils.escapeHtml(c.complexName || '')} · ${label} — 세금계산서 연결</h3>
+        <button class="modal-close" onclick="Utils.closeModal()">&times;</button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+        <div class="text-xs text-muted mb-2">이 단계에 연결할 <b>발행완료 세금계산서</b>를 고르세요. 중도금+잔금을 <b>한 장</b>으로 발행했다면, 두 단계에 <b>같은 세금계산서를 각각</b> 연결하면 됩니다.</div>
+        <input type="text" id="linkInvSearch" class="form-control mb-3" placeholder="거래처·요청번호·금액 검색" value="${Utils.escapeHtml(defaultQ)}">
+        <div id="linkInvList"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-secondary" onclick="Utils.closeModal()">취소</button>
+      </div>
+    `, { size: 'modal-lg' });
+    const input = document.getElementById('linkInvSearch');
+    if (input) input.addEventListener('input', () => this._renderLinkInvoiceList(input.value));
+    this._renderLinkInvoiceList(defaultQ);
+  },
+
+  _renderLinkInvoiceList(q) {
+    const el = document.getElementById('linkInvList');
+    if (!el || !this._linkCtx) return;
+    const query = (q || '').trim().toLowerCase();
+    let list = this._linkCtx.invoices;
+    if (query) {
+      list = list.filter(i =>
+        (i.partnerCompanyName || '').toLowerCase().includes(query) ||
+        (i.requestNumber || '').toLowerCase().includes(query) ||
+        String(i.totalAmount || '').includes(query) ||
+        (i.reason || '').toLowerCase().includes(query)
+      );
+    }
+    list = list.slice(0, 50);
+    if (list.length === 0) { el.innerHTML = '<div class="text-muted text-sm" style="padding:12px;">일치하는 발행완료 세금계산서가 없습니다.</div>'; return; }
+    el.innerHTML = list.map(i => {
+      const matched = (i.matchedDepositId || (Array.isArray(i.matchedDepositIds) && i.matchedDepositIds.length));
+      const depTag = matched ? '<span style="color:#059669;font-weight:700;">● 입금 매칭됨</span>' : '<span class="text-muted">○ 미입금</span>';
+      return `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:10px 12px;border:1px solid var(--color-border);border-radius:8px;margin-bottom:8px;">
+          <div style="min-width:0;">
+            <div class="fw-medium">${Utils.escapeHtml(i.partnerCompanyName || '-')} · ${Utils.formatCurrency(i.totalAmount || 0)}</div>
+            <div class="text-xs text-muted">${Utils.escapeHtml(i.requestNumber || '')} · 발행 ${i.issueDate ? Utils.formatDate(i.issueDate) : '-'} · ${depTag}</div>
+            ${i.reason ? `<div class="text-xs text-muted" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:420px;">${Utils.escapeHtml(i.reason)}</div>` : ''}
+          </div>
+          <button class="btn btn-primary btn-sm" style="white-space:nowrap;" onclick="ContractsModule._linkPhaseInvoice('${i.id}')">연결</button>
+        </div>`;
+    }).join('');
+  },
+
+  async _linkPhaseInvoice(invoiceId) {
+    if (!this._linkCtx) return;
+    const { contractId, phaseKey } = this._linkCtx;
+    try {
+      const c = await DB.get('contracts', contractId);
+      if (!c) return;
+      const phase = Object.assign({ amount: 0, invoiceId: null }, c[phaseKey] || {});
+      phase.invoiceId = invoiceId;
+      c[phaseKey] = phase;
+      c.updatedAt = new Date().toISOString();
+      const user = Auth.currentUser();
+      if (user) { c.updatedBy = user.id; c.updatedByName = user.displayName; }
+      await DB.update('contracts', c);
+      // 세금계산서에도 연결 흔적 남김 (추적용)
+      try {
+        const inv = await DB.get('taxInvoiceRequests', invoiceId);
+        if (inv) { inv.linkedContractId = contractId; inv.updatedAt = new Date().toISOString(); await DB.update('taxInvoiceRequests', inv); }
+      } catch (e) { /* 무시 */ }
+      await DB.log('UPDATE', 'contracts', contractId, `세금계산서 연결: ${phaseKey} ← ${invoiceId}`);
+      Utils.closeModal();
+      Utils.showToast('세금계산서를 연결했습니다.', 'success');
+      await this.render();
+      await this._showDetail(contractId);
+    } catch (e) {
+      console.error('[세금계산서 연결] 실패:', e);
+      Utils.showToast('연결 실패: ' + (e && e.message ? e.message : ''), 'error');
+    }
+  },
+
+  async _unlinkPhaseInvoice(contractId, phaseKey) {
+    const ok = await Utils.confirm('이 단계의 세금계산서 연결을 해제할까요?\n(세금계산서·입금내역은 삭제되지 않습니다)', '연결 해제');
+    if (!ok) return;
+    try {
+      const c = await DB.get('contracts', contractId);
+      if (!c) return;
+      const phase = Object.assign({ amount: 0, invoiceId: null }, c[phaseKey] || {});
+      phase.invoiceId = null;
+      c[phaseKey] = phase;
+      c.updatedAt = new Date().toISOString();
+      await DB.update('contracts', c);
+      await DB.log('UPDATE', 'contracts', contractId, `세금계산서 연결 해제: ${phaseKey}`);
+      Utils.showToast('연결을 해제했습니다.', 'success');
+      await this.render();
+      await this._showDetail(contractId);
+    } catch (e) {
+      console.error('[연결 해제] 실패:', e);
+      Utils.showToast('해제 실패: ' + (e && e.message ? e.message : ''), 'error');
+    }
   },
 
   // ===== 등록/수정 모달 =====

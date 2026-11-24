@@ -1403,6 +1403,10 @@ const TaxInvoiceRequestModule = {
         <div class="form-group" style="background:#FFF7ED;padding:var(--sp-3);border-radius:var(--radius-sm);border:1px solid var(--color-warning);">
           <label>수정 사유 <span class="required">*</span></label>
           <textarea id="editModReason" class="form-control" rows="2" placeholder="무엇을 왜 수정하는지 적어주세요 (수정 이력에 기록됩니다)"></textarea>
+          <label style="display:flex;align-items:flex-start;gap:6px;margin-top:8px;font-weight:400;cursor:pointer;font-size:0.88rem;">
+            <input type="checkbox" id="editQuietFix" style="margin-top:3px;">
+            <span>🔕 <b>단순 정정</b>(오타·거래처명 표기 수정 등) — <b>수정발행 표시·담당자 알림 없이</b> 조용히 저장</span>
+          </label>
         </div>
       </div>
       <div class="modal-footer">
@@ -1470,17 +1474,21 @@ const TaxInvoiceRequestModule = {
     // 실제 계산서 내용(금액·거래처 등)이 바뀐 경우만 '수정발행 필요' — 메타정보(요청경로·비고·프로젝트)만 바꾼 건 제외
     const _metaOnly = ['projectName', 'memo', 'requestChannel', 'verbalRequester'];
     const contentChanged = changes.some(c => !_metaOnly.includes(c.field));
+    // 단순 정정(오타 등) 체크 시: 실제 내용이 바뀌어도 수정발행·알림을 생략
+    const quietFix = !!document.getElementById('editQuietFix')?.checked;
+    const notifyChanged = contentChanged && !quietFix;
     Object.assign(item, newVals);
     item.verbalRequestDate = _channel !== '시스템' ? (document.getElementById('editVerbalRequestDate')?.value || '') : '';
     item.taxAmount = Math.round(newAmount * 0.1);
     item.totalAmount = newAmount + item.taxAmount;
-    if (wasIssued && contentChanged) item.needsReissue = true;   // 관리자 화면에 '수정발행 필요' 표시용
+    if (wasIssued && notifyChanged) item.needsReissue = true;   // 관리자 화면에 '수정발행 필요' 표시용
     if (!Array.isArray(item.editHistory)) item.editHistory = [];
     item.editHistory.push({
       editedAt: new Date().toISOString(),
       editorId: user.id,
       editorName: user.displayName,
       reason: modReason,
+      quietFix,
       changes
     });
     item.lastModifiedAt = new Date().toISOString();
@@ -1499,7 +1507,7 @@ const TaxInvoiceRequestModule = {
 
     // 관리자 알림: 실제 내용(금액·거래처 등)이 바뀐 경우만 — 메타정보(요청경로 등)만 바꾼 건 조용히
     try {
-      if (window.JandiWebhook && contentChanged) {
+      if (window.JandiWebhook && notifyChanged) {
         const r = await JandiWebhook.notifyEdit(item, changes.filter(c => !_metaOnly.includes(c.field)), modReason, wasIssued);
         if (r && r.ok === false && r.error !== 'no-url') {
           Utils.showToast('⚠️ 잔디 수정 알림 전송 실패 (수정은 저장됨)', 'warning', 4000);
@@ -1509,7 +1517,7 @@ const TaxInvoiceRequestModule = {
     if (window.App && App.updateNotificationBadges) App.updateNotificationBadges();
 
     Utils.closeModal();
-    Utils.showToast((wasIssued && contentChanged) ? '수정되었습니다. (발행완료 건 → 수정발행 필요, 관리자 알림 발송)' : '수정되었습니다.', 'success', 5000);
+    Utils.showToast((wasIssued && notifyChanged) ? '수정되었습니다. (발행완료 건 → 수정발행 필요, 관리자 알림 발송)' : (quietFix ? '수정되었습니다. (단순 정정 — 알림 없음)' : '수정되었습니다.'), 'success', 5000);
     // 갱신된 상세 다시 표시
     await this._showDetail(id);
   },

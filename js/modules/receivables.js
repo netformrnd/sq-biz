@@ -88,6 +88,8 @@ const ReceivablesModule = {
     const deposits = (await DB.getAll('deposits')).filter(d => !this._excluded(d.depositorName, kws));
     const depositMap = {};
     deposits.forEach(d => { depositMap[String(d.id)] = d; });
+    const invById = {};
+    invoices.forEach(i => { invById[String(i.id)] = i; });
 
     // 거래처별 집계
     // 이름 정규화 키: 괄호(전각/반각)·주식회사·유한회사·공백·기호 제거
@@ -114,6 +116,16 @@ const ReceivablesModule = {
         const dep = depositMap[did];
         if (dep) { r.credit += Number(dep.amount) || 0; counted.add(did); }
       }
+    }
+    // 1.5) 매칭완료 입금인데 세금계산서 쪽 연결이 끊긴 경우(선발행매칭 등, 위 1단계에서 누락)
+    //      → 매칭된 세금계산서의 거래처로 대변(입금) 반영 (입금처 이름이 약칭이어도 올바른 현장에 귀속)
+    for (const dep of deposits) {
+      if (counted.has(String(dep.id))) continue;
+      if (dep.matchStatus !== '매칭완료' || !dep.matchedInvoiceId) continue;
+      const inv = invById[String(dep.matchedInvoiceId)];
+      if (!inv) continue;   // 매칭된 세금계산서가 발행완료 목록에 없으면(삭제/상태변경) 건너뜀
+      rowOf(inv.partnerCompanyName).credit += Number(dep.amount) || 0;
+      counted.add(String(dep.id));
     }
     // 2) 미매칭 입금(세금계산서 안 붙음, 처리완료/현금영수증 제외) → 대변 (거래처=입금처)
     for (const dep of deposits) {
